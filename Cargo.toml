@@ -1,0 +1,65 @@
+[package]
+name = "trail"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# --- UI ---
+ratatui = "0.28"
+crossterm = "0.28"
+
+# --- Async runtime (worker pool) ---
+tokio = { version = "1", features = ["full"] }
+
+# --- Search Mode ---
+nucleo = "0.5"
+
+# --- Preview: text/syntax ---
+syntect = { version = "5", default-features = false, features = ["default-fancy"] } # avoids libonig C dep
+content_inspector = "0.2"   # binary vs. text detection, routes entries to the right PreviewProvider
+
+# --- Preview: git ---
+gix = "0.66"                # pure Rust, no OpenSSL/libgit2 linking (v1 pick over git2)
+
+# --- Preview: filesystem watching ---
+notify = "6"
+
+# --- Preview: images ---
+image = "0.25"
+ratatui-image = "1"
+
+# --- Preview: binary/metadata formatting ---
+chrono = { version = "0.4", features = ["clock"] }   # timestamps
+humansize = "2"                                       # file sizes ("4.2 MB" instead of raw bytes)
+
+# --- Plugin system ---
+mlua = { version = "0.9", features = ["lua54", "vendored"] }  # bundles Lua, no system install needed
+
+# --- Config ---
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# --- CLI ---
+clap = { version = "4", features = ["derive"] }
+
+# --- Paths (config dir, cache dir) ---
+directories = "5"
+
+# --- Error handling & logging ---
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tracing-appender = "0.2"   # log to a file, since stdout/stderr belong to the TUI
+
+[dev-dependencies]
+insta = "1"        # snapshot tests for render_snapshot_tests.rs (ratatui::TestBackend output)
+tempfile = "3"     # scratch dirs/files for fixture-driven preview + fs_ops tests
+
+[profile.dev]
+opt-level = 1        # ratatui/crossterm feel noticeably laggy at opt-level 0
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true          # smaller release binaries, relevant once Phase 9 packaging starts
+
