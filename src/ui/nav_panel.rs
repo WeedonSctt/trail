@@ -1,8 +1,9 @@
 //! Navigation panel rendering.
 //!
-//! Renders the directory listing with the highlighted selection. Directories
-//! are shown before files; hidden entries are dimmed when visible. Git badges
-//! are added in Phase 4.
+//! Renders the directory listing with the highlighted selection. When a fuzzy
+//! filter is active (Search Mode), only the matching entries are shown, ordered
+//! by descending match score. Directories are shown before files in Navigation
+//! Mode; hidden entries are dimmed when visible. Git badges are added in Phase 4.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -14,8 +15,11 @@ use crate::app::state::{AppState, EntryKind};
 
 /// Draws the navigation panel into `area`.
 ///
-/// Renders `state.entries` (filtered by `show_hidden`) as a selectable list
-/// with the current selection highlighted. Directories are colored blue;
+/// When `state.filter` is `Some`, renders entries in match-score order from
+/// `state.filtered_entries()`. Otherwise renders `state.visible_entries()` in
+/// the usual directory-first sorted order.
+///
+/// The current selection is highlighted. Directories are colored blue;
 /// symlinks are colored cyan; hidden entries are dimmed.
 ///
 /// Phase 4 will add git badges (modified indicator, branch icon) once the
@@ -24,8 +28,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let title = format!(" {} ", state.cwd.display());
 
     let items: Vec<ListItem> = state
-        .visible_entries()
-        .map(|entry| {
+        .filtered_entries()
+        .map(|(_, entry)| {
             let style = match entry.kind {
                 EntryKind::Dir => {
                     let base = Style::default()
@@ -82,7 +86,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // Drive the list widget's selection via ListState.
     let mut list_state = ListState::default();
-    if state.visible_count() > 0 {
+    if state.filtered_count() > 0 {
         list_state.select(Some(state.selected));
     }
 

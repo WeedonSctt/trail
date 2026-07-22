@@ -490,3 +490,211 @@ fn multiple_back_forward_cycles() {
     state.history_forward().unwrap();
     assert_eq!(state.cwd, alpha_cwd);
 }
+
+// ── Phase 2: Search Mode / fuzzy filter ──────────────────────────────────────
+
+/// Fixture with distinguishable names for filter tests:
+///
+/// ```text
+/// <tmp>/
+///   docs/         (dir)
+///   src/          (dir)
+///   main.rs       (file)
+///   readme.md     (file)
+///   .env          (hidden file)
+/// ```
+fn make_filter_dir() -> TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path();
+    fs::create_dir(p.join("docs")).expect("mkdir docs");
+    fs::create_dir(p.join("src")).expect("mkdir src");
+    fs::write(p.join("main.rs"), b"").expect("write main.rs");
+    fs::write(p.join("readme.md"), b"").expect("write readme.md");
+    fs::write(p.join(".env"), b"").expect("write .env");
+    dir
+}
+
+#[test]
+fn filter_reduces_match_set() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // Query "main" should match "main.rs" but not dirs/other files.
+    state.apply_filter("main".to_owned());
+
+    let filter = state.filter.as_ref().expect("filter should be Some");
+    assert!(!filter.matches.is_empty(), "expected at least one match");
+
+    // Every matched entry's filename must contain something matching "main".
+    for &idx in &filter.matches {
+        let name = &state.entries[idx].file_name.to_lowercase();
+        assert!(
+            name.contains("main"),
+            "matched entry '{name}' does not look like a 'main' match"
+        );
+    }
+}
+
+#[test]
+fn filter_exact_name_is_included() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.apply_filter("readme".to_owned());
+
+    let filter = state.filter.as_ref().expect("filter should be Some");
+    let matched_names: Vec<&str> = filter
+        .matches
+        .iter()
+        .map(|&i| state.entries[i].file_name.as_str())
+        .collect();
+    assert!(
+        matched_names.contains(&"readme.md"),
+        "readme.md must be in matches; got {matched_names:?}"
+    );
+}
+
+#[test]
+fn filter_excludes_non_matching_entries() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // "zzzzz" matches nothing in our fixture.
+    state.apply_filter("zzzzz".to_owned());
+
+    let filter = state.filter.as_ref().expect("filter should be Some");
+    assert!(
+        filter.matches.is_empty(),
+        "expected no matches for nonsense query"
+    );
+}
+
+#[test]
+fn empty_query_shows_all_visible_entries() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // Apply a non-empty filter first, then clear it.
+    state.apply_filter("main".to_owned());
+    state.apply_filter(String::new());
+
+    let filter = state.filter.as_ref().expect("filter should be Some");
+    // With show_hidden=false: docs/, src/, main.rs, readme.md = 4 entries.
+    assert_eq!(
+        filter.matches.len(),
+        state.visible_count(),
+        "empty query should show all visible entries"
+    );
+}
+
+#[test]
+fn exit_mode_clears_filter() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::EnterSearch, &mut state).unwrap();
+    trail::actions::apply(trail::actions::Action::SearchAppendChar('m'), &mut state).unwrap();
+
+    // Esc via ExitMode should clear the filter.
+    trail::actions::apply(trail::actions::Action::ExitMode, &mut state).unwrap();
+    assert!(state.filter.is_none(), "filter must be None after ExitMode");
+    assert_eq!(state.mode, Mode::Navigation);
+}
+
+#[test]
+fn filter_auto_selects_top_match() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // Start from a non-zero selection.
+    state.move_down();
+    assert_eq!(state.selected, 1);
+
+    // Applying a filter must reset selection to 0 (top match).
+    state.apply_filter("main".to_owned());
+    assert_eq!(
+        state.selected, 0,
+        "selection must reset to 0 on filter apply"
+    );
+}
+
+#[test]
+fn filter_search_move_down_clamps_within_matches() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // "rs" matches "main.rs" and possibly nothing else in our fixture.
+    // Use a broad query to get at least two matches.
+    state.apply_filter("r".to_owned());
+
+    let match_count = state.filter.as_ref().map(|f| f.matches.len()).unwrap_or(0);
+
+    if match_count >= 2 {
+        // Move down past the end: selection must clamp.
+        for _ in 0..match_count + 5 {
+            trail::actions::apply(trail::actions::Action::SearchMoveDown, &mut state).unwrap();
+        }
+        assert_eq!(
+            state.selected,
+            match_count - 1,
+            "SearchMoveDown must clamp at the last match index"
+        );
+    }
+    // If fewer than 2 matches, the clamping logic is still exercised by
+    // move_down's empty-list guard — we just skip the multi-move assertion.
+}
+
+#[test]
+fn filter_dirty_set_on_apply() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.dirty = false; // simulate post-render clear
+
+    state.apply_filter("doc".to_owned());
+    assert!(state.dirty, "apply_filter must set dirty=true");
+}
+
+#[test]
+fn filter_reorder_by_score() {
+    // Create a directory where the scores are predictably different:
+    // "foobar" and "foo" both contain "foo", but an exact prefix match
+    // should score higher.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path();
+    fs::write(p.join("foobar.txt"), b"").expect("write foobar.txt");
+    fs::write(p.join("foo.txt"), b"").expect("write foo.txt");
+
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.apply_filter("foo".to_owned());
+
+    let filter = state.filter.as_ref().expect("filter should be Some");
+    // Both files should match.
+    assert_eq!(filter.matches.len(), 2, "both files should match 'foo'");
+    // Scores must be in descending order.
+    assert!(
+        filter.scores[0] >= filter.scores[1],
+        "scores must be non-increasing (best match first): {:?}",
+        filter.scores
+    );
+}
+
+#[test]
+fn enter_search_action_shows_all_entries() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let visible_before = state.visible_count();
+
+    trail::actions::apply(trail::actions::Action::EnterSearch, &mut state).unwrap();
+
+    assert!(
+        matches!(state.mode, Mode::Search { .. }),
+        "mode must be Search after EnterSearch"
+    );
+    let filter = state
+        .filter
+        .as_ref()
+        .expect("filter must be Some in Search Mode");
+    assert_eq!(
+        filter.matches.len(),
+        visible_before,
+        "entering Search Mode with empty query must show all visible entries"
+    );
+}

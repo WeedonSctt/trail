@@ -7,6 +7,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use nucleo::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo::{Config, Matcher, Utf32Str};
 use thiserror::Error;
 
 use crate::app::history::NavigationHistory;
@@ -150,14 +152,18 @@ pub struct PreviewSlot {
 
 /// Active fuzzy-filter state while in Search Mode.
 ///
-/// Defined here in Phase 1 so the state shape is complete; wired in Phase 2.
-#[allow(dead_code)] // TODO(phase-2): Wired in Search Mode
+/// `matches` holds indices into `AppState::entries` ordered by descending
+/// fuzzy-match score. `scores` is a parallel `Vec` keeping the score for
+/// each corresponding match (used for sorting; not rendered directly).
 #[derive(Debug, Clone, Default)]
 pub struct FilterState {
     /// The current query string.
     pub query: String,
-    /// Indices into `AppState::entries`, sorted by match score.
+    /// Indices into `AppState::entries`, ordered by descending match score.
     pub matches: Vec<usize>,
+    /// Match scores parallel to `matches`. `scores[i]` is the score for
+    /// `matches[i]`.
+    pub scores: Vec<u32>,
 }
 
 // ── Status bar state ──────────────────────────────────────────────────────────
@@ -243,6 +249,113 @@ impl AppState {
         Ok(state)
     }
 
+    /// Recomputes the fuzzy-filter against the current `entries` using
+    /// `query`, storing results sorted by descending score in
+    /// `self.filter`. Also auto-selects the top match (index 0).
+    ///
+    /// Call this every time the query changes in Search Mode. The filter
+    /// runs synchronously on the UI thread — the architecture doc
+    /// designates fuzzy filtering as "fast enough not to need offloading."
+    ///
+    /// An empty query matches all entries (no score order; original listing
+    /// order is preserved).
+    pub fn apply_filter(&mut self, query: String) {
+        let mut filter = FilterState {
+            query: query.clone(),
+            matches: Vec::new(),
+            scores: Vec::new(),
+        };
+
+        if query.is_empty() {
+            // Empty query: show all visible entries in their original order.
+            filter.matches = (0..self.entries.len())
+                .filter(|&i| self.show_hidden || !self.entries[i].is_hidden)
+                .collect();
+            filter.scores = vec![0u32; filter.matches.len()];
+        } else {
+            let pattern = Pattern::parse(&query, CaseMatching::Ignore, Normalization::Smart);
+            let mut matcher = Matcher::new(Config::DEFAULT);
+
+            // Score each visible entry and collect those that match (score > 0).
+            let mut scored: Vec<(usize, u32)> = self
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| self.show_hidden || !e.is_hidden)
+                .filter_map(|(idx, entry)| {
+                    let mut buf = Vec::new();
+                    let haystack = Utf32Str::new(&entry.file_name, &mut buf);
+                    pattern.score(haystack, &mut matcher).map(|s| (idx, s))
+                })
+                .collect();
+
+            // Sort by score descending so the best match is first.
+            scored.sort_by_key(|b| std::cmp::Reverse(b.1));
+
+            filter.matches = scored.iter().map(|(idx, _)| *idx).collect();
+            filter.scores = scored.iter().map(|(_, score)| *score).collect();
+        }
+
+        // Auto-select the top match.
+        self.selected = 0;
+        self.filter = Some(filter);
+
+        // Keep Mode::Search.query in sync with the FilterState.query.
+        if let Mode::Search {
+            query: q,
+            matches: m,
+        } = &mut self.mode
+        {
+            *q = query;
+            *m = self
+                .filter
+                .as_ref()
+                .map(|f| f.matches.clone())
+                .unwrap_or_default();
+        }
+
+        self.dirty = true;
+    }
+
+    /// Returns the number of filtered-visible entries, or `visible_count()`
+    /// when no filter is active.
+    pub fn filtered_count(&self) -> usize {
+        match &self.filter {
+            Some(f) => f.matches.len(),
+            None => self.visible_count(),
+        }
+    }
+
+    /// Returns an iterator over the entries visible given the current filter
+    /// and `show_hidden` flag.
+    ///
+    /// When a filter is active, entries are yielded in match-score order.
+    /// When no filter is active, entries are yielded in listing order
+    /// (excluding hidden entries unless `show_hidden` is `true`).
+    pub fn filtered_entries(&self) -> impl Iterator<Item = (usize, &Entry)> {
+        // Return a concrete `Vec` iterator so both branches have the same type.
+        let pairs: Vec<(usize, &Entry)> = match &self.filter {
+            Some(f) => f
+                .matches
+                .iter()
+                .filter_map(|&idx| self.entries.get(idx).map(|e| (idx, e)))
+                .collect(),
+            None => self
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(_, e)| self.show_hidden || !e.is_hidden)
+                .collect(),
+        };
+        pairs.into_iter()
+    }
+
+    /// Returns the currently selected `Entry` under the active filter,
+    /// or `None` if the visible (filtered) list is empty.
+    pub fn selected_filtered_entry(&self) -> Option<&Entry> {
+        self.filtered_entries().nth(self.selected).map(|(_, e)| e)
+    }
+
     /// Reads and sorts the directory at `path`, replacing `self.entries`.
     ///
     /// Sort order: directories first, then files/symlinks; within each group,
@@ -307,8 +420,16 @@ impl AppState {
     }
 
     /// Returns the currently selected `Entry`, or `None` if the list is empty.
+    ///
+    /// In Search Mode, delegates to `selected_filtered_entry` so the
+    /// selection is resolved against the match list rather than the raw
+    /// listing. Outside Search Mode the raw visible listing is used.
     pub fn selected_entry(&self) -> Option<&Entry> {
-        self.visible_entries().nth(self.selected)
+        if self.filter.is_some() {
+            self.selected_filtered_entry()
+        } else {
+            self.visible_entries().nth(self.selected)
+        }
     }
 
     /// Navigates into the directory at `path`, pushing the current `cwd` onto
@@ -376,11 +497,12 @@ impl AppState {
         Ok(())
     }
 
-    /// Moves the selection down by one, clamping at the last visible entry.
+    /// Moves the selection down by one within the visible (or filtered) list,
+    /// clamping at the last entry.
     ///
     /// Sets `dirty = true` if the selection changed.
     pub fn move_down(&mut self) {
-        let count = self.visible_count();
+        let count = self.filtered_count();
         if count == 0 {
             return;
         }
@@ -411,11 +533,11 @@ impl AppState {
         }
     }
 
-    /// Jumps the selection to the last visible entry.
+    /// Jumps the selection to the last visible (or filtered) entry.
     ///
     /// Sets `dirty = true` if the selection changed.
     pub fn jump_bottom(&mut self) {
-        let count = self.visible_count();
+        let count = self.filtered_count();
         if count == 0 {
             return;
         }
@@ -428,17 +550,26 @@ impl AppState {
 
     /// Toggles display of hidden files and reloads the directory listing.
     ///
+    /// When a filter is active, re-applies it so hidden-file visibility is
+    /// reflected correctly in the match list.
+    ///
     /// # Errors
     ///
     /// Propagates any `StateError` from `load_dir`.
     pub fn toggle_hidden(&mut self) -> Result<(), StateError> {
         self.show_hidden = !self.show_hidden;
-        // Clamp selection to the new visible range.
-        let count = self.visible_count();
-        if count == 0 {
-            self.selected = 0;
+        // Re-apply the filter if one is active so the match set is correct.
+        if let Some(f) = self.filter.take() {
+            let q = f.query.clone();
+            self.apply_filter(q);
         } else {
-            self.selected = self.selected.min(count - 1);
+            // Clamp selection to the new visible range.
+            let count = self.visible_count();
+            if count == 0 {
+                self.selected = 0;
+            } else {
+                self.selected = self.selected.min(count - 1);
+            }
         }
         self.dirty = true;
         Ok(())

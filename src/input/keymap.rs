@@ -74,3 +74,46 @@ pub fn navigation(key: KeyEvent, pending_g: &mut bool) -> Option<Action> {
         _ => None,
     }
 }
+
+/// Translates a `KeyEvent` in Search Mode into an `Action`.
+///
+/// Key binding summary:
+/// - **Printable characters** — appended to the query via `SearchAppendChar`.
+/// - **`Backspace` / `Ctrl-h`** — remove the last character from the query.
+/// - **`j` / `Down`** — move the filtered-list selection down.
+/// - **`k` / `Up`** — move the filtered-list selection up.
+/// - **`Enter` / `l` / `Right`** — confirm: enter a directory or exit Search
+///   Mode for a file (file open is Phase 6).
+/// - **`Esc`** — exit Search Mode, restoring the full, unfiltered listing.
+///
+/// Returns `None` for unbound keys (e.g. modifier-only chords), allowing the
+/// caller to silently swallow them.
+pub fn search(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        // Exit Search Mode, restoring the full unfiltered listing.
+        KeyCode::Esc => Some(Action::ExitMode),
+
+        // Confirm the current selection (enter dir or exit mode for files).
+        KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => Some(Action::SearchConfirm),
+
+        // Navigate within the filtered list.
+        KeyCode::Char('j') | KeyCode::Down => Some(Action::SearchMoveDown),
+        KeyCode::Char('k') | KeyCode::Up => Some(Action::SearchMoveUp),
+
+        // Delete the last character from the query.
+        KeyCode::Backspace => Some(Action::SearchDeleteChar),
+        // Ctrl-h is the traditional terminal backspace alias.
+        KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SearchDeleteChar)
+        }
+
+        // Append any printable character to the query (no modifier, or Shift
+        // for uppercase — explicitly exclude Ctrl chords so e.g. Ctrl-c is
+        // not treated as a character append).
+        KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SearchAppendChar(ch))
+        }
+
+        _ => None,
+    }
+}

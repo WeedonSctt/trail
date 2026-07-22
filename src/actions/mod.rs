@@ -37,13 +37,27 @@ pub enum Action {
     /// Toggle visibility of hidden files.
     ToggleHidden,
 
-    // ── Mode transitions ─────────────────────────────────────────────────────
+    // ── Mode transitions ───────────────────────────────────────────────────────────
     /// Enter Search Mode (Phase 2 wires the actual filter logic).
     EnterSearch,
     /// Enter Command Mode (Phase 3 wires the actual command parser).
     EnterCommand,
     /// Exit the current mode, returning to Navigation.
     ExitMode,
+
+    // ── Search Mode ───────────────────────────────────────────────────────────────
+    /// Append `char` to the Search Mode query and re-run the fuzzy filter.
+    SearchAppendChar(char),
+    /// Delete the last character from the Search Mode query and re-run the
+    /// fuzzy filter. No-op if the query is already empty.
+    SearchDeleteChar,
+    /// Move the filtered-list selection down by one row.
+    SearchMoveDown,
+    /// Move the filtered-list selection up by one row.
+    SearchMoveUp,
+    /// Confirm the current filtered selection: enter a directory or leave
+    /// Search Mode if the selected entry is a file (file open is Phase 6).
+    SearchConfirm,
 
     // ── Quit ─────────────────────────────────────────────────────────────────
     /// Quit the application normally (writes `--cwd-file` in Phase 6).
@@ -102,13 +116,15 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             state.toggle_hidden()?;
         }
 
-        // Mode transitions — functional wiring in Phase 2 / Phase 3.
+        // Mode transitions.
         Action::EnterSearch => {
             use crate::app::mode::Mode;
             state.mode = Mode::Search {
                 query: String::new(),
                 matches: Vec::new(),
             };
+            // Entering Search Mode with an empty query shows all entries.
+            state.apply_filter(String::new());
             state.dirty = true;
         }
 
@@ -128,6 +144,64 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 state.mode = Mode::Navigation;
                 state.filter = None;
                 state.dirty = true;
+            }
+        }
+
+        // Search Mode actions.
+        Action::SearchAppendChar(ch) => {
+            use crate::app::mode::Mode;
+            let new_query = if let Mode::Search { query, .. } = &state.mode {
+                let mut q = query.clone();
+                q.push(ch);
+                q
+            } else {
+                return Ok(());
+            };
+            state.apply_filter(new_query);
+        }
+
+        Action::SearchDeleteChar => {
+            use crate::app::mode::Mode;
+            let new_query = if let Mode::Search { query, .. } = &state.mode {
+                let mut q = query.clone();
+                // Remove the last Unicode scalar (pop handles multi-byte chars).
+                q.pop();
+                q
+            } else {
+                return Ok(());
+            };
+            state.apply_filter(new_query);
+        }
+
+        Action::SearchMoveDown => {
+            state.move_down();
+        }
+
+        Action::SearchMoveUp => {
+            state.move_up();
+        }
+
+        Action::SearchConfirm => {
+            use crate::app::mode::Mode;
+            // Navigate into directory selections; leave mode for files
+            // (actual file open is Phase 6).
+            if let Some(entry) = state.selected_entry().cloned() {
+                use crate::app::state::EntryKind;
+                match entry.kind {
+                    EntryKind::Dir => {
+                        // Exit Search Mode first, then enter the directory.
+                        state.mode = Mode::Navigation;
+                        state.filter = None;
+                        state.enter_dir(entry.path)?;
+                    }
+                    EntryKind::File | EntryKind::Symlink => {
+                        // TODO(phase-6): Open file in $EDITOR.
+                        // For now, just exit Search Mode.
+                        state.mode = Mode::Navigation;
+                        state.filter = None;
+                        state.dirty = true;
+                    }
+                }
             }
         }
 

@@ -41,16 +41,7 @@ pub fn dispatch(key: KeyEvent, state: &AppState, ctx: &mut InputCtx) -> Option<A
     match &state.mode {
         Mode::Navigation => keymap::navigation(key, &mut ctx.pending_g),
 
-        Mode::Search { .. } => {
-            // TODO(phase-2): Delegate to keymap::search(key, state).
-            // Phase 1 stub: Esc exits search mode back to navigation.
-            use crossterm::event::KeyCode;
-            if key.code == KeyCode::Esc {
-                Some(Action::ExitMode)
-            } else {
-                None
-            }
-        }
+        Mode::Search { .. } => keymap::search(key),
 
         Mode::Command { .. } => {
             // TODO(phase-3): Delegate to command_parser::feed(key, state, ctx).
