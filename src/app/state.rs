@@ -49,18 +49,22 @@ pub enum EntryKind {
 /// The git status of a single file within a repository.
 ///
 /// Populated asynchronously by the git worker (Phase 4); `None` until then.
-#[allow(dead_code)] // TODO(phase-4): Used by git worker
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GitFileStatus {
     /// File is untracked.
+    #[allow(dead_code)]
     Untracked,
     /// File has been modified.
+    #[allow(dead_code)]
     Modified,
     /// File has been added to the index.
+    #[allow(dead_code)]
     Added,
     /// File has been deleted.
+    #[allow(dead_code)]
     Deleted,
     /// File has been renamed.
+    #[allow(dead_code)]
     Renamed,
     /// File is unmodified / clean.
     Clean,
@@ -80,8 +84,8 @@ pub struct Entry {
     /// Filesystem metadata, if available.
     #[allow(dead_code)] // TODO(phase-5): Used by binary formatter
     pub metadata: Option<fs::Metadata>,
-    /// Git status, populated asynchronously in Phase 4. `None` until then.
-    #[allow(dead_code)] // TODO(phase-4): Populated by git worker
+    /// Git status, populated asynchronously by the git worker (Phase 4).
+    /// `None` before the worker reports back, or outside a git repo.
     pub git_status: Option<GitFileStatus>,
 }
 
@@ -125,7 +129,6 @@ impl Entry {
 ///
 /// Populated asynchronously by the git worker (Phase 4). `AppState::git`
 /// holds `None` until the worker reports back.
-#[allow(dead_code)] // TODO(phase-4): Populated by git worker
 #[derive(Debug, Clone)]
 pub struct GitDirState {
     /// The active branch name, or `"HEAD"` if in detached-HEAD state.
@@ -207,8 +210,8 @@ pub struct AppState {
     pub filter: Option<FilterState>,
     /// Current preview pane content + generation counter.
     pub preview: PreviewSlot,
-    /// Git repository state for the current directory; `None` until Phase 4.
-    #[allow(dead_code)] // TODO(phase-4): Populated by git worker
+    /// Git repository state for the current directory.
+    /// `None` before the git worker reports back or outside a git repo.
     pub git: Option<GitDirState>,
     /// Cached status bar strings.
     pub status: StatusBarState,

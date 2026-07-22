@@ -117,11 +117,18 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let center = Paragraph::new(Line::from(vec![center_span]));
     frame.render_widget(center, sections[1]);
 
-    // ── Right section: entry count; Phase 4 adds git branch ──────────────────
-    // TODO(phase-4): Append git branch from state.git when available.
-    let count_text = format!("{} items ", state.status.entry_count);
+    // ── Right section: entry count + git branch ───────────────────────────────
+    let right_text = if let Some(ref git) = state.git {
+        let dirty_marker = if git.is_dirty { " *" } else { "" };
+        format!(
+            "  {} {}{}  {} items ",
+            "\u{e0a0}", git.branch, dirty_marker, state.status.entry_count
+        )
+    } else {
+        format!("{} items ", state.status.entry_count)
+    };
     let right = Paragraph::new(Line::from(Span::styled(
-        count_text,
+        right_text,
         Style::default().fg(Color::DarkGray),
     )));
     frame.render_widget(right, sections[2]);

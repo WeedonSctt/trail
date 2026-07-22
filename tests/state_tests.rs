@@ -698,3 +698,177 @@ fn enter_search_action_shows_all_entries() {
         "entering Search Mode with empty query must show all visible entries"
     );
 }
+
+// ── Phase 4 Generation Guard Tests ──────────────────────────────────────────
+
+use trail::app::state::PreviewSlot;
+use trail::preview::provider::PreviewContent;
+use trail::workers::{merge, WorkerMsg};
+
+fn make_state_with_preview(generation: u64, for_path: std::path::PathBuf) -> AppState {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut state = AppState::new(tmp.path().to_owned()).expect("AppState::new");
+    state.preview = PreviewSlot {
+        for_path,
+        generation,
+        content: PreviewContent::Loading,
+    };
+    state
+}
+
+#[test]
+fn preview_merge_matching_generation_applies() {
+    let path = std::path::PathBuf::from("/some/file.txt");
+    let mut state = make_state_with_preview(5, path.clone());
+
+    let content = PreviewContent::Text(vec!["hello".to_owned()]);
+    merge(
+        WorkerMsg::Preview {
+            generation: 5,
+            path: path.clone(),
+            content: content.clone(),
+        },
+        &mut state,
+    );
+
+    // Content should have been applied.
+    assert!(
+        matches!(&state.preview.content, PreviewContent::Text(lines) if lines[0] == "hello"),
+        "expected preview content to be applied when generation matches"
+    );
+    assert!(state.dirty, "dirty should be set after merge");
+}
+
+#[test]
+fn preview_merge_stale_generation_dropped() {
+    let path = std::path::PathBuf::from("/some/file.txt");
+    let mut state = make_state_with_preview(7, path.clone());
+
+    merge(
+        WorkerMsg::Preview {
+            generation: 3,
+            path: path.clone(),
+            content: PreviewContent::Text(vec!["stale".to_owned()]),
+        },
+        &mut state,
+    );
+
+    assert!(
+        matches!(state.preview.content, PreviewContent::Loading),
+        "stale preview should be dropped"
+    );
+}
+
+#[test]
+fn preview_merge_path_mismatch_dropped() {
+    let active_path = std::path::PathBuf::from("/active/file.txt");
+    let stale_path = std::path::PathBuf::from("/stale/file.txt");
+    let mut state = make_state_with_preview(5, active_path.clone());
+
+    merge(
+        WorkerMsg::Preview {
+            generation: 5,
+            path: stale_path,
+            content: PreviewContent::Text(vec!["wrong".to_owned()]),
+        },
+        &mut state,
+    );
+
+    assert!(
+        matches!(state.preview.content, PreviewContent::Loading),
+        "preview with wrong path should be dropped"
+    );
+}
+
+#[test]
+fn image_meta_merge_matching_generation_applies() {
+    let path = std::path::PathBuf::from("/some/photo.png");
+    let mut state = make_state_with_preview(2, path.clone());
+
+    let content = PreviewContent::Text(vec!["PNG 800x600".to_owned()]);
+    merge(
+        WorkerMsg::ImageMeta {
+            generation: 2,
+            path: path.clone(),
+            content: content.clone(),
+        },
+        &mut state,
+    );
+
+    assert!(
+        matches!(&state.preview.content, PreviewContent::Text(lines) if lines[0] == "PNG 800x600"),
+        "image meta content should be applied when generation matches"
+    );
+    assert!(state.dirty);
+}
+
+#[test]
+fn image_meta_merge_stale_generation_dropped() {
+    let path = std::path::PathBuf::from("/some/photo.png");
+    let mut state = make_state_with_preview(10, path.clone());
+
+    merge(
+        WorkerMsg::ImageMeta {
+            generation: 1,
+            path: path.clone(),
+            content: PreviewContent::Text(vec!["stale".to_owned()]),
+        },
+        &mut state,
+    );
+
+    assert!(
+        matches!(state.preview.content, PreviewContent::Loading),
+        "stale image meta should be dropped"
+    );
+}
+
+#[test]
+fn git_merge_wrong_directory_dropped() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut state = AppState::new(tmp.path().to_owned()).expect("AppState::new");
+    let dirty_before = state.dirty;
+    state.dirty = false;
+
+    merge(
+        WorkerMsg::Git {
+            path: std::path::PathBuf::from("/completely/different/path"),
+            state: None,
+            file_statuses: vec![],
+        },
+        &mut state,
+    );
+
+    assert!(
+        state.git.is_none(),
+        "git state should not be updated for wrong directory"
+    );
+    assert!(
+        !state.dirty || dirty_before,
+        "dirty should not be set for dropped git result"
+    );
+}
+
+#[test]
+fn git_merge_correct_directory_applies() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut state = AppState::new(tmp.path().to_owned()).expect("AppState::new");
+    let cwd = state.cwd.clone();
+
+    merge(
+        WorkerMsg::Git {
+            path: cwd.clone(),
+            state: Some(trail::app::state::GitDirState {
+                branch: "main".to_owned(),
+                is_dirty: true,
+            }),
+            file_statuses: vec![],
+        },
+        &mut state,
+    );
+
+    assert!(
+        matches!(&state.git, Some(g) if g.branch == "main"),
+        "git state should be applied for the current directory"
+    );
+    assert!(state.dirty);
+}
