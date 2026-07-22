@@ -1,0 +1,10 @@
+# Trail — default configuration.
+#
+# Shipped defaults — all values here are overridable by the user's config file.
+# TODO(phase-7): Populate with the full default config schema.
+
+[general]
+# editor = "$EDITOR"
+# text_sync_threshold_kb = 256
+# git_status_enabled = true
+# fs_watch_debounce_ms = 200
