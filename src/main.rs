@@ -151,12 +151,30 @@ fn run_event_loop(
                 if action == Action::Quit {
                     should_quit = true;
                 } else {
+                    // Clear any pending multi-key nav prefix unless this action
+                    // *is* the prefix setter itself. This ensures `y` sets the
+                    // prefix, and the very next key resolves it (or clears it).
+                    let is_prefix = matches!(action, Action::SetPendingNavKey(_));
                     // Log navigation errors at debug level and continue rather
                     // than crashing — a bad directory is inconvenient, not fatal.
                     if let Err(e) = actions::apply(action, state) {
                         tracing::debug!("action error: {e}");
                     }
+                    if !is_prefix {
+                        // The second key of a multi-key sequence was consumed
+                        // (or a non-prefix key cleared the pending state).
+                        if state.pending_nav_key.is_some() {
+                            state.pending_nav_key = None;
+                            state.dirty = true;
+                        }
+                    }
                 }
+            } else if state.pending_nav_key.is_some() {
+                // A key was pressed that did not produce an action while a
+                // prefix was pending. The prefix was already consumed by the
+                // keymap (returned None), so clear it now.
+                state.pending_nav_key = None;
+                state.dirty = true;
             }
 
             // Refresh preview whenever the selection or directory changed.

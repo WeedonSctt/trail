@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use crate::app::history::NavigationHistory;
 use crate::app::mode::Mode;
+use crate::input::command_parser::{CommandHistory, TabState};
 use crate::preview::provider::PreviewContent;
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -27,6 +28,9 @@ pub enum StateError {
         #[source]
         source: std::io::Error,
     },
+    /// A filesystem mutation (rename/move/delete/etc.) failed.
+    #[error("filesystem error: {0}")]
+    FsOp(#[from] crate::actions::fs_ops::FsError),
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -216,6 +220,29 @@ pub struct AppState {
     ///
     /// Key: canonical absolute path; Value: last selected index.
     pub selection_memory: std::collections::HashMap<PathBuf, usize>,
+
+    // ── Phase 3 fields ────────────────────────────────────────────────────────
+    /// `true` while awaiting the user's confirmation of a `dd` delete.
+    ///
+    /// The status bar renders a confirmation prompt while this is set.
+    /// Confirmed via `Enter`; cancelled via `Esc`.
+    pub pending_delete: bool,
+    /// Last error message surfaced by a command or fs operation, displayed
+    /// in the status bar. Cleared on the next successful action.
+    pub error_message: Option<String>,
+    /// The most-recently yanked path string (set by clipboard operations).
+    /// Displayed briefly in the status bar and observable in tests.
+    pub last_yank: Option<String>,
+    /// Persisted command history for Command Mode.
+    pub command_history: CommandHistory,
+    /// Tab-completion cycling state for Command Mode. Stored here so it
+    /// survives across individual key dispatches within the same mode session.
+    pub tab_state: TabState,
+
+    // ── Phase 3 multi-key sequence state ─────────────────────────────────────
+    /// Tracks the first key of multi-key Navigation Mode sequences:
+    /// `y` (for `ya`/`yr`/`yn`) and `d` (for `dd`).
+    pub pending_nav_key: Option<char>,
 }
 
 impl AppState {
@@ -243,6 +270,12 @@ impl AppState {
             show_hidden: false,
             dirty: true,
             selection_memory: std::collections::HashMap::new(),
+            pending_delete: false,
+            error_message: None,
+            last_yank: None,
+            command_history: CommandHistory::new(),
+            tab_state: TabState::new(),
+            pending_nav_key: None,
         };
 
         state.load_dir(&cwd)?;

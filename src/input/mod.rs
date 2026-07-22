@@ -1,7 +1,7 @@
 //! Input handling: dispatches keystrokes by current mode.
 //!
 //! Routes key events to the appropriate handler based on `state.mode`:
-//! Navigation → `keymap::navigation`, Search → `keymap::search` (Phase 2),
+//! Navigation → `keymap::navigation`, Search → `keymap::search`,
 //! Command → `command_parser::feed` (Phase 3).
 
 pub mod command_parser;
@@ -15,7 +15,7 @@ use crate::app::state::AppState;
 /// Mutable context shared with the keymap across ticks.
 ///
 /// Holds any state that spans multiple key events (e.g. multi-key sequences)
-/// without polluting `AppState`.
+/// without polluting `AppState` for concerns that are purely input-layer.
 #[derive(Debug, Default)]
 pub struct InputCtx {
     /// `true` after the first `g` is pressed in Navigation Mode, waiting for
@@ -39,19 +39,15 @@ pub fn dispatch(key: KeyEvent, state: &AppState, ctx: &mut InputCtx) -> Option<A
 
     use crate::app::mode::Mode;
     match &state.mode {
-        Mode::Navigation => keymap::navigation(key, &mut ctx.pending_g),
+        Mode::Navigation => keymap::navigation(key, ctx, state),
 
         Mode::Search { .. } => keymap::search(key),
 
         Mode::Command { .. } => {
-            // TODO(phase-3): Delegate to command_parser::feed(key, state, ctx).
-            // Phase 1 stub: Esc exits command mode back to navigation.
-            use crossterm::event::KeyCode;
-            if key.code == KeyCode::Esc {
-                Some(Action::ExitMode)
-            } else {
-                None
-            }
+            // Delegate entirely to the command_parser feed path via CommandKey.
+            // The actual buffer manipulation and submit/cancel logic is handled
+            // in actions::apply(Action::CommandKey) so it stays testable.
+            Some(Action::CommandKey(key))
         }
     }
 }

@@ -6,30 +6,69 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::actions::Action;
+use crate::app::state::AppState;
+use crate::input::InputCtx;
 
 /// Translates a `KeyEvent` in Navigation Mode into an `Action`.
 ///
 /// Returns `None` if the key is not bound in Navigation Mode, so the caller
 /// can decide whether to swallow or ignore it.
 ///
-/// The `pending_g` flag is used to implement the two-key `gg` binding
-/// (jump to top): when the first `g` is pressed `pending_g` is set to
-/// `true`; if the next key is also `g`, `JumpTop` is returned; any other
-/// key clears the flag without producing an action.
-///
 /// # Multi-key sequences
 ///
-/// The only multi-key sequence in Navigation Mode for Phase 1 is `g g`
-/// (jump top). `G` (uppercase) is a single-key binding for jump bottom.
-pub fn navigation(key: KeyEvent, pending_g: &mut bool) -> Option<Action> {
-    // Handle the second key of the `gg` sequence.
-    if *pending_g {
-        *pending_g = false;
+/// The following multi-key sequences are supported:
+///
+/// | Sequence | Action |
+/// |----------|--------|
+/// | `gg`     | Jump to top |
+/// | `ya`     | Copy absolute path |
+/// | `yr`     | Copy relative path |
+/// | `yn`     | Copy filename |
+/// | `dd`     | Delete selected (with confirmation) |
+///
+/// `pending_g` (in `InputCtx`) handles the `g g` prefix.
+/// `state.pending_nav_key` handles `y*` and `dd` prefixes.
+///
+/// When `pending_delete` is set, `Enter` confirms and `Esc` cancels the
+/// delete without entering this function's main branch (the event loop in
+/// `main.rs` calls `apply` directly in that case).
+pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
+    // ── Pending-delete confirmation ───────────────────────────────────────────
+    // While a delete is pending, only Enter (confirm) and Esc (cancel) are
+    // meaningful. All other keys are swallowed to avoid accidental navigation.
+    if state.pending_delete {
+        return match key.code {
+            KeyCode::Enter | KeyCode::Char('y') => Some(Action::ConfirmDelete),
+            KeyCode::Esc | KeyCode::Char('n') => Some(Action::CancelDelete),
+            _ => None,
+        };
+    }
+
+    // ── Multi-key: `g g` (jump top) ──────────────────────────────────────────
+    if ctx.pending_g {
+        ctx.pending_g = false;
         return match key.code {
             KeyCode::Char('g') => Some(Action::JumpTop),
             // Any other key after `g` is consumed but produces no action.
             _ => None,
         };
+    }
+
+    // ── Multi-key: `y a` / `y r` / `y n` and `d d` ──────────────────────────
+    if let Some(pending) = state.pending_nav_key {
+        // A pending_nav_key is consumed by the next keypress regardless of
+        // whether it forms a recognised sequence.
+        return match (pending, key.code) {
+            ('y', KeyCode::Char('a')) => Some(Action::CopyAbsPath),
+            ('y', KeyCode::Char('r')) => Some(Action::CopyRelPath),
+            ('y', KeyCode::Char('n')) => Some(Action::CopyFilename),
+            ('d', KeyCode::Char('d')) => Some(Action::BeginDelete),
+            // Unrecognised second key: consume without action.
+            _ => None,
+        };
+        // Note: clearing `pending_nav_key` is done in `main.rs` after `apply`,
+        // because we need to distinguish "second key consumed" from
+        // "still waiting". The caller sets it via `SetPendingNavKey`.
     }
 
     match key.code {
@@ -40,7 +79,7 @@ pub fn navigation(key: KeyEvent, pending_g: &mut bool) -> Option<Action> {
 
         // `g` — start of multi-key sequence (`gg` = jump top)
         KeyCode::Char('g') => {
-            *pending_g = true;
+            ctx.pending_g = true;
             None
         }
 
@@ -59,6 +98,12 @@ pub fn navigation(key: KeyEvent, pending_g: &mut bool) -> Option<Action> {
 
         // Hidden-file toggle
         KeyCode::Char('.') => Some(Action::ToggleHidden),
+
+        // Multi-key prefix keys: `y` (clipboard) and `d` (delete).
+        // These set `state.pending_nav_key`; the next key resolves the sequence.
+        // We return a special action to signal the prefix.
+        KeyCode::Char('y') => Some(Action::SetPendingNavKey('y')),
+        KeyCode::Char('d') => Some(Action::SetPendingNavKey('d')),
 
         // Mode transitions
         KeyCode::Char('/') => Some(Action::EnterSearch),
