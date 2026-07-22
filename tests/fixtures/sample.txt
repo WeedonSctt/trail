@@ -1,0 +1,7 @@
+Hello, Trail!
+This is a sample text file used for preview tests.
+It has multiple lines to exercise the text preview path.
+Line 4: some content
+Line 5: more content
+Line 6: the quick brown fox
+Line 7: jumps over the lazy dog

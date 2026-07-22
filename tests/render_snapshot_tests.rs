@@ -42,8 +42,11 @@ fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
 
     // Compute preview for the current selection.
     if let Some(entry) = state.selected_entry().cloned() {
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,
+            worker_tx: tx,
+            generation: state.preview.generation,
         };
         let content = match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(c) => c,

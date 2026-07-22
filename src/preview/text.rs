@@ -1,8 +1,10 @@
 //! Text file preview provider.
 //!
-//! Synchronous preview showing raw content with line numbers. Phase 1 shows
-//! plain text only; Phase 5 upgrades this to `syntect`-based highlighting
-//! for files under the size threshold.
+//! Provides preview content for text files. Phase 1 added plain-text output
+//! with line numbers. Phase 5 upgrades the synchronous path to use `syntect`-
+//! based syntax highlighting for files under `TEXT_SYNC_THRESHOLD`, and defers
+//! large files (over `TEXT_SYNC_THRESHOLD`) to `workers/highlight.rs` via the
+//! async worker pool.
 
 use std::fs;
 use std::path::Path;
@@ -12,25 +14,28 @@ use content_inspector::inspect;
 use crate::app::state::{Entry, EntryKind};
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
 
-/// Maximum number of bytes read synchronously for the plain-text preview.
-/// Files larger than this are read only up to this limit on the UI thread;
-/// Phase 5 will add async highlighting for large files.
+/// Byte threshold that separates synchronous (≤ threshold) from asynchronous
+/// (> threshold) text preview.
+///
+/// Files at or under this size are highlighted synchronously on the UI thread;
+/// larger files are deferred to the highlight worker. This value is hardcoded
+/// here until Phase 7 moves it into `config.toml`.
 ///
 /// Named constant per coding-standard §10: no magic numbers.
-pub const TEXT_PREVIEW_MAX_BYTES: usize = 256 * 1024; // 256 KB
+pub const TEXT_SYNC_THRESHOLD: usize = 256 * 1024; // 256 KB
 
-/// Maximum number of lines shown in the plain-text preview.
+/// Alias kept for backwards compatibility with code that referenced the old name.
+pub const TEXT_PREVIEW_MAX_BYTES: usize = TEXT_SYNC_THRESHOLD;
+
+/// Maximum number of lines shown in the plain-text (non-highlighted) fallback.
 const TEXT_PREVIEW_MAX_LINES: usize = 500;
 
-/// Synchronous preview provider for text files.
+/// Synchronous/async preview provider for text files.
 ///
-/// Reads the first `TEXT_PREVIEW_MAX_BYTES` bytes of the file, detects
-/// whether the content is text, and formats it as numbered lines.
-/// Binary files are not handled here — `BinaryProvider` (Phase 5) takes
-/// those via a `can_handle` check.
-///
-/// Phase 5 TODO: add `syntect`-based syntax highlighting for files under
-/// `TEXT_SYNC_THRESHOLD`.
+/// - Files ≤ `TEXT_SYNC_THRESHOLD`: highlighted synchronously via `syntect`.
+/// - Files > `TEXT_SYNC_THRESHOLD`: `PreviewOutcome::Deferred` returned;
+///   `workers::highlight::spawn_highlight` is called to do the work off-thread.
+/// - Binary files: not handled here — `BinaryProvider` takes those.
 pub struct TextProvider;
 
 impl PreviewProvider for TextProvider {
@@ -43,9 +48,32 @@ impl PreviewProvider for TextProvider {
         is_text_file(&entry.path)
     }
 
-    fn preview(&self, entry: &Entry, _ctx: &PreviewCtx) -> PreviewOutcome {
-        let content = build_text_preview(&entry.path);
-        PreviewOutcome::Ready(content)
+    fn preview(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
+        let size = entry
+            .metadata
+            .as_ref()
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+
+        if size > TEXT_SYNC_THRESHOLD {
+            // Large file: spawn async highlight worker and show Loading placeholder.
+            crate::workers::highlight::spawn_highlight(
+                entry.path.clone(),
+                ctx.generation,
+                ctx.worker_tx.clone(),
+            );
+            PreviewOutcome::Deferred
+        } else {
+            // Small file: highlight synchronously on the UI thread.
+            let content = crate::workers::highlight::highlight_text_sync(&entry.path);
+            // highlight_text_sync may return Empty (0-byte or unreadable file);
+            // fall back to plain-text builder in that case.
+            let content = match content {
+                PreviewContent::Empty => build_text_preview(&entry.path),
+                other => other,
+            };
+            PreviewOutcome::Ready(content)
+        }
     }
 }
 
@@ -66,7 +94,10 @@ pub fn is_text_file(path: &Path) -> bool {
 /// Builds a `PreviewContent::Text` for `path`.
 ///
 /// Reads up to `TEXT_PREVIEW_MAX_BYTES` and formats each line as
-/// `" {n:>4}  {line}"`. Returns `PreviewContent::Empty` on I/O error.
+/// `\" {n:>4}  {line}\"`. Returns `PreviewContent::Empty` on I/O error.
+///
+/// Used as a fallback when the syntect path returns `Empty`, and by the async
+/// highlight worker's plain-text fallback path.
 pub fn build_text_preview(path: &Path) -> PreviewContent {
     use std::io::Read;
     let Ok(f) = fs::File::open(path) else {
@@ -122,5 +153,14 @@ mod tests {
         use std::io::Write;
         write!(f, "plain text content").unwrap();
         assert!(is_text_file(f.path()));
+    }
+
+    #[test]
+    fn is_text_file_rejects_binary() {
+        let mut f = NamedTempFile::new().unwrap();
+        use std::io::Write;
+        // Write a sequence of null bytes — content_inspector will flag these as binary.
+        f.write_all(&[0u8; 64]).unwrap();
+        assert!(!is_text_file(f.path()));
     }
 }

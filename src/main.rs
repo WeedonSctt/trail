@@ -140,18 +140,16 @@ async fn main() -> Result<()> {
 /// Phase 4/5 worker results for a since-abandoned selection can be discarded.
 ///
 /// The `tx` sender is passed through to `PreviewCtx` so providers can spawn
-/// async worker tasks (used by Phase 5's highlight and image workers).
-fn refresh_preview(
-    state: &mut AppState,
-    registry: &PreviewRegistry,
-    _tx: &mpsc::Sender<WorkerMsg>,
-) {
+/// async worker tasks (highlight worker, image decode worker).
+fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::Sender<WorkerMsg>) {
     state.preview.generation = state.preview.generation.wrapping_add(1);
 
     if let Some(entry) = state.selected_entry().cloned() {
         state.preview.for_path = entry.path.clone();
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,
+            worker_tx: tx.clone(),
+            generation: state.preview.generation,
         };
         match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(content) => {

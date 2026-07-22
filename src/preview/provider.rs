@@ -5,17 +5,29 @@
 //! New entry types (PDF, archive, etc.) implement `PreviewProvider` and
 //! register an instance at startup — the core loop and render code do not
 //! change.
+//!
+//! Phase 5 adds `Highlighted` and `Binary` variants to `PreviewContent` and
+//! enriches `PreviewCtx` with the worker sender and generation counter so
+//! providers can spawn async tasks.
 
 use std::path::PathBuf;
 
+use ratatui::style::Color;
 use thiserror::Error;
+use tokio::sync::mpsc;
 
 use crate::app::state::Entry;
+use crate::workers::WorkerMsg;
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
 /// Errors from preview operations.
-#[allow(dead_code)] // TODO(phase-5): Used by binary and image providers
+///
+/// Currently unused in built-in providers (which return graceful fallbacks
+/// rather than propagating errors). Defined here for use by plugin-provided
+/// `PreviewProvider` implementations (Phase 8).
+// clippy: dead_code — reserved for plugin-provided PreviewProvider impls (Phase 8)
+#[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum PreviewError {
     /// An I/O error occurred while reading file content.
@@ -29,11 +41,26 @@ pub enum PreviewError {
 
 // ── PreviewContent ────────────────────────────────────────────────────────────
 
+/// A single span of text with an optional foreground colour for highlighted
+/// preview rendering.
+///
+/// Used by `PreviewContent::Highlighted` to carry the output of `syntect`
+/// syntax highlighting. Each `StyledSpan` maps to a ratatui `Span`.
+#[derive(Debug, Clone)]
+pub struct StyledSpan {
+    /// The text content of this span.
+    pub text: String,
+    /// Optional foreground colour (RGB). `None` means "use default foreground".
+    pub fg: Option<Color>,
+}
+
+/// A single highlighted line, made up of one or more [`StyledSpan`]s.
+pub type HighlightedLine = Vec<StyledSpan>;
+
 /// The renderable content for the preview pane.
 ///
 /// Each variant carries the data needed by `ui/preview_panel.rs` to draw
-/// the pane without any further I/O. Phase 5 adds `Highlighted`, `Binary`,
-/// and `Image` variants; for now only `Text` and `Directory` are produced.
+/// the pane without any further I/O.
 #[derive(Debug, Clone, Default)]
 pub enum PreviewContent {
     /// A placeholder shown before any entry is selected or while loading.
@@ -42,13 +69,28 @@ pub enum PreviewContent {
 
     /// A placeholder shown while an async worker result is in flight.
     ///
-    /// Phase 5 uses this while `workers/highlight.rs` is running.
+    /// Displayed while `workers/highlight.rs`, `workers/image_decode.rs`, or
+    /// the binary metadata worker are running.
     Loading,
 
     /// Plain-text preview with pre-formatted lines.
     ///
-    /// Each element is a formatted string (e.g. `" 1  first line of file"`).
+    /// Each element is a formatted string (e.g. `"   1  first line of file"`).
+    /// Used for small text files where syntect highlighting is not available
+    /// (e.g. unknown syntax) and as the async-deferred fallback on error.
     Text(Vec<String>),
+
+    /// Syntax-highlighted text preview (Phase 5).
+    ///
+    /// Each outer element is a line; each inner element is a styled span.
+    /// Line numbers are prepended as an unstyled span by the render code.
+    Highlighted(Vec<HighlightedLine>),
+
+    /// Binary file metadata (Phase 5).
+    ///
+    /// Each string is one line of formatted metadata (size, type, modified
+    /// timestamp, etc.).
+    Binary(Vec<String>),
 
     /// Directory preview: a summary block followed by entry names.
     Directory {
@@ -77,8 +119,7 @@ pub enum PreviewOutcome {
     /// Asynchronous path: a worker task was spawned.
     ///
     /// The UI renders `PreviewContent::Loading` until the worker result
-    /// merges in (Phase 4/5).
-    #[allow(dead_code)] // TODO(phase-4): Returned when workers are spawned
+    /// merges in via `workers::merge`.
     Deferred,
 }
 
@@ -86,12 +127,23 @@ pub enum PreviewOutcome {
 
 /// Context passed to `PreviewProvider::preview`.
 ///
-/// Carries shared resources that providers may need without storing them
-/// on `AppState` directly.
+/// Carries shared resources that providers may need without storing them on
+/// `AppState` directly. Phase 5 adds `worker_tx` and `generation` so async
+/// providers can tag their results with the current generation counter and
+/// send them back over the shared worker channel.
 #[derive(Debug)]
 pub struct PreviewCtx {
     /// Whether hidden entries should appear in directory previews.
     pub show_hidden: bool,
+    /// Sender half of the shared worker channel. Async providers use this to
+    /// send `WorkerMsg::Preview` / `WorkerMsg::ImageMeta` results back to the
+    /// UI thread.
+    pub worker_tx: mpsc::Sender<WorkerMsg>,
+    /// The generation counter at the time the preview was requested.
+    ///
+    /// Async providers tag their `WorkerMsg` with this value; `workers::merge`
+    /// drops results whose generation no longer matches `state.preview.generation`.
+    pub generation: u64,
 }
 
 // ── PreviewProvider trait ─────────────────────────────────────────────────────

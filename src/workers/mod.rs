@@ -213,5 +213,3 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
         }
     }
 }
-
-
