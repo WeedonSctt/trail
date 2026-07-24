@@ -34,6 +34,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tokio::sync::mpsc;
 
+use crate::actions::shell_exec;
 use crate::actions::Action;
 use crate::app::state::AppState;
 use crate::cli::Cli;
@@ -45,6 +46,9 @@ use crate::workers::{GitCache, WorkerMsg};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Capture cwd_file path before consuming `cli` below.
+    let cwd_file = cli.cwd_file.clone();
 
     // Install the panic hook BEFORE touching terminal state, so a panic at
     // any point during execution restores the terminal rather than leaving it
@@ -102,9 +106,9 @@ async fn main() -> Result<()> {
     let mut fs_watch_handle: Option<FsWatchHandle> =
         workers::fswatch::spawn_fswatch(initial_cwd, worker_tx.clone(), DEFAULT_DEBOUNCE_MS);
 
-    // Enter raw mode and the alternate screen. These are the same operations
-    // Phase 6's suspend/resume will reuse, so establishing the enter/exit
-    // pair correctly here avoids rework later.
+    // Enter raw mode and the alternate screen. The suspend/resume sequence in
+    // shell_exec::run_external reuses the same crossterm operations, so
+    // establishing the enter/exit pair correctly here avoids rework later.
     terminal::enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
 
@@ -129,6 +133,19 @@ async fn main() -> Result<()> {
     // whether the event loop exited cleanly or with an error.
     execute!(stdout(), LeaveAlternateScreen)?;
     terminal::disable_raw_mode()?;
+
+    // Phase 6: On normal exit, write the current directory to `--cwd-file`
+    // so the shell wrapper can `cd` into it. On cancellation or error the
+    // file is not written — the shell wrapper then does nothing.
+    if run_result.is_ok() {
+        if let Some(ref path) = cwd_file {
+            if let Err(e) = session::write_cwd_file(&state.cwd, path) {
+                // Non-fatal: log and continue. The user still exits cleanly;
+                // they just won't be `cd`-ed to the right directory this time.
+                tracing::debug!("failed to write cwd-file: {e}");
+            }
+        }
+    }
 
     run_result
 }
@@ -240,6 +257,7 @@ async fn run_event_loop(
                             if let Event::Key(key) = event {
                                 handle_key_event(
                                     key,
+                                    terminal,
                                     state,
                                     registry,
                                     &worker_tx,
@@ -289,9 +307,12 @@ async fn run_event_loop(
 ///
 /// Updates selection/directory as needed, refreshes the preview, re-subscribes
 /// the fs watcher and spawns a git worker if the directory changed.
+/// Phase 6: also accepts `terminal` so it can call `terminal.clear()` after
+/// returning from `shell_exec::run_external`.
 #[allow(clippy::too_many_arguments)]
 fn handle_key_event(
     key: event::KeyEvent,
+    terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut AppState,
     registry: &PreviewRegistry,
     worker_tx: &mpsc::Sender<WorkerMsg>,
@@ -340,6 +361,24 @@ fn handle_key_event(
         workers::git::spawn_git_status(state.cwd.clone(), worker_tx.clone(), git_cache.clone());
         // Clear stale git state immediately so the old branch doesn't linger.
         state.git = None;
+    }
+
+    // Phase 6: drain any pending external action (editor-open or !shell).
+    // run_external is synchronous (blocks until the child exits) but we must
+    // call it here on the UI thread because it manipulates terminal state.
+    if let Some(Action::RunExternal { argv, cwd }) = state.pending_external.take() {
+        let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+        if let Err(e) = shell_exec::run_external(&argv_refs, &cwd) {
+            tracing::debug!("run_external error: {e}");
+            state.error_message = Some(format!("exec: {e}"));
+        }
+        // Force a full redraw: the child process may have overwritten the screen.
+        state.dirty = true;
+        // Also re-render the terminal buffer so ratatui's internal state is
+        // consistent with the actual terminal after the subprocess finished.
+        if let Err(e) = terminal.clear() {
+            tracing::debug!("terminal clear after run_external failed: {e}");
+        }
     }
 }
 

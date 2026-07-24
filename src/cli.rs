@@ -15,7 +15,6 @@ pub struct Cli {
     ///
     /// Used by shell wrapper functions to `cd` into the last-browsed
     /// directory after Trail exits. If omitted, no file is written.
-    // TODO(phase-6): Consumed by session.rs on normal exit.
     #[arg(long)]
     pub cwd_file: Option<PathBuf>,
 

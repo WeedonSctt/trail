@@ -22,7 +22,11 @@ pub enum Action {
     JumpTop,
     /// Jump the selection to the last entry.
     JumpBottom,
-    /// Enter the selected directory (or open file in editor — stub until Phase 6).
+    /// Enter the selected directory, or open the selected file in the configured
+    /// editor. For directories this is handled synchronously in `apply`; for
+    /// files it returns [`Action::RunExternal`] via the `apply_enter_or_open`
+    /// helper so the event loop can call `shell_exec::run_external` on the
+    /// async path.
     EnterOrOpen,
     /// Navigate to the parent directory.
     GoParent,
@@ -81,6 +85,19 @@ pub enum Action {
     /// resolves the sequence in `keymap::navigation`.
     SetPendingNavKey(char),
 
+    // ── Shell integration (Phase 6) ───────────────────────────────────────
+    /// Run an external process using the terminal suspend/resume sequence.
+    ///
+    /// Produced by `apply` for file-open and `!<shell command>` actions;
+    /// handled by the event loop in `main.rs` which calls
+    /// `shell_exec::run_external` and forces a full redraw on return.
+    RunExternal {
+        /// The argument vector: `argv[0]` is the program, `argv[1..]` are args.
+        argv: Vec<String>,
+        /// Working directory for the subprocess. Typically `state.cwd`.
+        cwd: std::path::PathBuf,
+    },
+
     // ── Quit ─────────────────────────────────────────────────────────────
     /// Quit the application normally (writes `--cwd-file` in Phase 6).
     Quit,
@@ -111,8 +128,17 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         state.enter_dir(entry.path)?;
                     }
                     EntryKind::File | EntryKind::Symlink => {
-                        // TODO(phase-6): Open file in $EDITOR via shell_exec::run_external.
-                        // For Phase 1 this is intentionally a no-op for files.
+                        // Phase 6: open the file in the configured editor.
+                        // We cannot call shell_exec::run_external here because
+                        // apply() is synchronous and run_external manipulates
+                        // the terminal. Instead we store the RunExternal action
+                        // in state so the event loop can execute it.
+                        let editor = shell_exec::resolve_editor();
+                        state.pending_external = Some(Action::RunExternal {
+                            argv: vec![editor, entry.path.display().to_string()],
+                            cwd: state.cwd.clone(),
+                        });
+                        state.dirty = true;
                     }
                 }
             }
@@ -209,8 +235,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         Action::SearchConfirm => {
             use crate::app::mode::Mode;
-            // Navigate into directory selections; leave mode for files
-            // (actual file open is Phase 6).
             if let Some(entry) = state.selected_entry().cloned() {
                 use crate::app::state::EntryKind;
                 match entry.kind {
@@ -221,10 +245,14 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         state.enter_dir(entry.path)?;
                     }
                     EntryKind::File | EntryKind::Symlink => {
-                        // TODO(phase-6): Open file in $EDITOR.
-                        // For now, just exit Search Mode.
+                        // Phase 6: open in editor via the RunExternal mechanism.
                         state.mode = Mode::Navigation;
                         state.filter = None;
+                        let editor = shell_exec::resolve_editor();
+                        state.pending_external = Some(Action::RunExternal {
+                            argv: vec![editor, entry.path.display().to_string()],
+                            cwd: state.cwd.clone(),
+                        });
                         state.dirty = true;
                     }
                 }
@@ -439,6 +467,13 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             state.dirty = true;
         }
 
+        Action::RunExternal { .. } => {
+            // RunExternal is never dispatched through apply() — the event loop
+            // in main.rs intercepts it and calls shell_exec::run_external
+            // directly. If it reaches here, it's a caller bug; log and ignore.
+            tracing::debug!("RunExternal reached apply() — should be handled by event loop");
+        }
+
         Action::Quit => {
             // Handled by the event loop checking the return value of dispatch;
             // nothing to do here at the state level.
@@ -534,11 +569,21 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             state.dirty = true;
         }
 
-        ParsedCommand::Shell(_cmd_str) => {
-            // TODO(phase-6): Run via shell_exec::run_external.
-            state.error_message =
-                Some("!shell — shell execution not yet active (Phase 6)".to_owned());
-            state.dirty = true;
+        ParsedCommand::Shell(cmd_str) => {
+            // Phase 6: run via shell_exec::run_external through the event loop.
+            // Split the shell command string by whitespace into argv.
+            // A shell command like "ls -la" becomes ["ls", "-la"].
+            let argv: Vec<String> = cmd_str.split_whitespace().map(|s| s.to_owned()).collect();
+            if argv.is_empty() {
+                state.error_message = Some("!: empty command".to_owned());
+                state.dirty = true;
+            } else {
+                state.pending_external = Some(Action::RunExternal {
+                    argv,
+                    cwd: state.cwd.clone(),
+                });
+                state.dirty = true;
+            }
         }
     }
 

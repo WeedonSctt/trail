@@ -10,7 +10,7 @@
 //! native mechanism where possible, falling back to writing the text to a
 //! temp file so the shell wrapper can forward it (`pbcopy`, `xclip`, etc.).
 //!
-//! For Phase 3 the implementation uses the [`arboard`] crate when it is
+//! For Phase 3 the implementation uses the `arboard` crate when it is
 //! available. Because `arboard` is not in the confirmed Phase-3 dependency
 //! set and adding it requires a Decision Log entry (coding standard §12), we
 //! use a write-to-stderr approach that avoids corrupting the alternate screen

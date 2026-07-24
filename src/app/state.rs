@@ -242,10 +242,20 @@ pub struct AppState {
     /// survives across individual key dispatches within the same mode session.
     pub tab_state: TabState,
 
-    // ── Phase 3 multi-key sequence state ─────────────────────────────────────
+    // ── Phase 3 multi-key sequence state ───────────────────────────────────────
     /// Tracks the first key of multi-key Navigation Mode sequences:
     /// `y` (for `ya`/`yr`/`yn`) and `d` (for `dd`).
     pub pending_nav_key: Option<char>,
+
+    // ── Phase 6 shell integration ──────────────────────────────────────────────
+    /// A pending `RunExternal` action to be executed by the event loop.
+    ///
+    /// Set by `apply()` when an editor-open or `!<shell command>` action is
+    /// requested. The event loop in `main.rs` drains this field after each
+    /// key dispatch, calling `shell_exec::run_external` and forcing a full
+    /// redraw. Using a state field rather than a channel keeps `apply()`
+    /// synchronous and testable without a running terminal.
+    pub pending_external: Option<crate::actions::Action>,
 }
 
 impl AppState {
@@ -279,6 +289,7 @@ impl AppState {
             command_history: CommandHistory::new(),
             tab_state: TabState::new(),
             pending_nav_key: None,
+            pending_external: None,
         };
 
         state.load_dir(&cwd)?;
