@@ -40,7 +40,7 @@ use crate::app::state::AppState;
 use crate::cli::Cli;
 use crate::input::InputCtx;
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
-use crate::workers::fswatch::{FsWatchHandle, DEFAULT_DEBOUNCE_MS};
+use crate::workers::fswatch::FsWatchHandle;
 use crate::workers::{GitCache, WorkerMsg};
 
 #[tokio::main]
@@ -81,7 +81,10 @@ async fn main() -> Result<()> {
     // Build initial app state from the CLI start path before entering raw
     // mode so that a bad start path produces a normal error message rather
     // than a broken terminal.
-    let mut state = AppState::new(cli.start_path)
+    let config = config::load(cli.config.as_deref())
+        .map_err(|e| anyhow::anyhow!("failed to load config: {e}"))?;
+
+    let mut state = AppState::with_config(cli.start_path, config)
         .map_err(|e| anyhow::anyhow!("failed to open start directory: {e}"))?;
 
     // Build the preview registry once at startup. All providers are registered
@@ -100,11 +103,16 @@ async fn main() -> Result<()> {
 
     // Spawn the initial git status worker for the starting directory.
     let initial_cwd = state.cwd.clone();
-    workers::git::spawn_git_status(initial_cwd.clone(), worker_tx.clone(), git_cache.clone());
+    if state.config.general.git_status_enabled {
+        workers::git::spawn_git_status(initial_cwd.clone(), worker_tx.clone(), git_cache.clone());
+    }
 
     // Start the filesystem watcher for the initial directory.
-    let mut fs_watch_handle: Option<FsWatchHandle> =
-        workers::fswatch::spawn_fswatch(initial_cwd, worker_tx.clone(), DEFAULT_DEBOUNCE_MS);
+    let mut fs_watch_handle: Option<FsWatchHandle> = workers::fswatch::spawn_fswatch(
+        initial_cwd,
+        worker_tx.clone(),
+        state.config.general.fs_watch_debounce_ms,
+    );
 
     // Enter raw mode and the alternate screen. The suspend/resume sequence in
     // shell_exec::run_external reuses the same crossterm operations, so
@@ -167,6 +175,7 @@ fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::
             show_hidden: state.show_hidden,
             worker_tx: tx.clone(),
             generation: state.preview.generation,
+            text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
         };
         match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(content) => {
@@ -191,10 +200,11 @@ fn resubscribe_fswatch(
     new_cwd: PathBuf,
     tx: &mpsc::Sender<WorkerMsg>,
     handle: &mut Option<FsWatchHandle>,
+    debounce_ms: u64,
 ) {
     // Drop the current handle, which cancels the old watch task.
     *handle = None;
-    *handle = workers::fswatch::spawn_fswatch(new_cwd, tx.clone(), DEFAULT_DEBOUNCE_MS);
+    *handle = workers::fswatch::spawn_fswatch(new_cwd, tx.clone(), debounce_ms);
 }
 
 /// Runs the main event loop until the user quits.
@@ -357,8 +367,15 @@ fn handle_key_event(
 
     // If the directory changed, re-subscribe the watcher and spawn git.
     if state.cwd != old_cwd {
-        resubscribe_fswatch(state.cwd.clone(), worker_tx, fs_watch_handle);
-        workers::git::spawn_git_status(state.cwd.clone(), worker_tx.clone(), git_cache.clone());
+        resubscribe_fswatch(
+            state.cwd.clone(),
+            worker_tx,
+            fs_watch_handle,
+            state.config.general.fs_watch_debounce_ms,
+        );
+        if state.config.general.git_status_enabled {
+            workers::git::spawn_git_status(state.cwd.clone(), worker_tx.clone(), git_cache.clone());
+        }
         // Clear stale git state immediately so the old branch doesn't linger.
         state.git = None;
     }
@@ -409,16 +426,23 @@ fn handle_worker_msg(
                 }
 
                 // Re-spawn the git worker for the now-refreshed directory.
-                workers::git::spawn_git_status(
-                    changed_path.clone(),
-                    worker_tx.clone(),
-                    git_cache.clone(),
-                );
+                if state.config.general.git_status_enabled {
+                    workers::git::spawn_git_status(
+                        changed_path.clone(),
+                        worker_tx.clone(),
+                        git_cache.clone(),
+                    );
+                }
 
                 tracing::debug!(?changed_path, "refreshed after FsChanged");
             }
             // Regardless, resubscribe (the OS may have replaced the watched inode).
-            resubscribe_fswatch(state.cwd.clone(), worker_tx, fs_watch_handle);
+            resubscribe_fswatch(
+                state.cwd.clone(),
+                worker_tx,
+                fs_watch_handle,
+                state.config.general.fs_watch_debounce_ms,
+            );
         }
         _ => {
             // All other messages go through the standard merge path.

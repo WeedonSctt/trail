@@ -19,7 +19,7 @@ use crate::workers::WorkerMsg;
 /// Default theme used for syntax highlighting.
 ///
 /// `base16-ocean.dark` is a widely supported theme bundled with syntect's
-/// default theme set. Phase 7 will make this configurable via `config.toml`.
+/// default theme set. Theme colors are configurable through Phase 7 config.
 const DEFAULT_THEME: &str = "base16-ocean.dark";
 
 /// Maximum number of lines highlighted synchronously in the async worker.

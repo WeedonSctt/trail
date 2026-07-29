@@ -19,7 +19,7 @@ use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, Previ
 ///
 /// Files at or under this size are highlighted synchronously on the UI thread;
 /// larger files are deferred to the highlight worker. This value is hardcoded
-/// here until Phase 7 moves it into `config.toml`.
+/// The runtime threshold is supplied through `PreviewCtx` from config.
 ///
 /// Named constant per coding-standard §10: no magic numbers.
 pub const TEXT_SYNC_THRESHOLD: usize = 256 * 1024; // 256 KB
@@ -55,7 +55,7 @@ impl PreviewProvider for TextProvider {
             .map(|m| m.len() as usize)
             .unwrap_or(0);
 
-        if size > TEXT_SYNC_THRESHOLD {
+        if size > ctx.text_sync_threshold_bytes {
             // Large file: spawn async highlight worker and show Loading placeholder.
             crate::workers::highlight::spawn_highlight(
                 entry.path.clone(),

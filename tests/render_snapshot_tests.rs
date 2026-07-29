@@ -47,6 +47,7 @@ fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
             show_hidden: state.show_hidden,
             worker_tx: tx,
             generation: state.preview.generation,
+            text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
         };
         let content = match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(c) => c,

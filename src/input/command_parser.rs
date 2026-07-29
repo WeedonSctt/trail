@@ -181,7 +181,6 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
                     "set: value is empty".to_owned(),
                 ));
             }
-            // TODO(phase-7): Validate key against config schema.
             Ok(ParsedCommand::Set {
                 key: key.to_owned(),
                 value: value.to_owned(),

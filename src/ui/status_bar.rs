@@ -13,6 +13,7 @@ use ratatui::Frame;
 
 use crate::app::mode::Mode;
 use crate::app::state::AppState;
+use crate::ui::theme;
 
 /// Draws the status bar into `area`.
 ///
@@ -24,6 +25,7 @@ use crate::app::state::AppState;
 /// - **Error**: replaces the center section with the error message in red.
 /// - **Pending delete**: center section shows a delete confirmation prompt.
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+    let styles = theme::resolve(&state.config.theme);
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -38,15 +40,15 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let mode_style = match &state.mode {
         Mode::Navigation => Style::default()
             .fg(Color::Black)
-            .bg(Color::Green)
+            .bg(theme::parse_color(&state.config.theme.git_clean))
             .add_modifier(Modifier::BOLD),
         Mode::Search { .. } => Style::default()
             .fg(Color::Black)
-            .bg(Color::Yellow)
+            .bg(theme::parse_color(&state.config.theme.search))
             .add_modifier(Modifier::BOLD),
         Mode::Command { .. } => Style::default()
             .fg(Color::Black)
-            .bg(Color::Cyan)
+            .bg(theme::parse_color(&state.config.theme.command))
             .add_modifier(Modifier::BOLD),
     };
 
@@ -55,7 +57,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let left = Paragraph::new(Line::from(vec![
         Span::styled(format!(" {mode_label} "), mode_style),
         Span::raw(" "),
-        Span::styled(cwd_str.as_str(), Style::default().fg(Color::White)),
+        Span::styled(cwd_str.as_str(), styles.normal),
     ]));
     frame.render_widget(left, sections[0]);
 
@@ -77,14 +79,11 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             format!(" Delete '{name}'? [y/Enter=yes, n/Esc=cancel] "),
             Style::default()
                 .fg(Color::Black)
-                .bg(Color::Red)
+                .bg(theme::parse_color(&state.config.theme.error))
                 .add_modifier(Modifier::BOLD),
         )
     } else if let Some(ref err) = state.error_message {
-        Span::styled(
-            format!(" Error: {err} "),
-            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-        )
+        Span::styled(format!(" Error: {err} "), styles.error)
     } else {
         match &state.mode {
             Mode::Command { buffer, .. } => {
@@ -92,21 +91,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
                 // When the buffer starts with '!' it is a shell command;
                 // otherwise it is a ':'-prefixed verb command.
                 let prompt = if buffer.starts_with('!') { "" } else { ":" };
-                Span::styled(
-                    format!("{prompt}{buffer}"),
-                    Style::default().fg(Color::Cyan),
-                )
+                Span::styled(format!("{prompt}{buffer}"), styles.command)
             }
-            Mode::Search { query, .. } => {
-                Span::styled(format!("/{query}"), Style::default().fg(Color::Yellow))
-            }
+            Mode::Search { query, .. } => Span::styled(format!("/{query}"), styles.search),
             Mode::Navigation => {
                 if let Some(ref yank) = state.last_yank {
                     // Show what was yanked as brief feedback.
-                    Span::styled(
-                        format!(" yanked: {yank} "),
-                        Style::default().fg(Color::Green),
-                    )
+                    Span::styled(format!(" yanked: {yank} "), styles.git_clean)
                 } else {
                     Span::raw("")
                 }
@@ -127,9 +118,6 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         format!("{} items ", state.status.entry_count)
     };
-    let right = Paragraph::new(Line::from(Span::styled(
-        right_text,
-        Style::default().fg(Color::DarkGray),
-    )));
+    let right = Paragraph::new(Line::from(Span::styled(right_text, styles.status)));
     frame.render_widget(right, sections[2]);
 }

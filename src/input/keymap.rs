@@ -1,41 +1,22 @@
 //! Default and user-configured key bindings.
 //!
-//! Maps key events to `Action` values for each mode. Phase 7 adds TOML-driven
-//! overrides; until then, only the hardcoded defaults are active.
+//! Resolves `[keymap]` TOML tables to `Action` values for each mode. Arrow
+//! keys and Enter remain built-in aliases for ergonomic terminal navigation.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::actions::Action;
 use crate::app::state::AppState;
+use crate::config::KeymapConfig;
 use crate::input::InputCtx;
 
 /// Translates a `KeyEvent` in Navigation Mode into an `Action`.
 ///
-/// Returns `None` if the key is not bound in Navigation Mode, so the caller
-/// can decide whether to swallow or ignore it.
-///
-/// # Multi-key sequences
-///
-/// The following multi-key sequences are supported:
-///
-/// | Sequence | Action |
-/// |----------|--------|
-/// | `gg`     | Jump to top |
-/// | `ya`     | Copy absolute path |
-/// | `yr`     | Copy relative path |
-/// | `yn`     | Copy filename |
-/// | `dd`     | Delete selected (with confirmation) |
-///
-/// `pending_g` (in `InputCtx`) handles the `g g` prefix.
-/// `state.pending_nav_key` handles `y*` and `dd` prefixes.
-///
-/// When `pending_delete` is set, `Enter` confirms and `Esc` cancels the
-/// delete without entering this function's main branch (the event loop in
-/// `main.rs` calls `apply` directly in that case).
+/// Configured bindings are resolved first from `state.config.keymap`. Built-in
+/// non-text fallbacks such as arrows, Enter, and Backspace are then checked.
+/// Multi-key sequences are represented by compact strings such as `gg`, `ya`,
+/// and `dd`.
 pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
-    // ── Pending-delete confirmation ───────────────────────────────────────────
-    // While a delete is pending, only Enter (confirm) and Esc (cancel) are
-    // meaningful. All other keys are swallowed to avoid accidental navigation.
     if state.pending_delete {
         return match key.code {
             KeyCode::Enter | KeyCode::Char('y') => Some(Action::ConfirmDelete),
@@ -44,121 +25,208 @@ pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option
         };
     }
 
-    // ── Multi-key: `g g` (jump top) ──────────────────────────────────────────
     if ctx.pending_g {
         ctx.pending_g = false;
-        return match key.code {
-            KeyCode::Char('g') => Some(Action::JumpTop),
-            // Any other key after `g` is consumed but produces no action.
-            _ => None,
-        };
+        if let KeyCode::Char('g') = key.code {
+            return Some(Action::JumpTop);
+        }
+        return None;
     }
 
-    // ── Multi-key: `y a` / `y r` / `y n` and `d d` ──────────────────────────
     if let Some(pending) = state.pending_nav_key {
-        // A pending_nav_key is consumed by the next keypress regardless of
-        // whether it forms a recognised sequence.
-        return match (pending, key.code) {
-            ('y', KeyCode::Char('a')) => Some(Action::CopyAbsPath),
-            ('y', KeyCode::Char('r')) => Some(Action::CopyRelPath),
-            ('y', KeyCode::Char('n')) => Some(Action::CopyFilename),
-            ('d', KeyCode::Char('d')) => Some(Action::BeginDelete),
-            // Unrecognised second key: consume without action.
-            _ => None,
-        };
-        // Note: clearing `pending_nav_key` is done in `main.rs` after `apply`,
-        // because we need to distinguish "second key consumed" from
-        // "still waiting". The caller sets it via `SetPendingNavKey`.
+        if let Some(sequence) = append_to_sequence(pending, key) {
+            return nav_action_for_sequence(&state.config.keymap, &sequence);
+        }
+        return None;
+    }
+
+    if let Some(action) = configured_nav_action(key, &state.config.keymap) {
+        return Some(action);
+    }
+
+    if let Some(prefix) = configured_nav_prefix(key, &state.config.keymap) {
+        return Some(Action::SetPendingNavKey(prefix));
     }
 
     match key.code {
-        // Movement
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::MoveDown),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Char('G') => Some(Action::JumpBottom),
-
-        // `g` — start of multi-key sequence (`gg` = jump top)
+        KeyCode::Down => Some(Action::MoveDown),
+        KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Char('g') => {
             ctx.pending_g = true;
             None
         }
-
-        // Directory navigation
-        KeyCode::Char('l') | KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
-        KeyCode::Char('h') | KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
-
-        // History
-        KeyCode::Char('u') => Some(Action::HistoryBack),
-        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::HistoryForward)
-        }
-
-        // Reload
-        KeyCode::Char('R') => Some(Action::Refresh),
-
-        // Hidden-file toggle
-        KeyCode::Char('.') => Some(Action::ToggleHidden),
-
-        // Multi-key prefix keys: `y` (clipboard) and `d` (delete).
-        // These set `state.pending_nav_key`; the next key resolves the sequence.
-        // We return a special action to signal the prefix.
-        KeyCode::Char('y') => Some(Action::SetPendingNavKey('y')),
-        KeyCode::Char('d') => Some(Action::SetPendingNavKey('d')),
-
-        // Mode transitions
-        KeyCode::Char('/') => Some(Action::EnterSearch),
-        KeyCode::Char(':') => Some(Action::EnterCommand),
-
-        // Quit
-        KeyCode::Char('q') => Some(Action::Quit),
+        KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
+        KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
-
-        // Escape in Navigation Mode is a no-op (nothing to cancel).
         KeyCode::Esc => None,
-
         _ => None,
     }
 }
 
 /// Translates a `KeyEvent` in Search Mode into an `Action`.
 ///
-/// Key binding summary:
-/// - **Printable characters** — appended to the query via `SearchAppendChar`.
-/// - **`Backspace` / `Ctrl-h`** — remove the last character from the query.
-/// - **`j` / `Down`** — move the filtered-list selection down.
-/// - **`k` / `Up`** — move the filtered-list selection up.
-/// - **`Enter` / `l` / `Right`** — confirm: enter a directory or exit Search
-///   Mode for a file (file open is Phase 6).
-/// - **`Esc`** — exit Search Mode, restoring the full, unfiltered listing.
-///
-/// Returns `None` for unbound keys (e.g. modifier-only chords), allowing the
-/// caller to silently swallow them.
-pub fn search(key: KeyEvent) -> Option<Action> {
+/// Printable characters not claimed by the configured search keymap are
+/// appended to the active query.
+pub fn search(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
+    if let Some(action) = configured_search_action(key, keymap) {
+        return Some(action);
+    }
+
     match key.code {
-        // Exit Search Mode, restoring the full unfiltered listing.
         KeyCode::Esc => Some(Action::ExitMode),
-
-        // Confirm the current selection (enter dir or exit mode for files).
-        KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => Some(Action::SearchConfirm),
-
-        // Navigate within the filtered list.
-        KeyCode::Char('j') | KeyCode::Down => Some(Action::SearchMoveDown),
-        KeyCode::Char('k') | KeyCode::Up => Some(Action::SearchMoveUp),
-
-        // Delete the last character from the query.
+        KeyCode::Enter | KeyCode::Right => Some(Action::SearchConfirm),
+        KeyCode::Down => Some(Action::SearchMoveDown),
+        KeyCode::Up => Some(Action::SearchMoveUp),
         KeyCode::Backspace => Some(Action::SearchDeleteChar),
-        // Ctrl-h is the traditional terminal backspace alias.
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::SearchDeleteChar)
         }
-
-        // Append any printable character to the query (no modifier, or Shift
-        // for uppercase — explicitly exclude Ctrl chords so e.g. Ctrl-c is
-        // not treated as a character append).
         KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::SearchAppendChar(ch))
         }
-
         _ => None,
+    }
+}
+
+fn configured_nav_action(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
+    let key_text = key_to_config_string(key)?;
+    nav_action_for_sequence(keymap, &key_text)
+}
+
+fn configured_search_action(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
+    let key_text = key_to_config_string(key)?;
+    keymap.search.iter().find_map(|(name, binding)| {
+        if binding == &key_text {
+            search_action_from_name(name)
+        } else {
+            None
+        }
+    })
+}
+
+fn configured_nav_prefix(key: KeyEvent, keymap: &KeymapConfig) -> Option<char> {
+    let KeyCode::Char(ch) = key.code else {
+        return None;
+    };
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
+    keymap
+        .navigation
+        .values()
+        .any(|binding| binding.len() > ch.len_utf8() && binding.starts_with(ch))
+        .then_some(ch)
+}
+
+fn nav_action_for_sequence(keymap: &KeymapConfig, sequence: &str) -> Option<Action> {
+    keymap.navigation.iter().find_map(|(name, binding)| {
+        if binding == sequence {
+            nav_action_from_name(name)
+        } else {
+            None
+        }
+    })
+}
+
+fn nav_action_from_name(name: &str) -> Option<Action> {
+    match name {
+        "move_down" => Some(Action::MoveDown),
+        "move_up" => Some(Action::MoveUp),
+        "jump_top" => Some(Action::JumpTop),
+        "jump_bottom" => Some(Action::JumpBottom),
+        "enter_or_open" => Some(Action::EnterOrOpen),
+        "go_parent" => Some(Action::GoParent),
+        "history_back" => Some(Action::HistoryBack),
+        "history_forward" => Some(Action::HistoryForward),
+        "refresh" => Some(Action::Refresh),
+        "toggle_hidden" => Some(Action::ToggleHidden),
+        "copy_absolute_path" => Some(Action::CopyAbsPath),
+        "copy_relative_path" => Some(Action::CopyRelPath),
+        "copy_filename" => Some(Action::CopyFilename),
+        "delete" => Some(Action::BeginDelete),
+        "enter_search" => Some(Action::EnterSearch),
+        "enter_command" => Some(Action::EnterCommand),
+        "quit" => Some(Action::Quit),
+        _ => None,
+    }
+}
+
+fn search_action_from_name(name: &str) -> Option<Action> {
+    match name {
+        "exit" => Some(Action::ExitMode),
+        "confirm" => Some(Action::SearchConfirm),
+        "move_down" => Some(Action::SearchMoveDown),
+        "move_up" => Some(Action::SearchMoveUp),
+        "delete_char" => Some(Action::SearchDeleteChar),
+        _ => None,
+    }
+}
+
+fn append_to_sequence(prefix: char, key: KeyEvent) -> Option<String> {
+    let KeyCode::Char(ch) = key.code else {
+        return None;
+    };
+    if key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
+    Some(format!("{prefix}{ch}"))
+}
+
+fn key_to_config_string(key: KeyEvent) -> Option<String> {
+    match key.code {
+        KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(format!("ctrl-{ch}").to_ascii_lowercase())
+        }
+        KeyCode::Char(ch) => Some(ch.to_string()),
+        KeyCode::Enter => Some("enter".to_owned()),
+        KeyCode::Esc => Some("esc".to_owned()),
+        KeyCode::Backspace => Some("backspace".to_owned()),
+        KeyCode::Tab => Some("tab".to_owned()),
+        KeyCode::Left => Some("left".to_owned()),
+        KeyCode::Right => Some("right".to_owned()),
+        KeyCode::Up => Some("up".to_owned()),
+        KeyCode::Down => Some("down".to_owned()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyEventKind, KeyEventState};
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    #[test]
+    fn parses_ctrl_key_binding() {
+        let event = KeyEvent {
+            code: KeyCode::Char('r'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        assert_eq!(key_to_config_string(event), Some("ctrl-r".to_owned()));
+    }
+
+    #[test]
+    fn configured_binding_overrides_default_char() {
+        let mut cfg = crate::config::load(None).unwrap();
+        cfg.keymap
+            .navigation
+            .insert("move_down".to_owned(), "n".to_owned());
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::with_config(dir.path().to_owned(), cfg).unwrap();
+        let mut ctx = InputCtx::default();
+        assert_eq!(
+            navigation(key(KeyCode::Char('n')), &mut ctx, &state),
+            Some(Action::MoveDown)
+        );
     }
 }

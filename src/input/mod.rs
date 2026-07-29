@@ -41,7 +41,7 @@ pub fn dispatch(key: KeyEvent, state: &AppState, ctx: &mut InputCtx) -> Option<A
     match &state.mode {
         Mode::Navigation => keymap::navigation(key, ctx, state),
 
-        Mode::Search { .. } => keymap::search(key),
+        Mode::Search { .. } => keymap::search(key, &state.config.keymap),
 
         Mode::Command { .. } => {
             // Delegate entirely to the command_parser feed path via CommandKey.

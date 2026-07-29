@@ -36,11 +36,11 @@ pub fn write_cwd_file(cwd: &Path, cwd_file_path: &Path) -> io::Result<()> {
 
     #[cfg(windows)]
     {
-        if cwd_str.starts_with(r"\\?\UNC\") {
-            let unc_path = format!(r"\\{}", &cwd_str[8..]);
+        if let Some(stripped) = cwd_str.strip_prefix(r"\\?\UNC\") {
+            let unc_path = format!(r"\\{}", stripped);
             return fs::write(cwd_file_path, unc_path);
-        } else if cwd_str.starts_with(r"\\?\") {
-            return fs::write(cwd_file_path, &cwd_str[4..]);
+        } else if let Some(stripped) = cwd_str.strip_prefix(r"\\?\") {
+            return fs::write(cwd_file_path, stripped);
         }
     }
 

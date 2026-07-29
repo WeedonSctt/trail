@@ -6,9 +6,8 @@
 //!
 //! # Debounce
 //!
-//! Default quiet window: 200 ms (`DEFAULT_DEBOUNCE_MS`). This value matches
-//! the implementation plan's decision log. Phase 7 will expose it as a
-//! config key (`fs_watch_debounce_ms`).
+//! Default quiet window: 200 ms (`DEFAULT_DEBOUNCE_MS`). Phase 7 exposes the
+//! runtime value as `general.fs_watch_debounce_ms`.
 //!
 //! # Re-subscription
 //!
@@ -28,11 +27,6 @@ use tokio::time;
 use crate::workers::WorkerMsg;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-/// Default quiet-window for debouncing filesystem events (milliseconds).
-///
-/// Phase 7 will move this into the config schema as `fs_watch_debounce_ms`.
-pub const DEFAULT_DEBOUNCE_MS: u64 = 200;
 
 // ── FsWatchHandle ─────────────────────────────────────────────────────────────
 

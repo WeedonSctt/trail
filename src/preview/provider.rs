@@ -144,6 +144,8 @@ pub struct PreviewCtx {
     /// Async providers tag their `WorkerMsg` with this value; `workers::merge`
     /// drops results whose generation no longer matches `state.preview.generation`.
     pub generation: u64,
+    /// Maximum file size to preview synchronously on the UI thread.
+    pub text_sync_threshold_bytes: usize,
 }
 
 // ── PreviewProvider trait ─────────────────────────────────────────────────────

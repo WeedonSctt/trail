@@ -454,6 +454,6 @@ Bugs in either invariant tend to show up as intermittent UI staleness that's har
 - [ ] **Phase 4 — Async Worker Pool** — git status + external-change refresh, both non-blocking
 - [ ] **Phase 5 — Rich Previews** — all four `PreviewProvider`s implemented and registered
 - [ ] **Phase 6 — Shell Integration** — `cd`-on-exit verified in bash, zsh, and fish
-- [ ] **Phase 7 — Config & Keymap** — keys and theme rebindable without a rebuild
+- [x] **Phase 7 — Config & Keymap** — keys and theme rebindable without a rebuild
 - [ ] **Phase 8 — Extensibility** — one working example plugin; bookmarks persist across sessions
 - [ ] **Phase 9 — Packaging & Distribution** — fresh install verified on every platform/channel

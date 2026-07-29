@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::state::{AppState, EntryKind, GitFileStatus};
+use crate::ui::theme;
 
 /// Draws the navigation panel into `area`.
 ///
@@ -31,6 +32,7 @@ use crate::app::state::{AppState, EntryKind, GitFileStatus};
 /// - `?` (DarkGray) — untracked
 /// - `R` (cyan) — renamed
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+    let styles = theme::resolve(&state.config.theme);
     let title = format!(" {} ", state.cwd.display());
 
     let items: Vec<ListItem> = state
@@ -38,27 +40,25 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         .map(|(_, entry)| {
             let base_style = match entry.kind {
                 EntryKind::Dir => {
-                    let s = Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD);
+                    let s = styles.directory;
                     if entry.is_hidden {
-                        s.add_modifier(Modifier::DIM)
+                        s.patch(styles.hidden)
                     } else {
                         s
                     }
                 }
                 EntryKind::Symlink => {
-                    let s = Style::default().fg(Color::Cyan);
+                    let s = styles.symlink;
                     if entry.is_hidden {
-                        s.add_modifier(Modifier::DIM)
+                        s.patch(styles.hidden)
                     } else {
                         s
                     }
                 }
                 EntryKind::File => {
-                    let s = Style::default();
+                    let s = styles.normal;
                     if entry.is_hidden {
-                        s.add_modifier(Modifier::DIM)
+                        s.patch(styles.hidden)
                     } else {
                         s
                     }
@@ -74,18 +74,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
             // Build git badge span (empty when no status is known).
             let git_span = match &entry.git_status {
-                Some(GitFileStatus::Modified) => Some(Span::styled(
-                    " M",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                )),
-                Some(GitFileStatus::Added) => Some(Span::styled(
-                    " A",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                )),
+                Some(GitFileStatus::Modified) => Some(Span::styled(" M", styles.git_dirty)),
+                Some(GitFileStatus::Added) => Some(Span::styled(" A", styles.git_clean)),
                 Some(GitFileStatus::Deleted) => Some(Span::styled(
                     " D",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
@@ -111,15 +101,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
+        .border_style(styles.border)
         .border_type(BorderType::Rounded);
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
+        .highlight_style(styles.selection)
         .highlight_symbol("> ");
 
     // Drive the list widget's selection via ListState.

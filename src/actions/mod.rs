@@ -133,7 +133,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         // apply() is synchronous and run_external manipulates
                         // the terminal. Instead we store the RunExternal action
                         // in state so the event loop can execute it.
-                        let editor = shell_exec::resolve_editor();
+                        let editor = state.config.general.editor.clone();
                         state.pending_external = Some(Action::RunExternal {
                             argv: vec![editor, entry.path.display().to_string()],
                             cwd: state.cwd.clone(),
@@ -248,7 +248,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         // Phase 6: open in editor via the RunExternal mechanism.
                         state.mode = Mode::Navigation;
                         state.filter = None;
-                        let editor = shell_exec::resolve_editor();
+                        let editor = state.config.general.editor.clone();
                         state.pending_external = Some(Action::RunExternal {
                             argv: vec![editor, entry.path.display().to_string()],
                             cwd: state.cwd.clone(),
@@ -561,13 +561,16 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             state.dirty = true;
         }
 
-        ParsedCommand::Set { key, value: _ } => {
-            // TODO(phase-7): Wire to config schema.
-            state.error_message = Some(format!(
-                ":set {key} — config schema not yet active (Phase 7)"
-            ));
-            state.dirty = true;
-        }
+        ParsedCommand::Set { key, value } => match state.config.set_value(&key, &value) {
+            Ok(()) => {
+                state.error_message = None;
+                state.dirty = true;
+            }
+            Err(e) => {
+                state.error_message = Some(format!("set: {e}"));
+                state.dirty = true;
+            }
+        },
 
         ParsedCommand::Shell(cmd_str) => {
             // Phase 6: run via shell_exec::run_external through the event loop.

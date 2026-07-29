@@ -21,9 +21,7 @@ pub struct Cli {
     /// Path to a TOML configuration file.
     ///
     /// Overrides the default config location. If omitted, Trail uses
-    /// built-in defaults (and, once Phase 7 lands, the platform-standard
-    /// config directory).
-    // TODO(phase-7): Consumed by config loading at startup.
+    /// built-in defaults.
     #[arg(long)]
     pub config: Option<PathBuf>,
 

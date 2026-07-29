@@ -1,10 +1,52 @@
-# Trail — default configuration.
-#
-# Shipped defaults — all values here are overridable by the user's config file.
-# TODO(phase-7): Populate with the full default config schema.
+# Trail default configuration.
 
 [general]
-# editor = "$EDITOR"
-# text_sync_threshold_kb = 256
-# git_status_enabled = true
-# fs_watch_debounce_ms = 200
+editor = "vi"
+text_sync_threshold_kb = 256
+git_status_enabled = true
+fs_watch_debounce_ms = 200
+
+[theme]
+foreground = "white"
+background = "black"
+border = "dark_gray"
+selection_fg = "black"
+selection_bg = "dark_gray"
+directory = "blue"
+symlink = "cyan"
+hidden = "dark_gray"
+status_fg = "dark_gray"
+error = "red"
+search = "yellow"
+command = "cyan"
+git_clean = "green"
+git_dirty = "yellow"
+
+[keymap.navigation]
+move_down = "j"
+move_up = "k"
+jump_bottom = "G"
+jump_top = "gg"
+enter_or_open = "l"
+go_parent = "h"
+history_back = "u"
+history_forward = "ctrl-r"
+refresh = "R"
+toggle_hidden = "."
+copy_absolute_path = "ya"
+copy_relative_path = "yr"
+copy_filename = "yn"
+delete = "dd"
+enter_search = "/"
+enter_command = ":"
+quit = "q"
+
+[keymap.search]
+exit = "esc"
+confirm = "enter"
+move_down = "j"
+move_up = "k"
+delete_char = "backspace"
+
+[plugins]
+enabled = []

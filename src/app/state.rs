@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use crate::app::history::NavigationHistory;
 use crate::app::mode::Mode;
+use crate::config::TrailConfig;
 use crate::input::command_parser::{CommandHistory, TabState};
 use crate::preview::provider::PreviewContent;
 
@@ -31,6 +32,9 @@ pub enum StateError {
     /// A filesystem mutation (rename/move/delete/etc.) failed.
     #[error("filesystem error: {0}")]
     FsOp(#[from] crate::actions::fs_ops::FsError),
+    /// Built-in configuration failed to load.
+    #[error("config error: {0}")]
+    Config(#[from] crate::config::ConfigError),
 }
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
@@ -195,6 +199,8 @@ pub struct StatusBarState {
 /// redraw. Every render clears `dirty`.
 #[derive(Debug)]
 pub struct AppState {
+    /// Runtime configuration loaded from defaults plus any user TOML file.
+    pub config: TrailConfig,
     /// Current working directory being displayed.
     pub cwd: PathBuf,
     /// Directory-first sorted listing of the current directory.
@@ -267,10 +273,23 @@ impl AppState {
     /// # Errors
     ///
     /// Returns [`StateError::ReadDir`] if the initial directory listing fails.
+    // clippy: dead_code — used heavily by integration tests in `tests/`
+    #[allow(dead_code)]
     pub fn new(start_path: PathBuf) -> Result<Self, StateError> {
+        let config = crate::config::load(None)?;
+        Self::with_config(start_path, config)
+    }
+
+    /// Creates a new `AppState` rooted at `start_path` using `config`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the initial directory listing fails.
+    pub fn with_config(start_path: PathBuf, config: TrailConfig) -> Result<Self, StateError> {
         let cwd = start_path.canonicalize().unwrap_or(start_path);
 
         let mut state = AppState {
+            config,
             cwd: cwd.clone(),
             entries: Vec::new(),
             selected: 0,

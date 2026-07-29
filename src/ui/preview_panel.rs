@@ -5,13 +5,14 @@
 //! (`Highlighted`), binary metadata (`Binary`), and image metadata rendering.
 
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app::state::AppState;
 use crate::preview::provider::PreviewContent;
+use crate::ui::theme;
 
 /// Draws the preview panel into `area`.
 ///
@@ -23,6 +24,7 @@ use crate::preview::provider::PreviewContent;
 /// - `Binary`      → metadata lines for binary or image files.
 /// - `Directory`   → summary header and child entry names.
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+    let styles = theme::resolve(&state.config.theme);
     let title = if let Some(entry) = state.selected_entry() {
         format!(" {} ", entry.file_name)
     } else {
@@ -32,6 +34,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
+        .border_style(styles.border)
         .border_type(BorderType::Rounded);
 
     match &state.preview.content {
@@ -43,7 +46,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             let p = Paragraph::new("Loading…")
                 .style(
                     Style::default()
-                        .fg(Color::DarkGray)
+                        .fg(theme::parse_color(&state.config.theme.hidden))
                         .add_modifier(Modifier::ITALIC),
                 )
                 .block(block);
@@ -57,10 +60,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
                     // Split into line-number prefix and content for styling.
                     if let Some((num_part, rest)) = l.split_once("  ") {
                         Line::from(vec![
-                            Span::styled(
-                                format!("{num_part}  "),
-                                Style::default().fg(Color::DarkGray),
-                            ),
+                            Span::styled(format!("{num_part}  "), styles.status),
                             Span::raw(rest.to_owned()),
                         ])
                     } else {
@@ -84,10 +84,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
                     let mut ratatui_spans = Vec::with_capacity(spans.len() + 1);
 
                     // Line number prefix (same style as plain-text path).
-                    ratatui_spans.push(Span::styled(
-                        format!("{:>4}  ", idx + 1),
-                        Style::default().fg(Color::DarkGray),
-                    ));
+                    ratatui_spans.push(Span::styled(format!("{:>4}  ", idx + 1), styles.status));
 
                     // Highlighted spans from syntect.
                     for s in spans {
@@ -120,17 +117,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
                         Line::from(vec![
                             Span::styled(
                                 format!("{label}:"),
-                                Style::default()
-                                    .fg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD),
+                                styles.command.add_modifier(Modifier::BOLD),
                             ),
                             Span::raw(value.to_owned()),
                         ])
                     } else {
-                        Line::from(Span::styled(
-                            l.as_str(),
-                            Style::default().fg(Color::DarkGray),
-                        ))
+                        Line::from(Span::styled(l.as_str(), styles.status))
                     }
                 })
                 .collect();
@@ -149,20 +141,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
             // Summary header.
             lines.push(Line::from(vec![
-                Span::styled(
-                    format!("{dir_count}"),
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled(format!("{dir_count}"), styles.directory),
                 Span::raw(" dirs, "),
-                Span::styled(format!("{file_count}"), Style::default().fg(Color::Green)),
+                Span::styled(format!("{file_count}"), styles.git_clean),
                 Span::raw(" files"),
                 if *hidden_count > 0 {
-                    Span::styled(
-                        format!(", {hidden_count} hidden"),
-                        Style::default().fg(Color::DarkGray),
-                    )
+                    Span::styled(format!(", {hidden_count} hidden"), styles.status)
                 } else {
                     Span::raw("")
                 },
@@ -171,9 +155,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
             for name in entries {
                 let style = if name.ends_with('/') {
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::BOLD)
+                    styles.directory
                 } else {
                     Style::default()
                 };
