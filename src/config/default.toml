@@ -40,6 +40,10 @@ delete = "dd"
 enter_search = "/"
 enter_command = ":"
 quit = "q"
+new_tab = "ctrl-t"
+close_tab = "ctrl-w"
+switch_tab_next = "tab"
+switch_tab_prev = "shift-tab"
 
 [keymap.search]
 exit = "esc"

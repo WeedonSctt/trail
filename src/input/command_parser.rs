@@ -46,6 +46,11 @@ pub enum ParsedCommand {
     Set { key: String, value: String },
     /// Execute an arbitrary shell command string.
     Shell(String),
+    /// Add a bookmark: `:bookmark <name>` saves `cwd` under `name`.
+    /// If `name` is empty the current directory base-name is used.
+    Bookmark(String),
+    /// Jump to a previously saved bookmark: `:jump <name>`.
+    Jump(String),
 }
 
 // ── Parse error ────────────────────────────────────────────────────────────────
@@ -54,7 +59,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :bookmark, :jump")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -187,6 +192,27 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             })
         }
 
+        "bookmark" | "bm" => {
+            // :bookmark [name] — name is optional; empty string means
+            // "use the cwd base-name" (resolved at execution time).
+            let name = rest.trim().to_owned();
+            if name.contains('/') || name.contains('\\') {
+                return Err(ParseError::InvalidArgument(
+                    "bookmark: name must not contain path separators".to_owned(),
+                ));
+            }
+            Ok(ParsedCommand::Bookmark(name))
+        }
+
+        "jump" | "j" => {
+            // :jump <name> — name is required.
+            let name = rest.trim();
+            if name.is_empty() {
+                return Err(ParseError::MissingArgument("jump".to_owned()));
+            }
+            Ok(ParsedCommand::Jump(name.to_owned()))
+        }
+
         other => Err(ParseError::UnknownVerb(other.to_owned())),
     }
 }
@@ -216,7 +242,9 @@ pub fn completions(buffer: &str, cwd: &Path, is_shell: bool) -> Vec<String> {
     // If there's no space yet, complete the verb.
     if !trimmed.contains(' ') {
         let prefix = trimmed;
-        let verbs = ["mkdir", "touch", "rename", "mv", "cp", "git", "set"];
+        let verbs = [
+            "mkdir", "touch", "rename", "mv", "cp", "git", "set", "bookmark", "jump",
+        ];
         return verbs
             .iter()
             .filter(|v| v.starts_with(prefix))
@@ -781,7 +809,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let candidates = completions("", dir.path(), false);
         // All seven verbs should be present.
-        assert_eq!(candidates.len(), 7);
+        assert_eq!(candidates.len(), 9);
     }
 
     #[test]

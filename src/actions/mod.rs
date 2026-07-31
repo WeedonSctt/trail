@@ -101,6 +101,16 @@ pub enum Action {
     // ── Quit ─────────────────────────────────────────────────────────────
     /// Quit the application normally (writes `--cwd-file` in Phase 6).
     Quit,
+
+    // ── Tab management (Phase 8) ──────────────────────────────────────
+    /// Open a new tab rooted at the current working directory.
+    NewTab,
+    /// Close the currently active tab. No-op if only one tab is open.
+    CloseTab,
+    /// Switch focus to the next tab, wrapping from the last to the first.
+    SwitchTabNext,
+    /// Switch focus to the previous tab, wrapping from the first to the last.
+    SwitchTabPrev,
 }
 
 /// Applies `action` to `state`, returning an error if a filesystem operation
@@ -478,6 +488,28 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             // Handled by the event loop checking the return value of dispatch;
             // nothing to do here at the state level.
         }
+
+        // ── Tab management (Phase 8) ──────────────────────────────────────────
+        Action::NewTab => {
+            state.open_tab(None)?;
+            state.dirty = true;
+        }
+
+        Action::CloseTab => {
+            // close_tab returns false when only one tab remains; ignore.
+            let _ = state.close_tab()?;
+            state.dirty = true;
+        }
+
+        Action::SwitchTabNext => {
+            state.switch_tab_next()?;
+            state.dirty = true;
+        }
+
+        Action::SwitchTabPrev => {
+            state.switch_tab_prev()?;
+            state.dirty = true;
+        }
     }
     Ok(())
 }
@@ -588,6 +620,44 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 state.dirty = true;
             }
         }
+
+        ParsedCommand::Bookmark(name) => {
+            // Use the supplied name, or fall back to the cwd base-name.
+            let bookmark_name = if name.is_empty() {
+                state
+                    .cwd
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("bookmark")
+                    .to_owned()
+            } else {
+                name
+            };
+            match state.bookmark_add(bookmark_name.clone()) {
+                Ok(()) => {
+                    state.error_message = Some(format!("bookmark added: {bookmark_name}"));
+                    state.dirty = true;
+                }
+                Err(e) => {
+                    state.error_message = Some(format!("bookmark: {e}"));
+                    state.dirty = true;
+                }
+            }
+        }
+
+        ParsedCommand::Jump(name) => match state.bookmark_jump(&name) {
+            Ok(true) => {
+                state.error_message = None;
+            }
+            Ok(false) => {
+                state.error_message = Some(format!("bookmark '{name}' not found"));
+                state.dirty = true;
+            }
+            Err(e) => {
+                state.error_message = Some(format!("jump: {e}"));
+                state.dirty = true;
+            }
+        },
     }
 
     Ok(())

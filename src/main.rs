@@ -1,4 +1,4 @@
-//! Trail — a terminal file manager.
+﻿//! Trail — a terminal file manager.
 //!
 //! Entry point: parses CLI arguments, initializes the terminal in raw mode
 //! with an alternate screen, installs a panic hook that restores the terminal,
@@ -87,6 +87,33 @@ async fn main() -> Result<()> {
     let mut state = AppState::with_config(cli.start_path, config)
         .map_err(|e| anyhow::anyhow!("failed to open start directory: {e}"))?;
 
+    // Phase 8: Initialize data directory and plugins
+    let data_dir = directories::ProjectDirs::from("", "", "trail")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        tracing::debug!("failed to create data dir: {e}");
+    }
+
+    state.bookmark_store =
+        match plugin::bookmarks::BookmarkStore::open(data_dir.join("bookmarks.toml")) {
+            Ok(store) => Some(store),
+            Err(e) => {
+                tracing::debug!("failed to load bookmarks: {e}");
+                None
+            }
+        };
+
+    state.recent_dirs = session::RecentDirs::load(&data_dir.join("recent_dirs.toml"));
+    state.recent_dirs.visit(state.cwd.clone());
+
+    let mut engine = plugin::PluginEngine::new()
+        .map_err(|e| anyhow::anyhow!("failed to init plugin engine: {e}"))?;
+
+    plugin::load_enabled_plugins(&mut engine, &state.config.plugins.enabled);
+    state.plugin_engine = Some(engine);
+
     // Build the preview registry once at startup. All providers are registered
     // here; the main loop calls registry.preview_for on every selection change.
     let mut registry = PreviewRegistry::new();
@@ -153,6 +180,11 @@ async fn main() -> Result<()> {
                 tracing::debug!("failed to write cwd-file: {e}");
             }
         }
+
+        let data_dir = directories::ProjectDirs::from("", "", "trail")
+            .map(|dirs| dirs.data_dir().to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
     }
 
     run_result
@@ -170,6 +202,9 @@ fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::
     state.preview.generation = state.preview.generation.wrapping_add(1);
 
     if let Some(entry) = state.selected_entry().cloned() {
+        if let Some(engine) = &state.plugin_engine {
+            engine.fire_on_select(&entry.path);
+        }
         state.preview.for_path = entry.path.clone();
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,

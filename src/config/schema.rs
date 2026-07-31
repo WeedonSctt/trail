@@ -359,6 +359,10 @@ const NAV_ACTIONS: &[&str] = &[
     "enter_search",
     "enter_command",
     "quit",
+    "new_tab",
+    "close_tab",
+    "switch_tab_next",
+    "switch_tab_prev",
 ];
 
 const SEARCH_ACTIONS: &[&str] = &["exit", "confirm", "move_down", "move_up", "delete_char"];

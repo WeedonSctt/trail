@@ -13,8 +13,10 @@ use thiserror::Error;
 
 use crate::app::history::NavigationHistory;
 use crate::app::mode::Mode;
+use crate::app::tabs::TabManager;
 use crate::config::TrailConfig;
 use crate::input::command_parser::{CommandHistory, TabState};
+use crate::plugin::bookmarks::{BookmarkError, BookmarkStore};
 use crate::preview::provider::PreviewContent;
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -262,6 +264,26 @@ pub struct AppState {
     /// redraw. Using a state field rather than a channel keeps `apply()`
     /// synchronous and testable without a running terminal.
     pub pending_external: Option<crate::actions::Action>,
+
+    // ── Phase 8 tab management ─────────────────────────────────────────────────
+    /// Multi-tab state manager.
+    ///
+    /// The active tab's `cwd`/`entries`/`selected`/`history` are kept in sync
+    /// with the flat `AppState` fields so all existing code continues to work
+    /// unchanged. On a tab switch the active state is written to the old tab
+    /// slot and read from the new one.
+    pub tab_manager: TabManager,
+
+    // -- Phase 8 bookmark store --------------------------------------------------
+    /// Persisted named-path bookmark registry.
+    ///
+    /// None before startup initialization. Bookmark operations silently
+    /// degrade when None (e.g. data directory unavailable).
+    pub bookmark_store: Option<BookmarkStore>,
+    /// Phase 8 plugin engine for firing hooks on navigation.
+    pub plugin_engine: Option<crate::plugin::PluginEngine>,
+    /// Recent directories tracker.
+    pub recent_dirs: crate::session::RecentDirs,
 }
 
 impl AppState {
@@ -309,6 +331,10 @@ impl AppState {
             tab_state: TabState::new(),
             pending_nav_key: None,
             pending_external: None,
+            tab_manager: TabManager::new(cwd.clone()),
+            bookmark_store: None,
+            plugin_engine: None,
+            recent_dirs: crate::session::RecentDirs::default(),
         };
 
         state.load_dir(&cwd)?;
@@ -511,8 +537,16 @@ impl AppState {
         self.selection_memory
             .insert(self.cwd.clone(), self.selected);
         self.history.push(self.cwd.clone());
-        self.cwd = path;
-        self.load_dir(&self.cwd.clone())
+        self.cwd = path.clone();
+
+        let res = self.load_dir(&self.cwd.clone());
+
+        self.recent_dirs.visit(path.clone());
+        if let Some(engine) = &self.plugin_engine {
+            engine.fire_on_enter_dir(&path);
+        }
+
+        res
     }
 
     /// Navigates to the parent directory, if one exists.
@@ -657,6 +691,160 @@ impl AppState {
     fn update_status(&mut self) {
         self.status.cwd_display = self.cwd.display().to_string();
         self.status.entry_count = self.visible_count();
+    }
+
+    // -- Tab management -------------------------------------------------------
+
+    /// Saves the current flat state into the active tab slot before switching.
+    fn save_to_active_tab(&mut self) {
+        let tab = self.tab_manager.active_tab_mut();
+        tab.cwd = self.cwd.clone();
+        tab.entries = self.entries.clone();
+        tab.selected = self.selected;
+        std::mem::swap(&mut tab.history, &mut self.history);
+    }
+
+    /// Restores the flat state from the active tab slot after switching.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the restored `cwd` can no longer be listed.
+    pub fn restore_from_active_tab(&mut self) -> Result<(), StateError> {
+        let tab = self.tab_manager.active_tab_mut();
+        let new_cwd = tab.cwd.clone();
+        let new_selected = tab.selected;
+        std::mem::swap(&mut tab.history, &mut self.history);
+        self.cwd = new_cwd.clone();
+        self.selected = new_selected;
+        self.git = None;
+        self.filter = None;
+        self.preview = PreviewSlot::default();
+        self.mode = Mode::Navigation;
+        self.load_dir(&new_cwd)?;
+        Ok(())
+    }
+
+    /// Opens a new tab rooted at `cwd` (or the current directory when `None`).
+    ///
+    /// Saves the current tab's state before switching.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the new tab's directory cannot be listed.
+    pub fn open_tab(&mut self, cwd: Option<PathBuf>) -> Result<(), StateError> {
+        let new_cwd = cwd.unwrap_or_else(|| self.cwd.clone());
+        self.save_to_active_tab();
+        self.tab_manager.open_tab(new_cwd.clone());
+        self.cwd = new_cwd.clone();
+        self.selected = 0;
+        self.git = None;
+        self.filter = None;
+        self.preview = PreviewSlot::default();
+        self.mode = Mode::Navigation;
+        self.history = NavigationHistory::new();
+        self.load_dir(&new_cwd)?;
+        Ok(())
+    }
+
+    /// Closes the active tab and restores the adjacent tab's state.
+    ///
+    /// Returns `false` when only one tab is open (close refused).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the revealed tab's directory cannot be listed.
+    pub fn close_tab(&mut self) -> Result<bool, StateError> {
+        if !self.tab_manager.close_active_tab() {
+            return Ok(false);
+        }
+        let tab = self.tab_manager.active_tab_mut();
+        let new_cwd = tab.cwd.clone();
+        let new_selected = tab.selected;
+        std::mem::swap(&mut tab.history, &mut self.history);
+        self.cwd = new_cwd.clone();
+        self.selected = new_selected;
+        self.git = None;
+        self.filter = None;
+        self.preview = PreviewSlot::default();
+        self.mode = Mode::Navigation;
+        self.load_dir(&new_cwd)?;
+        Ok(true)
+    }
+
+    /// Switches to the next tab (wraps), restoring its state.
+    ///
+    /// No-op when only one tab is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the target tab's directory cannot be listed.
+    pub fn switch_tab_next(&mut self) -> Result<(), StateError> {
+        if self.tab_manager.is_single() {
+            return Ok(());
+        }
+        self.save_to_active_tab();
+        self.tab_manager.switch_next();
+        self.restore_from_active_tab()
+    }
+
+    /// Switches to the previous tab (wraps), restoring its state.
+    ///
+    /// No-op when only one tab is open.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the target tab's directory cannot be listed.
+    pub fn switch_tab_prev(&mut self) -> Result<(), StateError> {
+        if self.tab_manager.is_single() {
+            return Ok(());
+        }
+        self.save_to_active_tab();
+        self.tab_manager.switch_prev();
+        self.restore_from_active_tab()
+    }
+
+    // -- Bookmark management --------------------------------------------------
+
+    /// Adds a bookmark named `name` pointing to the current directory.
+    ///
+    /// No-op (logs at debug) when the bookmark store is not initialized.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BookmarkError`] if the store cannot be persisted.
+    pub fn bookmark_add(&mut self, name: String) -> Result<(), BookmarkError> {
+        let cwd = self.cwd.clone();
+        if let Some(store) = &mut self.bookmark_store {
+            store.add(name, cwd)?;
+        } else {
+            tracing::debug!("bookmark_add: store not initialized");
+        }
+        Ok(())
+    }
+
+    /// Navigates to the bookmark named `name`.
+    ///
+    /// Returns `Ok(true)` if the bookmark existed and navigation succeeded,
+    /// `Ok(false)` if no bookmark with that name exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError`] if the bookmarked directory cannot be listed.
+    pub fn bookmark_jump(&mut self, name: &str) -> Result<bool, StateError> {
+        let target = match &self.bookmark_store {
+            Some(store) => store.get(name).map(|p| p.to_owned()),
+            None => {
+                tracing::debug!("bookmark_jump: store not initialized");
+                return Ok(false);
+            }
+        };
+        match target {
+            Some(path) => {
+                self.enter_dir(path)?;
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     }
 }
 

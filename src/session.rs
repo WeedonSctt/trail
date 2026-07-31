@@ -12,7 +12,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Writes `cwd` as a UTF-8 string to `cwd_file_path`.
 ///
@@ -92,5 +92,43 @@ mod tests {
         write_cwd_file(&cwd, &out).expect("write_cwd_file");
         let contents = std::fs::read_to_string(&out).expect("read");
         assert_eq!(contents, r"\\server\share");
+    }
+}
+
+use serde::{Deserialize, Serialize};
+
+/// Maximum number of recent directories to keep.
+const MAX_RECENT_DIRS: usize = 50;
+
+/// Persisted recent directories store.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct RecentDirs {
+    /// List of paths, most recent first.
+    pub paths: Vec<PathBuf>,
+}
+
+impl RecentDirs {
+    /// Loads the recent directories from `file_path`.
+    pub fn load(file_path: &Path) -> Self {
+        if let Ok(content) = fs::read_to_string(file_path) {
+            if let Ok(recent) = toml::from_str(&content) {
+                return recent;
+            }
+        }
+        Self::default()
+    }
+
+    /// Saves the recent directories to `file_path`.
+    pub fn save(&self, file_path: &Path) {
+        if let Ok(content) = toml::to_string_pretty(self) {
+            let _ = fs::write(file_path, content);
+        }
+    }
+
+    /// Records a new visit to `path`, bringing it to the top.
+    pub fn visit(&mut self, path: PathBuf) {
+        self.paths.retain(|p| p != &path);
+        self.paths.insert(0, path);
+        self.paths.truncate(MAX_RECENT_DIRS);
     }
 }

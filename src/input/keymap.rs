@@ -58,6 +58,14 @@ pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option
         KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
         KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
+        // Phase 8: tab management built-in fallbacks.
+        // These fire when not overridden by a configured keymap binding.
+        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::NewTab),
+        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::CloseTab)
+        }
+        KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::SwitchTabPrev),
+        KeyCode::Tab => Some(Action::SwitchTabNext),
         KeyCode::Esc => None,
         _ => None,
     }
@@ -147,6 +155,11 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
         "quit" => Some(Action::Quit),
+        // Phase 8: tab management.
+        "new_tab" => Some(Action::NewTab),
+        "close_tab" => Some(Action::CloseTab),
+        "switch_tab_next" => Some(Action::SwitchTabNext),
+        "switch_tab_prev" => Some(Action::SwitchTabPrev),
         _ => None,
     }
 }

@@ -1,4 +1,4 @@
-//! Integration tests for the Command Mode grammar, validation, history, and
+﻿//! Integration tests for the Command Mode grammar, validation, history, and
 //! completion (Phase 3).
 //!
 //! These tests exercise the public API of `trail::input::command_parser`
@@ -155,8 +155,8 @@ fn verb_completion_all_verbs_when_empty() {
     let candidates = completions("", dir.path(), false);
     assert_eq!(
         candidates.len(),
-        7,
-        "all 7 verbs should be returned for empty prefix; got {candidates:?}"
+        9,
+        "all 9 verbs should be returned for empty prefix; got {candidates:?}"
     );
 }
 
