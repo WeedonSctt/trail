@@ -56,11 +56,14 @@ clap = { version = "4", features = ["derive"] }
 # --- Paths (config dir, cache dir) ---
 directories = "5"
 
+# --- Clipboard ---
+arboard = "3"
+
 # --- Error handling & logging ---
 anyhow = "1"
 thiserror = "1"             # typed errors for library-shaped modules (coding-standard §4)
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"   # log to a file, since stdout/stderr belong to the TUI
 futures = "0.3"            # StreamExt for crossterm EventStream in the async event loop
 

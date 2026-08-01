@@ -16,6 +16,7 @@ use tempfile::TempDir;
 use trail::app::state::AppState;
 use trail::preview;
 use trail::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
+use trail::workers::WorkerMsg;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -36,13 +37,13 @@ fn make_fixture_dir() -> TempDir {
 
 /// Initialises state, runs the preview registry, then renders into a
 /// `TestBackend` of `width × height` and returns the buffer content as a string.
-fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
+async fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
     let mut registry = PreviewRegistry::new();
     preview::register_defaults(&mut registry);
 
     // Compute preview for the current selection.
     if let Some(entry) = state.selected_entry().cloned() {
-        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,
             worker_tx: tx,
@@ -51,7 +52,15 @@ fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
         };
         let content = match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(c) => c,
-            PreviewOutcome::Deferred => PreviewContent::Loading,
+            PreviewOutcome::Deferred => {
+                if let Ok(Some(WorkerMsg::Preview { content, .. })) =
+                    tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await
+                {
+                    content
+                } else {
+                    PreviewContent::Loading
+                }
+            }
         };
         state.preview.content = content;
         state.preview.for_path = entry.path.clone();
@@ -78,11 +87,11 @@ fn render_to_string(state: &mut AppState, width: u16, height: u16) -> String {
 
 /// Navigation Mode with a two-entry directory: the nav panel should list both
 /// entries (dir first, then file), and the status bar should show "NORMAL".
-#[test]
-fn navigation_mode_renders_listing() {
+#[tokio::test]
+async fn navigation_mode_renders_listing() {
     let dir = make_fixture_dir();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
-    let rendered = render_to_string(&mut state, 80, 24);
+    let rendered = render_to_string(&mut state, 80, 24).await;
 
     assert!(
         !rendered.trim().is_empty(),
@@ -110,14 +119,14 @@ fn navigation_mode_renders_listing() {
 
 /// When the selected entry is a directory, the preview panel should show the
 /// directory summary (counts), not text content.
-#[test]
-fn directory_preview_shown_for_dir_selection() {
+#[tokio::test]
+async fn directory_preview_shown_for_dir_selection() {
     let dir = make_fixture_dir();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
     // Selection starts at 0 → alpha_dir (a directory).
     assert_eq!(state.selected, 0);
 
-    let rendered = render_to_string(&mut state, 100, 30);
+    let rendered = render_to_string(&mut state, 100, 30).await;
 
     // Directory preview should show "dirs" or "files" summary text.
     assert!(
@@ -128,15 +137,15 @@ fn directory_preview_shown_for_dir_selection() {
 
 /// When the selected entry is a text file, the preview panel should show the
 /// file content with line numbers.
-#[test]
-fn text_preview_shown_for_file_selection() {
+#[tokio::test]
+async fn text_preview_shown_for_file_selection() {
     let dir = make_fixture_dir();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
     // Move to b_file.txt (index 1, after alpha_dir).
     state.move_down();
     assert_eq!(state.selected, 1);
 
-    let rendered = render_to_string(&mut state, 100, 30);
+    let rendered = render_to_string(&mut state, 100, 30).await;
 
     // The text preview should contain the file contents.
     assert!(
@@ -152,14 +161,14 @@ fn text_preview_shown_for_file_selection() {
 
 /// After navigating into a subdirectory, the nav panel title and status bar
 /// must reflect the new cwd.
-#[test]
-fn entering_dir_updates_cwd_display() {
+#[tokio::test]
+async fn entering_dir_updates_cwd_display() {
     let dir = make_fixture_dir();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
     let subdir = dir.path().join("alpha_dir");
     state.enter_dir(subdir).unwrap();
 
-    let rendered = render_to_string(&mut state, 300, 30);
+    let rendered = render_to_string(&mut state, 300, 30).await;
 
     assert!(
         rendered.contains("alpha_dir"),
@@ -169,8 +178,8 @@ fn entering_dir_updates_cwd_display() {
 
 /// Hidden files are not visible by default; toggling show_hidden causes
 /// them to appear.
-#[test]
-fn hidden_files_visible_after_toggle() {
+#[tokio::test]
+async fn hidden_files_visible_after_toggle() {
     let dir = make_fixture_dir();
     // Add a hidden file.
     fs::write(dir.path().join(".secret"), b"").unwrap();
@@ -178,7 +187,7 @@ fn hidden_files_visible_after_toggle() {
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
 
     // Hidden file should NOT appear before toggle.
-    let before = render_to_string(&mut state, 100, 30);
+    let before = render_to_string(&mut state, 100, 30).await;
     assert!(
         !before.contains(".secret"),
         "hidden file must not appear before toggle_hidden"
@@ -186,7 +195,7 @@ fn hidden_files_visible_after_toggle() {
 
     // Toggle hidden files on.
     state.toggle_hidden().unwrap();
-    let after = render_to_string(&mut state, 100, 30);
+    let after = render_to_string(&mut state, 100, 30).await;
     assert!(
         after.contains(".secret"),
         "hidden file must appear after toggle_hidden"
@@ -194,12 +203,12 @@ fn hidden_files_visible_after_toggle() {
 }
 
 /// Entry count in the status bar must match visible_count().
-#[test]
-fn status_bar_shows_entry_count() {
+#[tokio::test]
+async fn status_bar_shows_entry_count() {
     let dir = make_fixture_dir();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
     let count = state.visible_count();
-    let rendered = render_to_string(&mut state, 100, 30);
+    let rendered = render_to_string(&mut state, 100, 30).await;
 
     assert!(
         rendered.contains(&count.to_string()),

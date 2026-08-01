@@ -1,4 +1,4 @@
-﻿//! Trail — a terminal file manager.
+//! Trail — a terminal file manager.
 //!
 //! Entry point: parses CLI arguments, initializes the terminal in raw mode
 //! with an alternate screen, installs a panic hook that restores the terminal,
@@ -73,6 +73,11 @@ async fn main() -> Result<()> {
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         let _ = tracing_subscriber::fmt()
             .with_writer(non_blocking)
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::builder()
+                    .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
+                    .from_env_lossy(),
+            )
             .try_init();
         // _guard is intentionally leaked: it lives for the process lifetime.
         std::mem::forget(_guard);
@@ -172,6 +177,7 @@ async fn main() -> Result<()> {
     // Phase 6: On normal exit, write the current directory to `--cwd-file`
     // so the shell wrapper can `cd` into it. On cancellation or error the
     // file is not written — the shell wrapper then does nothing.
+    let cancelled = matches!(&run_result, Err(ref e) if e.to_string() == "cancelled");
     if run_result.is_ok() {
         if let Some(ref path) = cwd_file {
             if let Err(e) = session::write_cwd_file(&state.cwd, path) {
@@ -185,9 +191,16 @@ async fn main() -> Result<()> {
             .map(|dirs| dirs.data_dir().to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
+    } else if cancelled {
+        // Cancelled (Ctrl+C): save recent dirs but do NOT write cwd-file.
+        let data_dir = directories::ProjectDirs::from("", "", "trail")
+            .map(|dirs| dirs.data_dir().to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
     }
 
-    run_result
+    // Re-surface real errors; treat "cancelled" as a clean exit.
+    if cancelled { Ok(()) } else { run_result }
 }
 
 /// Updates `state.preview` synchronously for the currently selected entry.
@@ -264,6 +277,7 @@ async fn run_event_loop(
 ) -> Result<()> {
     let mut ctx = InputCtx::default();
     let mut should_quit = false;
+    let mut cancelled = false;
 
     // Initial render.
     ui::render(terminal, state)?;
@@ -279,7 +293,16 @@ async fn run_event_loop(
         // Priority: worker messages are drained first (they may be many in a
         // burst), then the select handles whichever arrives next.
         let mut worker_drained = false;
+        // Track whether a non-preview worker message (Git, FsChanged) made the
+        // state dirty. Preview/ImageMeta results are applied directly by
+        // merge() and must NOT trigger another refresh_preview call — doing so
+        // would overwrite the just-merged content with `Loading` again.
+        let mut needs_preview_refresh = false;
         while let Ok(msg) = worker_rx.try_recv() {
+            let is_listing_change = matches!(
+                &msg,
+                WorkerMsg::Git { .. } | WorkerMsg::FsChanged { .. }
+            );
             let prev_cwd = state.cwd.clone();
             handle_worker_msg(
                 msg,
@@ -290,6 +313,17 @@ async fn run_event_loop(
                 &prev_cwd,
             );
             worker_drained = true;
+            if is_listing_change && state.dirty {
+                needs_preview_refresh = true;
+            }
+        }
+
+        // Refresh preview only when a listing-level change (FsChanged / Git)
+        // dirtied the state — e.g. FsChanged triggered a directory refresh and
+        // the selected entry may have changed. Preview/ImageMeta results are
+        // already applied by merge() and must not be re-requested here.
+        if needs_preview_refresh {
+            refresh_preview(state, registry, &worker_tx);
         }
 
         if !worker_drained {
@@ -299,18 +333,35 @@ async fn run_event_loop(
                 maybe_event = event_stream.next() => {
                     match maybe_event {
                         Some(Ok(event)) => {
-                            if let Event::Key(key) = event {
-                                handle_key_event(
-                                    key,
-                                    terminal,
-                                    state,
-                                    registry,
-                                    &worker_tx,
-                                    &git_cache,
-                                    fs_watch_handle,
-                                    &mut ctx,
-                                    &mut should_quit,
-                                );
+                            match event {
+                                Event::Key(key) => {
+                                    handle_key_event(
+                                        key,
+                                        terminal,
+                                        state,
+                                        registry,
+                                        &worker_tx,
+                                        &git_cache,
+                                        fs_watch_handle,
+                                        &mut ctx,
+                                        &mut should_quit,
+                                        &mut cancelled,
+                                    );
+                                }
+                                Event::Resize(_, _) => {
+                                    // A terminal resize desynchronises ratatui's
+                                    // internal double-buffer from the physical
+                                    // terminal. Call terminal.clear() to reset
+                                    // ratatui's previous buffer so the next
+                                    // draw() performs a complete redraw of every
+                                    // cell, eliminating ghost content from the
+                                    // old frame.
+                                    if let Err(e) = terminal.clear() {
+                                        tracing::debug!("terminal clear after resize failed: {e}");
+                                    }
+                                    state.dirty = true;
+                                }
+                                _ => {}
                             }
                         }
                         Some(Err(e)) => {
@@ -345,7 +396,11 @@ async fn run_event_loop(
         }
     }
 
-    Ok(())
+    if cancelled {
+        Err(anyhow::anyhow!("cancelled"))
+    } else {
+        Ok(())
+    }
 }
 
 /// Handles a single terminal key event.
@@ -365,6 +420,7 @@ fn handle_key_event(
     fs_watch_handle: &mut Option<FsWatchHandle>,
     ctx: &mut InputCtx,
     should_quit: &mut bool,
+    cancelled: &mut bool,
 ) {
     let old_selected = state.selected;
     let old_cwd = state.cwd.clone();
@@ -374,10 +430,21 @@ fn handle_key_event(
             *should_quit = true;
             return;
         }
+        if action == Action::Cancel {
+            *should_quit = true;
+            *cancelled = true;
+            return;
+        }
 
         // Track whether this action sets the pending prefix so we can
         // conditionally clear it on the next non-prefix key.
         let is_prefix = matches!(action, Action::SetPendingNavKey(_));
+        // Track whether the action may change the listing content without
+        // changing the selected index or cwd (e.g. Refresh, ToggleHidden).
+        let forces_preview_refresh = matches!(
+            action,
+            Action::Refresh | Action::ToggleHidden
+        );
 
         // Log navigation errors at debug level and continue rather than
         // crashing — a bad directory is inconvenient, not fatal.
@@ -389,15 +456,26 @@ fn handle_key_event(
             state.pending_nav_key = None;
             state.dirty = true;
         }
-    } else if state.pending_nav_key.is_some() {
-        // A key while a prefix was pending but it didn't produce an action.
+
+        // Refresh preview whenever the selection or directory changed, or the
+        // action explicitly requires it (Refresh, ToggleHidden).
+        if state.selected != old_selected
+            || state.cwd != old_cwd
+            || forces_preview_refresh
+        {
+            refresh_preview(state, registry, worker_tx);
+        }
+    } else if key.kind == crossterm::event::KeyEventKind::Press
+        && state.pending_nav_key.is_some()
+    {
+        // A keypress while a prefix was pending but produced no action —
+        // cancel the sequence. Release/Repeat events are intentionally
+        // excluded: crossterm fires both Press *and* Release on every
+        // keystroke (especially on Windows), so allowing Release to clear
+        // the pending key would prevent any two-character sequence from
+        // ever completing.
         state.pending_nav_key = None;
         state.dirty = true;
-    }
-
-    // Refresh preview whenever the selection or directory changed.
-    if state.selected != old_selected || state.cwd != old_cwd {
-        refresh_preview(state, registry, worker_tx);
     }
 
     // If the directory changed, re-subscribe the watcher and spawn git.
@@ -425,12 +503,16 @@ fn handle_key_event(
             state.error_message = Some(format!("exec: {e}"));
         }
         // Force a full redraw: the child process may have overwritten the screen.
-        state.dirty = true;
-        // Also re-render the terminal buffer so ratatui's internal state is
-        // consistent with the actual terminal after the subprocess finished.
+        // terminal.clear() resets ratatui's internal buffer so the next render
+        // redraws every cell from scratch, preventing ghost characters.
         if let Err(e) = terminal.clear() {
             tracing::debug!("terminal clear after run_external failed: {e}");
         }
+        // Refresh the listing and preview — the subprocess may have changed
+        // the filesystem (e.g. saving a file in the editor).
+        let _ = state.refresh();
+        refresh_preview(state, registry, worker_tx);
+        state.dirty = true;
     }
 }
 
@@ -450,8 +532,22 @@ fn handle_worker_msg(
     match &msg {
         WorkerMsg::FsChanged { path } => {
             let changed_path = path.clone();
-            // Only refresh if the changed directory is the one we're viewing.
-            if changed_path == state.cwd {
+
+            // Determine whether this change is relevant to what we're showing:
+            // (a) the watched directory itself changed, or
+            // (b) a .git/HEAD file inside the current repo changed (branch switch).
+            let is_cwd_change = changed_path == state.cwd;
+            let is_git_head_change = changed_path
+                .file_name()
+                .map(|n| n == "HEAD")
+                .unwrap_or(false)
+                && changed_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n == ".git")
+                    .unwrap_or(false);
+
+            if is_cwd_change {
                 // Invalidate the git cache so the next git worker gets fresh data.
                 workers::git::invalidate(git_cache, &changed_path);
 
@@ -470,7 +566,20 @@ fn handle_worker_msg(
                 }
 
                 tracing::debug!(?changed_path, "refreshed after FsChanged");
+            } else if is_git_head_change {
+                // A branch switch occurred — invalidate cache and re-run git worker.
+                workers::git::invalidate(git_cache, &state.cwd);
+                if state.config.general.git_status_enabled {
+                    workers::git::spawn_git_status(
+                        state.cwd.clone(),
+                        worker_tx.clone(),
+                        git_cache.clone(),
+                    );
+                }
+                state.dirty = true;
+                tracing::debug!(?changed_path, "git branch change detected via .git/HEAD");
             }
+
             // Regardless, resubscribe (the OS may have replaced the watched inode).
             resubscribe_fswatch(
                 state.cwd.clone(),

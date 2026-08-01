@@ -145,6 +145,7 @@ pub struct PreviewCtx {
     /// drops results whose generation no longer matches `state.preview.generation`.
     pub generation: u64,
     /// Maximum file size to preview synchronously on the UI thread.
+    #[allow(dead_code)]
     pub text_sync_threshold_bytes: usize,
 }
 

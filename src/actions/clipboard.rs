@@ -32,6 +32,9 @@ pub enum ClipboardError {
     /// The source path could not be represented as a UTF-8 string.
     #[error("path is not valid UTF-8")]
     NotUtf8,
+    /// The arboard crate failed to access the OS clipboard.
+    #[error("clipboard error: {0}")]
+    Arboard(#[from] arboard::Error),
 }
 
 /// Copies the absolute path of `entry_path` to the yank buffer.
@@ -41,13 +44,16 @@ pub enum ClipboardError {
 /// # Errors
 ///
 /// Returns [`ClipboardError::NotUtf8`] if the path cannot be UTF-8 encoded.
+/// Returns [`ClipboardError::Arboard`] if OS clipboard write fails.
 pub fn copy_absolute_path(entry_path: &Path) -> Result<String, ClipboardError> {
     let s = entry_path
         .to_str()
         .ok_or(ClipboardError::NotUtf8)?
         .to_owned();
-    // TODO(phase-3-followup): Write `s` to the OS clipboard via `arboard` or
-    // equivalent once the dependency is approved and added to Cargo.toml.
+    
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(s.clone())?;
+
     tracing::info!(yank = %s, "yanked absolute path");
     Ok(s)
 }
@@ -59,10 +65,15 @@ pub fn copy_absolute_path(entry_path: &Path) -> Result<String, ClipboardError> {
 /// # Errors
 ///
 /// Returns [`ClipboardError::NotUtf8`] if the resulting path is not valid UTF-8.
+/// Returns [`ClipboardError::Arboard`] if OS clipboard write fails.
 pub fn copy_relative_path(entry_path: &Path, cwd: &Path) -> Result<String, ClipboardError> {
     // Attempt to strip `cwd` prefix; fall back to the absolute path on failure.
     let rel = entry_path.strip_prefix(cwd).unwrap_or(entry_path);
     let s = rel.to_str().ok_or(ClipboardError::NotUtf8)?.to_owned();
+
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(s.clone())?;
+
     tracing::info!(yank = %s, "yanked relative path");
     Ok(s)
 }
@@ -72,12 +83,17 @@ pub fn copy_relative_path(entry_path: &Path, cwd: &Path) -> Result<String, Clipb
 /// # Errors
 ///
 /// Returns [`ClipboardError::NotUtf8`] if the file name is not valid UTF-8.
+/// Returns [`ClipboardError::Arboard`] if OS clipboard write fails.
 pub fn copy_filename(entry_path: &Path) -> Result<String, ClipboardError> {
     let s = entry_path
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or(ClipboardError::NotUtf8)?
         .to_owned();
+
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(s.clone())?;
+
     tracing::info!(yank = %s, "yanked filename");
     Ok(s)
 }

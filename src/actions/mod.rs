@@ -101,6 +101,18 @@ pub enum Action {
     // ── Quit ─────────────────────────────────────────────────────────────
     /// Quit the application normally (writes `--cwd-file` in Phase 6).
     Quit,
+    /// Cancel the application without writing `--cwd-file`.
+    ///
+    /// Mapped to `Ctrl-C`. The shell wrapper does nothing and the parent
+    /// shell stays in its original directory.
+    Cancel,
+
+    // ── OS open ─────────────────────────────────────────────────────────
+    /// Open the selected entry with the OS default handler.
+    ///
+    /// On macOS uses `open`, on Linux `xdg-open`, on Windows `explorer`.
+    /// Bound to `o` in Navigation Mode.
+    OpenWithOs,
 
     // ── Tab management (Phase 8) ──────────────────────────────────────
     /// Open a new tab rooted at the current working directory.
@@ -484,9 +496,34 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             tracing::debug!("RunExternal reached apply() — should be handled by event loop");
         }
 
-        Action::Quit => {
-            // Handled by the event loop checking the return value of dispatch;
-            // nothing to do here at the state level.
+        Action::Quit | Action::Cancel => {
+            // Handled by the event loop; nothing to do at the state level.
+        }
+
+        // ── OS open ───────────────────────────────────────────────────────────
+        Action::OpenWithOs => {
+            if let Some(entry) = state.selected_entry().cloned() {
+                #[cfg(target_os = "macos")]
+                let argv = vec!["open".to_owned(), entry.path.display().to_string()];
+                #[cfg(target_os = "linux")]
+                let argv = vec!["xdg-open".to_owned(), entry.path.display().to_string()];
+                #[cfg(target_os = "windows")]
+                let argv = vec![
+                    "cmd.exe".to_owned(),
+                    "/C".to_owned(),
+                    "start".to_owned(),
+                    String::new(), // window title (required by start)
+                    entry.path.display().to_string(),
+                ];
+                #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+                let argv = vec!["xdg-open".to_owned(), entry.path.display().to_string()];
+
+                state.pending_external = Some(Action::RunExternal {
+                    argv,
+                    cwd: state.cwd.clone(),
+                });
+                state.dirty = true;
+            }
         }
 
         // ── Tab management (Phase 8) ──────────────────────────────────────────
@@ -587,9 +624,16 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             }
         }
 
-        ParsedCommand::Git(_subcmd) => {
-            // TODO(phase-4): Wire to the git worker.
-            state.error_message = Some(":git — git worker not yet active (Phase 4)".to_owned());
+        ParsedCommand::Git(subcmd) => {
+            #[cfg(unix)]
+            let argv = vec!["sh".to_owned(), "-c".to_owned(), format!("git {subcmd}")];
+            #[cfg(windows)]
+            let argv = vec!["cmd".to_owned(), "/C".to_owned(), format!("git {subcmd}")];
+
+            state.pending_external = Some(Action::RunExternal {
+                argv,
+                cwd: state.cwd.clone(),
+            });
             state.dirty = true;
         }
 
@@ -606,10 +650,23 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
 
         ParsedCommand::Shell(cmd_str) => {
             // Phase 6: run via shell_exec::run_external through the event loop.
-            // Split the shell command string by whitespace into argv.
-            // A shell command like "ls -la" becomes ["ls", "-la"].
-            let argv: Vec<String> = cmd_str.split_whitespace().map(|s| s.to_owned()).collect();
-            if argv.is_empty() {
+            // Route through the OS shell interpreter so that builtins, pipelines,
+            // quoted arguments, and variable expansions all work correctly.
+            // Direct argv-split would fail for any non-trivial shell command.
+            #[cfg(windows)]
+            let argv: Vec<String> = vec![
+                "cmd.exe".to_owned(),
+                "/C".to_owned(),
+                cmd_str.clone(),
+            ];
+            #[cfg(not(windows))]
+            let argv: Vec<String> = vec![
+                "sh".to_owned(),
+                "-c".to_owned(),
+                cmd_str.clone(),
+            ];
+
+            if cmd_str.trim().is_empty() {
                 state.error_message = Some("!: empty command".to_owned());
                 state.dirty = true;
             } else {

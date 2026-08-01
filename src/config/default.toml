@@ -1,7 +1,7 @@
 # Trail default configuration.
 
 [general]
-editor = "vi"
+editor = "nvim"
 text_sync_threshold_kb = 256
 git_status_enabled = true
 fs_watch_debounce_ms = 200
@@ -40,6 +40,7 @@ delete = "dd"
 enter_search = "/"
 enter_command = ":"
 quit = "q"
+open_with_os = "o"
 new_tab = "ctrl-t"
 close_tab = "ctrl-w"
 switch_tab_next = "tab"

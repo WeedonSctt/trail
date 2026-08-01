@@ -30,6 +30,23 @@ use crate::app::state::AppState;
 /// Generic over `B: Backend` so that integration tests can use
 /// `ratatui::backend::TestBackend` without a real terminal.
 pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &AppState) -> io::Result<()> {
+    // Physically clear the screen and reset ratatui's previous buffer before
+    // every draw. This prevents ghost content from lingering on the physical
+    // terminal when content shrinks between frames (e.g. navigating from a
+    // large file preview to a short binary metadata preview).
+    //
+    // The buffer-diff approach (frame.render_widget(Clear, …)) is insufficient
+    // here: it fills ratatui's internal buffer with blanks, but the diff only
+    // emits "blank" escape sequences for cells whose previous-buffer state was
+    // non-blank. When the physical terminal drifts out of sync with ratatui's
+    // buffer (rapid async transitions, Windows Terminal repaints, etc.), the
+    // diff sees "blank → blank" and emits nothing — leaving ghost content.
+    //
+    // terminal.clear() performs a physical "clear screen" escape AND resets
+    // ratatui's previous buffer to all-default cells, so the subsequent draw()
+    // diffs against a blank baseline and writes every visible cell from scratch.
+    terminal.clear()?;
+
     terminal.draw(|frame| {
         let outer = Layout::default()
             .direction(Direction::Vertical)

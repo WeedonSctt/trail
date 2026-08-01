@@ -1,10 +1,11 @@
 //! Text file preview provider.
 //!
-//! Provides preview content for text files. Phase 1 added plain-text output
-//! with line numbers. Phase 5 upgrades the synchronous path to use `syntect`-
-//! based syntax highlighting for files under `TEXT_SYNC_THRESHOLD`, and defers
-//! large files (over `TEXT_SYNC_THRESHOLD`) to `workers/highlight.rs` via the
-//! async worker pool.
+//! Provides preview content for text files. All text previews are deferred to
+//! `workers/highlight.rs` via the async worker pool — no blocking I/O is
+//! performed on the UI thread. The `Loading` placeholder is shown until the
+//! worker delivers the highlighted content. The `is_text_file` helper is called
+//! once per file at listing time (in `Entry::from_dir_entry`) and the result
+//! cached on the entry, so `TextProvider::can_handle` never reads from disk.
 
 use std::fs;
 use std::path::Path;
@@ -28,7 +29,9 @@ pub const TEXT_SYNC_THRESHOLD: usize = 256 * 1024; // 256 KB
 pub const TEXT_PREVIEW_MAX_BYTES: usize = TEXT_SYNC_THRESHOLD;
 
 /// Maximum number of lines shown in the plain-text (non-highlighted) fallback.
+#[allow(dead_code)]
 const TEXT_PREVIEW_MAX_LINES: usize = 500;
+
 
 /// Synchronous/async preview provider for text files.
 ///
@@ -44,36 +47,27 @@ impl PreviewProvider for TextProvider {
         if entry.kind != EntryKind::File {
             return false;
         }
-        // Peek at the content to determine if it's text.
-        is_text_file(&entry.path)
+        // Use the cached result from listing time — no I/O on the UI thread.
+        entry.is_text == Some(true)
     }
 
     fn preview(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
-        let size = entry
-            .metadata
-            .as_ref()
-            .map(|m| m.len() as usize)
-            .unwrap_or(0);
-
-        if size > ctx.text_sync_threshold_bytes {
-            // Large file: spawn async highlight worker and show Loading placeholder.
-            crate::workers::highlight::spawn_highlight(
-                entry.path.clone(),
-                ctx.generation,
-                ctx.worker_tx.clone(),
-            );
-            PreviewOutcome::Deferred
-        } else {
-            // Small file: highlight synchronously on the UI thread.
-            let content = crate::workers::highlight::highlight_text_sync(&entry.path);
-            // highlight_text_sync may return Empty (0-byte or unreadable file);
-            // fall back to plain-text builder in that case.
-            let content = match content {
-                PreviewContent::Empty => build_text_preview(&entry.path),
-                other => other,
-            };
-            PreviewOutcome::Ready(content)
-        }
+        // Always spawn the async highlight worker, regardless of file size.
+        //
+        // Previously, files under `text_sync_threshold_bytes` were highlighted
+        // synchronously on the UI thread. That stalled the event loop for any
+        // file large enough to take perceptible time to read and highlight.
+        //
+        // Routing every text file through the worker keeps the UI thread free.
+        // The `Loading` placeholder is shown for the brief async window, and the
+        // generation-guard in `workers::merge` discards stale results when the
+        // user navigates away before the worker finishes.
+        crate::workers::highlight::spawn_highlight(
+            entry.path.clone(),
+            ctx.generation,
+            ctx.worker_tx.clone(),
+        );
+        PreviewOutcome::Deferred
     }
 }
 
@@ -98,6 +92,11 @@ pub fn is_text_file(path: &Path) -> bool {
 ///
 /// Used as a fallback when the syntect path returns `Empty`, and by the async
 /// highlight worker's plain-text fallback path.
+// Integration tests call this function via `trail::preview::text::build_text_preview`.
+// The binary itself no longer needs it (all text previews are async), so the
+// compiler warns about dead code; suppress that warning rather than removing
+// the function from the public API.
+#[allow(dead_code)]
 pub fn build_text_preview(path: &Path) -> PreviewContent {
     use std::io::Read;
     let Ok(f) = fs::File::open(path) else {

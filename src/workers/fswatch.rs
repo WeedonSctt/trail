@@ -96,6 +96,33 @@ pub fn spawn_fswatch(
         return None;
     }
 
+    // Also watch .git/HEAD (if it exists) so that external git operations like
+    // `git checkout` trigger a git status refresh. We walk up from `path` to
+    // find the repo root's .git directory.
+    let git_head_path: Option<PathBuf> = {
+        let mut search = path.clone();
+        loop {
+            let candidate = search.join(".git").join("HEAD");
+            if candidate.exists() {
+                break Some(candidate);
+            }
+            match search.parent() {
+                Some(p) => search = p.to_owned(),
+                None => break None,
+            }
+        }
+    };
+    if let Some(ref head) = git_head_path {
+        // Watch only the HEAD file itself (non-recursive on its parent dir would
+        // generate too many events; watching a single file is fine with notify).
+        if let Err(e) = watcher.watch(head, RecursiveMode::NonRecursive) {
+            // Non-fatal: git status just won't auto-refresh on branch change.
+            tracing::debug!(?head, "failed to watch .git/HEAD: {e}");
+        } else {
+            tracing::debug!(?head, "watching .git/HEAD for branch changes");
+        }
+    }
+
     let debounce = Duration::from_millis(debounce_ms);
     let watch_path = path.clone();
 

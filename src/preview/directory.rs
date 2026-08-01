@@ -1,21 +1,28 @@
 //! Directory preview provider.
 //!
-//! Synchronous preview showing directory contents, file count, directory count,
-//! and hidden file count.
+//! Defers the directory listing to the async worker pool so that
+//! `fs::read_dir` on large or slow-filesystem directories never stalls the
+//! UI thread. The `Loading` placeholder is shown until the worker delivers
+//! the content; the generation-guard in `workers::merge` discards stale
+//! results when the user navigates away before the worker finishes.
 
 use std::fs;
+use std::path::PathBuf;
+
+use tokio::sync::mpsc;
 
 use crate::app::state::{Entry, EntryKind};
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
+use crate::workers::WorkerMsg;
 
 /// Maximum number of child entry names shown in the directory preview.
 const MAX_PREVIEW_ENTRIES: usize = 64;
 
-/// Synchronous preview provider for directory entries.
+/// Preview provider for directory entries.
 ///
-/// Reads the first `MAX_PREVIEW_ENTRIES` children from disk and returns
-/// summary counts (files, dirs, hidden). This is cheap enough to run on
-/// the UI thread; no worker task is spawned.
+/// Spawns an async worker task that runs `build_directory_preview` off the UI
+/// thread, returning `PreviewOutcome::Deferred` immediately so navigation
+/// remains responsive while the listing is being read.
 pub struct DirectoryProvider;
 
 impl PreviewProvider for DirectoryProvider {
@@ -24,9 +31,41 @@ impl PreviewProvider for DirectoryProvider {
     }
 
     fn preview(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
-        let content = build_directory_preview(&entry.path, ctx.show_hidden);
-        PreviewOutcome::Ready(content)
+        spawn_directory_preview(
+            entry.path.clone(),
+            ctx.show_hidden,
+            ctx.generation,
+            ctx.worker_tx.clone(),
+        );
+        PreviewOutcome::Deferred
     }
+}
+
+/// Spawns an async task that builds a directory preview off the UI thread.
+///
+/// The task runs `build_directory_preview` inside `spawn_blocking` and sends
+/// the result as a `WorkerMsg::Preview` tagged with `generation`. Mirrors the
+/// pattern used by `workers::highlight::spawn_highlight`.
+fn spawn_directory_preview(
+    path: PathBuf,
+    show_hidden: bool,
+    generation: u64,
+    tx: mpsc::Sender<WorkerMsg>,
+) {
+    tokio::spawn(async move {
+        let path_for_msg = path.clone();
+        let content = tokio::task::spawn_blocking(move || build_directory_preview(&path, show_hidden))
+            .await
+            .unwrap_or(PreviewContent::Empty);
+
+        let msg = WorkerMsg::Preview {
+            generation,
+            path: path_for_msg,
+            content,
+        };
+        // If the channel is closed the UI thread has exited; ignore the error.
+        let _ = tx.send(msg).await;
+    });
 }
 
 /// Builds a `PreviewContent::Directory` for `path`.

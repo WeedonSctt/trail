@@ -167,6 +167,7 @@ fn plain_text_fallback_empty() -> PreviewContent {
 /// files must use [`spawn_highlight`] instead.
 ///
 /// Falls back to `PreviewContent::Text` when no matching syntax is found.
+#[allow(dead_code)]
 pub fn highlight_text_sync(path: &std::path::Path) -> PreviewContent {
     highlight_file_sync(path)
 }

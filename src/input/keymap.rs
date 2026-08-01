@@ -16,21 +16,13 @@ use crate::input::InputCtx;
 /// non-text fallbacks such as arrows, Enter, and Backspace are then checked.
 /// Multi-key sequences are represented by compact strings such as `gg`, `ya`,
 /// and `dd`.
-pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
+pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
     if state.pending_delete {
         return match key.code {
             KeyCode::Enter | KeyCode::Char('y') => Some(Action::ConfirmDelete),
             KeyCode::Esc | KeyCode::Char('n') => Some(Action::CancelDelete),
             _ => None,
         };
-    }
-
-    if ctx.pending_g {
-        ctx.pending_g = false;
-        if let KeyCode::Char('g') = key.code {
-            return Some(Action::JumpTop);
-        }
-        return None;
     }
 
     if let Some(pending) = state.pending_nav_key {
@@ -51,13 +43,12 @@ pub fn navigation(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option
     match key.code {
         KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Up => Some(Action::MoveUp),
-        KeyCode::Char('g') => {
-            ctx.pending_g = true;
-            None
-        }
         KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
         KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Quit),
+        // Ctrl+C cancels Trail without writing --cwd-file.
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::Cancel)
+        }
         // Phase 8: tab management built-in fallbacks.
         // These fire when not overridden by a configured keymap binding.
         KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::NewTab),
@@ -155,6 +146,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
         "quit" => Some(Action::Quit),
+        "open_with_os" => Some(Action::OpenWithOs),
         // Phase 8: tab management.
         "new_tab" => Some(Action::NewTab),
         "close_tab" => Some(Action::CloseTab),

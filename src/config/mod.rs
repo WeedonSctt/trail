@@ -317,7 +317,7 @@ navigation = { move_down = "n" }
 
         let cfg = load(Some(&path)).unwrap();
         assert_eq!(cfg.general.text_sync_threshold_kb, 128);
-        assert_eq!(cfg.general.editor, "vi");
+        assert_eq!(cfg.general.editor, "nvim");
         assert_eq!(cfg.theme.directory, "#112233");
         assert_eq!(
             cfg.keymap.navigation.get("move_down"),

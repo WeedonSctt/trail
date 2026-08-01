@@ -93,12 +93,22 @@ pub struct Entry {
     /// Git status, populated asynchronously by the git worker (Phase 4).
     /// `None` before the worker reports back, or outside a git repo.
     pub git_status: Option<GitFileStatus>,
+    /// Whether this entry is a text file, as determined by a content-inspection
+    /// probe at listing time. `None` for non-regular-file entries (directories,
+    /// symlinks). Populated once in `from_dir_entry` so that
+    /// `TextProvider::can_handle` can return without performing any I/O.
+    pub is_text: Option<bool>,
 }
 
 impl Entry {
     /// Constructs an `Entry` from a `DirEntry`.
     ///
     /// Returns `None` if the file name cannot be represented as UTF-8.
+    ///
+    /// For regular files the first 8 KB are read once here (via
+    /// `content_inspector`) to populate `is_text`. This is the only place
+    /// that probe runs; `TextProvider::can_handle` reads `is_text` directly
+    /// without any further I/O.
     fn from_dir_entry(de: &fs::DirEntry) -> Option<Self> {
         let path = de.path();
         let file_name = path.file_name()?.to_str()?.to_owned();
@@ -118,6 +128,14 @@ impl Entry {
             EntryKind::File
         };
 
+        // Probe text vs. binary once at listing time; only meaningful for
+        // regular files. Directories and symlinks leave is_text as None.
+        let is_text = if kind == EntryKind::File {
+            Some(crate::preview::text::is_text_file(&path))
+        } else {
+            None
+        };
+
         Some(Entry {
             path,
             file_name,
@@ -125,6 +143,7 @@ impl Entry {
             is_hidden,
             metadata,
             git_status: None,
+            is_text,
         })
     }
 }
@@ -678,11 +697,21 @@ impl AppState {
     /// Reloads the current directory listing in place (e.g. after an external
     /// change or a self-initiated filesystem mutation).
     ///
+    /// Unlike `enter_dir`, this preserves the current `selected` index (clamped
+    /// to the new listing length) so that `R` does not jump the cursor to the
+    /// top of the list.
+    ///
     /// # Errors
     ///
     /// Propagates any `StateError` from `load_dir`.
     pub fn refresh(&mut self) -> Result<(), StateError> {
-        self.load_dir(&self.cwd.clone())
+        let saved = self.selected;
+        self.load_dir(&self.cwd.clone())?;
+        // Restore the selection the user had, clamped to the new count.
+        let count = self.visible_count();
+        self.selected = if count == 0 { 0 } else { saved.min(count - 1) };
+        self.dirty = true;
+        Ok(())
     }
 
     /// Updates the cached `StatusBarState` from current state.

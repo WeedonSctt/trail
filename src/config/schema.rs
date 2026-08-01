@@ -359,6 +359,7 @@ const NAV_ACTIONS: &[&str] = &[
     "enter_search",
     "enter_command",
     "quit",
+    "open_with_os",
     "new_tab",
     "close_tab",
     "switch_tab_next",

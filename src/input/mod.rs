@@ -16,12 +16,14 @@ use crate::app::state::AppState;
 ///
 /// Holds any state that spans multiple key events (e.g. multi-key sequences)
 /// without polluting `AppState` for concerns that are purely input-layer.
+///
+/// Multi-key sequences such as `gg`, `ya`, `yr`, `yn`, and `dd` are handled
+/// through `AppState::pending_nav_key` (which the status bar can render) rather
+/// than `InputCtx` fields, so this struct is currently empty. It is kept as a
+/// named type so callers do not need updating if input-layer state is added
+/// in the future.
 #[derive(Debug, Default)]
-pub struct InputCtx {
-    /// `true` after the first `g` is pressed in Navigation Mode, waiting for
-    /// the second `g` to complete the `gg` (jump-to-top) sequence.
-    pub pending_g: bool,
-}
+pub struct InputCtx {}
 
 /// Dispatches `key` to the appropriate mode handler.
 ///
