@@ -50,6 +50,9 @@ Desktop.ini
 
 tmp/
 temp/
+test-root
+test-*
+
 
 # ==========================================
 # Local configuration (optional)
