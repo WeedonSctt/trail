@@ -54,9 +54,10 @@ fn spawn_directory_preview(
 ) {
     tokio::spawn(async move {
         let path_for_msg = path.clone();
-        let content = tokio::task::spawn_blocking(move || build_directory_preview(&path, show_hidden))
-            .await
-            .unwrap_or(PreviewContent::Empty);
+        let content =
+            tokio::task::spawn_blocking(move || build_directory_preview(&path, show_hidden))
+                .await
+                .unwrap_or(PreviewContent::Empty);
 
         let msg = WorkerMsg::Preview {
             generation,

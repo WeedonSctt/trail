@@ -913,12 +913,8 @@ mod tests {
     #[test]
     fn plugin_action_completion() {
         let dir = tempfile::tempdir().unwrap();
-        let candidates = completions_with_plugins(
-            "plugin ",
-            dir.path(),
-            false,
-            &["log_note", "bookmark_add"],
-        );
+        let candidates =
+            completions_with_plugins("plugin ", dir.path(), false, &["log_note", "bookmark_add"]);
         assert_eq!(candidates, vec!["bookmark_add", "log_note"]);
     }
 

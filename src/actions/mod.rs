@@ -317,8 +317,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 .as_ref()
                 .map(|e| e.action_names().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
-            let plugin_action_refs: Vec<&str> =
-                plugin_actions.iter().map(|s| s.as_str()).collect();
+            let plugin_action_refs: Vec<&str> = plugin_actions.iter().map(|s| s.as_str()).collect();
 
             let result = {
                 // Temporarily move command_history and tab_state out of state.
@@ -663,17 +662,9 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             // quoted arguments, and variable expansions all work correctly.
             // Direct argv-split would fail for any non-trivial shell command.
             #[cfg(windows)]
-            let argv: Vec<String> = vec![
-                "cmd.exe".to_owned(),
-                "/C".to_owned(),
-                cmd_str.clone(),
-            ];
+            let argv: Vec<String> = vec!["cmd.exe".to_owned(), "/C".to_owned(), cmd_str.clone()];
             #[cfg(not(windows))]
-            let argv: Vec<String> = vec![
-                "sh".to_owned(),
-                "-c".to_owned(),
-                cmd_str.clone(),
-            ];
+            let argv: Vec<String> = vec!["sh".to_owned(), "-c".to_owned(), cmd_str.clone()];
 
             if cmd_str.trim().is_empty() {
                 state.error_message = Some("!: empty command".to_owned());

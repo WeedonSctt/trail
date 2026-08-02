@@ -32,7 +32,6 @@ pub const TEXT_PREVIEW_MAX_BYTES: usize = TEXT_SYNC_THRESHOLD;
 #[allow(dead_code)]
 const TEXT_PREVIEW_MAX_LINES: usize = 500;
 
-
 /// Synchronous/async preview provider for text files.
 ///
 /// - Files ≤ `TEXT_SYNC_THRESHOLD`: highlighted synchronously via `syntect`.

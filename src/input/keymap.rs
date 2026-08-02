@@ -46,9 +46,7 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
         KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
         KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
         // Ctrl+C cancels Trail without writing --cwd-file.
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::Cancel)
-        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Cancel),
         // Phase 8: tab management built-in fallbacks.
         // These fire when not overridden by a configured keymap binding.
         KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::NewTab),

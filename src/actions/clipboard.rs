@@ -50,7 +50,7 @@ pub fn copy_absolute_path(entry_path: &Path) -> Result<String, ClipboardError> {
         .to_str()
         .ok_or(ClipboardError::NotUtf8)?
         .to_owned();
-    
+
     let mut clipboard = arboard::Clipboard::new()?;
     clipboard.set_text(s.clone())?;
 

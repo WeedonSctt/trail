@@ -1,9 +1,9 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, KeyEventKind, KeyEventState};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use std::path::PathBuf;
+use trail::actions::{self, Action};
+use trail::app::state::AppState;
 use trail::input::keymap;
 use trail::input::{self, InputCtx};
-use trail::app::state::AppState;
-use trail::actions::{self, Action};
-use std::path::PathBuf;
 
 #[test]
 fn test_gg_sequence() {
@@ -17,12 +17,12 @@ fn test_gg_sequence() {
         state: KeyEventState::NONE,
     };
 
-    let action1 = keymap::navigation(key_g.clone(), &mut ctx, &state);
+    let action1 = keymap::navigation(key_g, &mut ctx, &state);
     println!("action1: {:?}", action1);
     if let Some(Action::SetPendingNavKey(ch)) = action1 {
         state.pending_nav_key = Some(ch);
     }
-    let action2 = keymap::navigation(key_g.clone(), &mut ctx, &state);
+    let action2 = keymap::navigation(key_g, &mut ctx, &state);
     println!("action2: {:?}", action2);
 }
 
@@ -76,8 +76,7 @@ fn two_char_sequence_survives_release_event() {
     // ── Step 2: Release of `g` — must NOT clear pending_nav_key ──────────────
     let release_action = input::dispatch(release_g, &state, &mut ctx);
     assert_eq!(
-        release_action,
-        None,
+        release_action, None,
         "Release events must never produce an action"
     );
     // Simulate the corrected else-if guard: only clear on Press.

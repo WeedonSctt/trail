@@ -200,7 +200,11 @@ async fn main() -> Result<()> {
     }
 
     // Re-surface real errors; treat "cancelled" as a clean exit.
-    if cancelled { Ok(()) } else { run_result }
+    if cancelled {
+        Ok(())
+    } else {
+        run_result
+    }
 }
 
 /// Updates `state.preview` synchronously for the currently selected entry.
@@ -299,10 +303,8 @@ async fn run_event_loop(
         // would overwrite the just-merged content with `Loading` again.
         let mut needs_preview_refresh = false;
         while let Ok(msg) = worker_rx.try_recv() {
-            let is_listing_change = matches!(
-                &msg,
-                WorkerMsg::Git { .. } | WorkerMsg::FsChanged { .. }
-            );
+            let is_listing_change =
+                matches!(&msg, WorkerMsg::Git { .. } | WorkerMsg::FsChanged { .. });
             let prev_cwd = state.cwd.clone();
             handle_worker_msg(
                 msg,
@@ -441,10 +443,7 @@ fn handle_key_event(
         let is_prefix = matches!(action, Action::SetPendingNavKey(_));
         // Track whether the action may change the listing content without
         // changing the selected index or cwd (e.g. Refresh, ToggleHidden).
-        let forces_preview_refresh = matches!(
-            action,
-            Action::Refresh | Action::ToggleHidden
-        );
+        let forces_preview_refresh = matches!(action, Action::Refresh | Action::ToggleHidden);
 
         // Log navigation errors at debug level and continue rather than
         // crashing — a bad directory is inconvenient, not fatal.
@@ -459,15 +458,10 @@ fn handle_key_event(
 
         // Refresh preview whenever the selection or directory changed, or the
         // action explicitly requires it (Refresh, ToggleHidden).
-        if state.selected != old_selected
-            || state.cwd != old_cwd
-            || forces_preview_refresh
-        {
+        if state.selected != old_selected || state.cwd != old_cwd || forces_preview_refresh {
             refresh_preview(state, registry, worker_tx);
         }
-    } else if key.kind == crossterm::event::KeyEventKind::Press
-        && state.pending_nav_key.is_some()
-    {
+    } else if key.kind == crossterm::event::KeyEventKind::Press && state.pending_nav_key.is_some() {
         // A keypress while a prefix was pending but produced no action —
         // cancel the sequence. Release/Repeat events are intentionally
         // excluded: crossterm fires both Press *and* Release on every
