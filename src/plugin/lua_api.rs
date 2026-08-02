@@ -133,9 +133,9 @@ impl PluginEngine {
             Ok(())
         })?;
 
-        // trail.log(msg) — emits a debug trace from plugin code.
+        // trail.log(msg) — emits an info log from plugin code.
         let log_fn = lua.create_function(|_lua, msg: String| {
-            tracing::debug!(plugin = true, "{}", msg);
+            tracing::info!(plugin = true, "{}", msg);
             Ok(())
         })?;
 
@@ -415,5 +415,17 @@ end)
     fn register_action_unknown_returns_false() {
         let engine = PluginEngine::new().expect("engine");
         assert!(!engine.fire_action("ghost", "arg"));
+    }
+
+    #[test]
+    fn trail_log_emits_info_log() {
+        let mut engine = PluginEngine::new().expect("engine");
+        let result = engine.load_plugin_str(
+            "test_log",
+            r#"
+trail.log("hello from plugin log test")
+"#,
+        );
+        assert!(result.is_ok());
     }
 }

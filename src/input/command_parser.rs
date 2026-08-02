@@ -51,6 +51,8 @@ pub enum ParsedCommand {
     Bookmark(String),
     /// Jump to a previously saved bookmark: `:jump <name>`.
     Jump(String),
+    /// Run a custom plugin action: `:plugin <name> [arg]`.
+    Plugin { name: String, arg: String },
 }
 
 // ── Parse error ────────────────────────────────────────────────────────────────
@@ -59,7 +61,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :bookmark, :jump")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :bookmark, :jump, :plugin")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -213,6 +215,25 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             Ok(ParsedCommand::Jump(name.to_owned()))
         }
 
+        "plugin" => {
+            // :plugin <action_name> [arg] — action name is required.
+            let rest_trimmed = rest.trim();
+            if rest_trimmed.is_empty() {
+                return Err(ParseError::MissingArgument("plugin".to_owned()));
+            }
+            let (name, arg) = match rest_trimmed.split_once(' ') {
+                Some((n, a)) => (n.trim(), a.trim()),
+                None => (rest_trimmed, ""),
+            };
+            if name.is_empty() {
+                return Err(ParseError::MissingArgument("plugin".to_owned()));
+            }
+            Ok(ParsedCommand::Plugin {
+                name: name.to_owned(),
+                arg: arg.to_owned(),
+            })
+        }
+
         other => Err(ParseError::UnknownVerb(other.to_owned())),
     }
 }
@@ -232,7 +253,18 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
 ///
 /// `is_shell`: whether the buffer came from a `!`-prefixed input (no verb
 /// completion applies — the shell handles its own completion).
+#[allow(dead_code)]
 pub fn completions(buffer: &str, cwd: &Path, is_shell: bool) -> Vec<String> {
+    completions_with_plugins(buffer, cwd, is_shell, &[])
+}
+
+/// Same as [`completions`], but accepts registered plugin action names for `:plugin` completion.
+pub fn completions_with_plugins(
+    buffer: &str,
+    cwd: &Path,
+    is_shell: bool,
+    plugin_actions: &[&str],
+) -> Vec<String> {
     if is_shell {
         return Vec::new(); // shell completion not handled here
     }
@@ -243,7 +275,7 @@ pub fn completions(buffer: &str, cwd: &Path, is_shell: bool) -> Vec<String> {
     if !trimmed.contains(' ') {
         let prefix = trimmed;
         let verbs = [
-            "mkdir", "touch", "rename", "mv", "cp", "git", "set", "bookmark", "jump",
+            "mkdir", "touch", "rename", "mv", "cp", "git", "set", "bookmark", "jump", "plugin",
         ];
         return verbs
             .iter()
@@ -252,11 +284,21 @@ pub fn completions(buffer: &str, cwd: &Path, is_shell: bool) -> Vec<String> {
             .collect();
     }
 
-    // Verb is typed — attempt path completion for mv/cp.
+    // Verb is typed — check sub-completions.
     let (verb, partial) = match trimmed.split_once(' ') {
         Some((v, p)) => (v, p),
         None => return Vec::new(),
     };
+
+    if verb == "plugin" {
+        let mut candidates: Vec<String> = plugin_actions
+            .iter()
+            .filter(|a| partial.is_empty() || a.starts_with(partial))
+            .map(|a| a.to_string())
+            .collect();
+        candidates.sort();
+        return candidates;
+    }
 
     if !matches!(verb, "mv" | "cp") {
         return Vec::new();
@@ -448,6 +490,7 @@ pub enum FeedResult {
 ///
 /// Mutates `buffer`, `cursor`, and `history_index` in-place. Returns a
 /// [`FeedResult`] describing what the caller should do next.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn feed(
     key: crossterm::event::KeyEvent,
@@ -458,6 +501,32 @@ pub fn feed(
     history: &CommandHistory,
     cwd: &Path,
     is_shell: bool,
+) -> FeedResult {
+    feed_with_plugins(
+        key,
+        buffer,
+        cursor,
+        history_index,
+        tab_state,
+        history,
+        cwd,
+        is_shell,
+        &[],
+    )
+}
+
+/// Same as [`feed`], but also accepts registered plugin action names for tab completion.
+#[allow(clippy::too_many_arguments)]
+pub fn feed_with_plugins(
+    key: crossterm::event::KeyEvent,
+    buffer: &mut String,
+    cursor: &mut usize,
+    history_index: &mut Option<usize>,
+    tab_state: &mut TabState,
+    history: &CommandHistory,
+    cwd: &Path,
+    is_shell: bool,
+    plugin_actions: &[&str],
 ) -> FeedResult {
     use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -562,7 +631,7 @@ pub fn feed(
         }
 
         KeyCode::Tab => {
-            let candidates = completions(buffer, cwd, is_shell);
+            let candidates = completions_with_plugins(buffer, cwd, is_shell, plugin_actions);
             if candidates.is_empty() {
                 return FeedResult::Updated;
             }
@@ -781,6 +850,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_plugin_valid() {
+        let cmd = parse("plugin my_action", false).unwrap();
+        assert_eq!(
+            cmd,
+            ParsedCommand::Plugin {
+                name: "my_action".to_owned(),
+                arg: "".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_plugin_with_args() {
+        let cmd = parse("plugin log_note hello world", false).unwrap();
+        assert_eq!(
+            cmd,
+            ParsedCommand::Plugin {
+                name: "log_note".to_owned(),
+                arg: "hello world".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_plugin_no_action_is_error() {
+        let err = parse("plugin", false).unwrap_err();
+        assert!(matches!(err, ParseError::MissingArgument(_)));
+    }
+
+    #[test]
     fn parse_shell_command() {
         let cmd = parse("ls -la", true).unwrap();
         assert_eq!(cmd, ParsedCommand::Shell("ls -la".to_owned()));
@@ -808,8 +907,19 @@ mod tests {
     fn verb_completion_empty_returns_all_verbs() {
         let dir = tempfile::tempdir().unwrap();
         let candidates = completions("", dir.path(), false);
-        // All seven verbs should be present.
-        assert_eq!(candidates.len(), 9);
+        assert_eq!(candidates.len(), 10);
+    }
+
+    #[test]
+    fn plugin_action_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let candidates = completions_with_plugins(
+            "plugin ",
+            dir.path(),
+            false,
+            &["log_note", "bookmark_add"],
+        );
+        assert_eq!(candidates, vec!["bookmark_add", "log_note"]);
     }
 
     #[test]

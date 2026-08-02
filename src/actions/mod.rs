@@ -284,7 +284,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         // ── Command Mode ─────────────────────────────────────────────────────
         Action::CommandKey(key) => {
             use crate::app::mode::Mode;
-            use crate::input::command_parser::{feed, FeedResult};
+            use crate::input::command_parser::{feed_with_plugins, FeedResult};
 
             // Extract buffer/cursor/history_index from the mode.
             let (buffer, cursor, history_index, is_shell) = if let Mode::Command {
@@ -312,13 +312,21 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             let mut hist_owned = *history_index;
             let cwd = state.cwd.clone();
 
+            let plugin_actions: Vec<String> = state
+                .plugin_engine
+                .as_ref()
+                .map(|e| e.action_names().map(|s| s.to_string()).collect())
+                .unwrap_or_default();
+            let plugin_action_refs: Vec<&str> =
+                plugin_actions.iter().map(|s| s.as_str()).collect();
+
             let result = {
                 // Temporarily move command_history and tab_state out of state.
                 // They are put back below.
                 let hist = std::mem::take(&mut state.command_history);
                 let mut tab = std::mem::take(&mut state.tab_state);
 
-                let res = feed(
+                let res = feed_with_plugins(
                     key,
                     &mut buf_owned,
                     &mut cur_owned,
@@ -327,6 +335,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     &hist,
                     &cwd,
                     is_shell,
+                    &plugin_action_refs,
                 );
 
                 state.command_history = hist;
@@ -715,6 +724,21 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 state.dirty = true;
             }
         },
+
+        ParsedCommand::Plugin { name, arg } => {
+            if let Some(engine) = &state.plugin_engine {
+                if engine.fire_action(&name, &arg) {
+                    state.error_message = None;
+                } else {
+                    state.error_message = Some(format!("plugin action '{name}' not found"));
+                    state.dirty = true;
+                }
+            } else {
+                state.error_message =
+                    Some(format!("plugin action '{name}' failed: no plugins loaded"));
+                state.dirty = true;
+            }
+        }
     }
 
     Ok(())

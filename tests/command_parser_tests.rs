@@ -1,4 +1,4 @@
-﻿//! Integration tests for the Command Mode grammar, validation, history, and
+//! Integration tests for the Command Mode grammar, validation, history, and
 //! completion (Phase 3).
 //!
 //! These tests exercise the public API of `trail::input::command_parser`
@@ -150,13 +150,43 @@ fn verb_completion_mk_returns_only_mkdir() {
 }
 
 #[test]
+fn plugin_valid_action_name() {
+    let cmd = parse("plugin my_action", false).unwrap();
+    assert_eq!(
+        cmd,
+        ParsedCommand::Plugin {
+            name: "my_action".to_owned(),
+            arg: "".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn plugin_with_args() {
+    let cmd = parse("plugin log_note hello world", false).unwrap();
+    assert_eq!(
+        cmd,
+        ParsedCommand::Plugin {
+            name: "log_note".to_owned(),
+            arg: "hello world".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn plugin_without_action_returns_error() {
+    let err = parse("plugin", false).unwrap_err();
+    assert!(matches!(err, ParseError::MissingArgument(_)));
+}
+
+#[test]
 fn verb_completion_all_verbs_when_empty() {
     let dir = tempfile::tempdir().unwrap();
     let candidates = completions("", dir.path(), false);
     assert_eq!(
         candidates.len(),
-        9,
-        "all 9 verbs should be returned for empty prefix; got {candidates:?}"
+        10,
+        "all 10 verbs should be returned for empty prefix; got {candidates:?}"
     );
 }
 
