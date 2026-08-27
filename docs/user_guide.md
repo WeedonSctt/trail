@@ -84,3 +84,11 @@ You can run arbitrary shell commands by prefixing them with `!` instead of `:`.
 ## 5. Configuration
 
 You can customize Trail by supplying a configuration file. This allows overriding the default theme, keybindings, and general settings (like your preferred `$EDITOR`).
+
+```bash
+trail --config /path/to/trail.toml
+```
+
+Trail remembers that path, so a later plain `trail` reloads the same file — you only name it once. Use `trail --no-config` to run with the built-in defaults for a single run without forgetting it.
+
+See the [configuration guide](configuration_guide.md) for the full schema.

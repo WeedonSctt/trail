@@ -10,7 +10,41 @@ By default, Trail runs with built-in settings. To customize Trail, create a `tra
 trail --config /path/to/trail.toml
 ```
 
-*(Note: Trail does not implicitly look in `~/.config/trail/` or other standard directories; the flag must be passed explicitly to load file-based configuration.)*
+*(Note: Trail does not scan `~/.config/trail/` or other standard directories for a config file. The only way a config file is ever loaded is by passing `--config` at least once — see below.)*
+
+### Trail Remembers Your Config File
+
+Since v1.0.1, the path you pass to `--config` is remembered. A later `trail` with no flags reloads the same file, so you only have to name it once:
+
+```bash
+trail --config ~/dotfiles/trail.toml   # loads it, and remembers the path
+trail                                  # reloads ~/dotfiles/trail.toml
+trail --config ~/other.toml            # switches, and remembers the new path
+```
+
+The path is stored as an **absolute** path in `last_config.toml` inside Trail's data directory, alongside `bookmarks.toml` and `recent_dirs.toml`:
+
+| Platform | Location |
+|---|---|
+| Linux | `~/.local/share/trail/` |
+| macOS | `~/Library/Application Support/trail/` |
+| Windows | `%APPDATA%\trail\data\` |
+
+An explicit `--config` always wins over the remembered path.
+
+**If the remembered file is later moved, deleted, or broken**, Trail does not refuse to start. It falls back to the built-in defaults, shows the reason in the status bar, and keeps the remembered path — so fixing the file is enough to get your settings back, with no need to pass `--config` again.
+
+By contrast, a file you name explicitly with `--config` that fails to load **is** a hard error: you asked for that file by name, so a silent fallback would hide a typo.
+
+### Ignoring the Remembered Config
+
+To run once with the built-in defaults, bypassing whatever is remembered:
+
+```bash
+trail --no-config
+```
+
+This affects only that run. The remembered path stays in place, so the next plain `trail` picks it up again. (`--no-config` and `--config` cannot be combined.) To forget the path permanently, delete `last_config.toml` from the data directory above.
 
 ### Configuring the Editor
 

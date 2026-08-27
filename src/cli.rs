@@ -20,10 +20,18 @@ pub struct Cli {
 
     /// Path to a TOML configuration file.
     ///
-    /// Overrides the default config location. If omitted, Trail uses
+    /// The path is remembered, so a later `trail` with no `--config` reloads
+    /// the same file. If nothing has ever been loaded, Trail uses its
     /// built-in defaults.
     #[arg(long)]
     pub config: Option<PathBuf>,
+
+    /// Ignore the remembered `--config` file and use the built-in defaults.
+    ///
+    /// Affects this run only; the remembered path is left in place, so a
+    /// later bare `trail` picks it up again.
+    #[arg(long, conflicts_with = "config")]
+    pub no_config: bool,
 
     /// Starting directory. Defaults to the current working directory.
     #[arg(default_value = ".")]

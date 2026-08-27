@@ -96,7 +96,7 @@ Customise with environment variables:
 
 ```sh
 INSTALL_DIR=$HOME/bin SHELL_DIR=$HOME/.config/trail/shell sh install.sh
-VERSION=1.0.0 sh install.sh   # pin a specific version
+VERSION=1.0.1 sh install.sh   # pin a specific version
 ```
 
 ---

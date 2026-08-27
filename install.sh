@@ -9,7 +9,7 @@
 # Usage:
 #   sh install.sh                   # latest release, defaults
 #   INSTALL_DIR=$HOME/bin sh install.sh
-#   VERSION=1.0.0 sh install.sh
+#   VERSION=1.0.1 sh install.sh
 #
 # Environment variables:
 #   INSTALL_DIR   Where to put the binary.  Default: ~/.local/bin

@@ -3,6 +3,7 @@
 //! TOML config loaded once at startup, resolved by the input handler and
 //! theme module. Strict-mode deserialization rejects unknown keys.
 
+pub mod last_used;
 pub mod schema;
 
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+pub use last_used::ConfigSource;
 pub use schema::{
     GeneralConfig, KeymapConfig, PluginsConfig, SetConfigError, ThemeConfig, TrailConfig,
 };

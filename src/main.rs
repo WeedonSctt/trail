@@ -83,23 +83,46 @@ async fn main() -> Result<()> {
         std::mem::forget(_guard);
     }
 
-    // Build initial app state from the CLI start path before entering raw
-    // mode so that a bad start path produces a normal error message rather
-    // than a broken terminal.
-    let config = config::load(cli.config.as_deref())
-        .map_err(|e| anyhow::anyhow!("failed to load config: {e}"))?;
-
-    let mut state = AppState::with_config(cli.start_path, config)
-        .map_err(|e| anyhow::anyhow!("failed to open start directory: {e}"))?;
-
-    // Phase 8: Initialize data directory and plugins
-    let data_dir = directories::ProjectDirs::from("", "", "trail")
-        .map(|dirs| dirs.data_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    // The data directory holds everything Trail persists between runs
+    // (bookmarks, recent directories, the remembered --config path). Resolve
+    // it before loading config, since the remembered path lives there.
+    let data_dir = data_dir();
 
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
         tracing::debug!("failed to create data dir: {e}");
     }
+
+    let config_state_file = data_dir.join(config::last_used::STATE_FILE_NAME);
+
+    // Decide which config to load: an explicit --config, else the path
+    // remembered from a previous run, else the built-in defaults.
+    let config_source = config::last_used::resolve(
+        cli.config.clone(),
+        config::last_used::remembered(&config_state_file),
+        cli.no_config,
+    );
+
+    // Build initial app state from the CLI start path before entering raw
+    // mode so that a bad start path produces a normal error message rather
+    // than a broken terminal.
+    let (config, config_warning) = load_configured(&config_source)?;
+
+    // Only record a path the user named explicitly, and only once it has
+    // actually loaded — a file that fails to parse must never become the one
+    // Trail reaches for on the next run.
+    if let config::ConfigSource::Explicit(ref path) = config_source {
+        if let Err(e) = config::last_used::remember(&config_state_file, path) {
+            // Non-fatal: this session is fine, it just won't be recalled.
+            tracing::debug!("failed to remember --config path: {e}");
+        }
+    }
+
+    let mut state = AppState::with_config(cli.start_path, config)
+        .map_err(|e| anyhow::anyhow!("failed to open start directory: {e}"))?;
+
+    // Surface a degraded remembered config in the status bar. Trail owns the
+    // alternate screen, so this is the only channel available.
+    state.error_message = config_warning;
 
     state.bookmark_store =
         match plugin::bookmarks::BookmarkStore::open(data_dir.join("bookmarks.toml")) {
@@ -187,15 +210,9 @@ async fn main() -> Result<()> {
             }
         }
 
-        let data_dir = directories::ProjectDirs::from("", "", "trail")
-            .map(|dirs| dirs.data_dir().to_path_buf())
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
     } else if cancelled {
         // Cancelled (Ctrl+C): save recent dirs but do NOT write cwd-file.
-        let data_dir = directories::ProjectDirs::from("", "", "trail")
-            .map(|dirs| dirs.data_dir().to_path_buf())
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
     }
 
@@ -204,6 +221,69 @@ async fn main() -> Result<()> {
         Ok(())
     } else {
         run_result
+    }
+}
+
+/// Returns the directory Trail persists cross-run state into.
+///
+/// Falls back to the current working directory when the platform's data
+/// directory cannot be determined, so persistence degrades to "beside the
+/// user" rather than being dropped entirely.
+fn data_dir() -> PathBuf {
+    directories::ProjectDirs::from("", "", "trail")
+        .map(|dirs| dirs.data_dir().to_path_buf())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+}
+
+/// Loads the configuration named by `source`, applying the failure policy that
+/// the source implies.
+///
+/// Returns the config plus an optional warning to show in the status bar.
+///
+/// # Errors
+///
+/// Returns an error only for [`config::ConfigSource::Explicit`]: the user named
+/// that file on the command line, so a typo or a syntax error must fail loudly
+/// rather than silently starting with different settings. A
+/// [`config::ConfigSource::Remembered`] path that no longer loads is reported
+/// as a warning and falls back to the built-in defaults instead — it was
+/// recorded by an earlier run and may since have been moved, deleted or edited,
+/// and refusing to start would leave the user with no obvious way back.
+fn load_configured(source: &config::ConfigSource) -> Result<(config::TrailConfig, Option<String>)> {
+    match source {
+        config::ConfigSource::Defaults => {
+            tracing::info!("using built-in default configuration");
+            let config =
+                config::load(None).map_err(|e| anyhow::anyhow!("failed to load config: {e}"))?;
+            Ok((config, None))
+        }
+
+        config::ConfigSource::Explicit(path) => {
+            tracing::info!(?path, "loading configuration from --config");
+            let config = config::load(Some(path))
+                .map_err(|e| anyhow::anyhow!("failed to load config: {e}"))?;
+            Ok((config, None))
+        }
+
+        config::ConfigSource::Remembered(path) => match config::load(Some(path)) {
+            Ok(config) => {
+                tracing::info!(?path, "loading remembered configuration");
+                Ok((config, None))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    ?path,
+                    "remembered config failed to load; falling back to defaults: {e}"
+                );
+                let config = config::load(None)
+                    .map_err(|e| anyhow::anyhow!("failed to load config: {e}"))?;
+                let warning = format!(
+                    "remembered config {} failed to load ({e}); using defaults",
+                    path.display()
+                );
+                Ok((config, Some(warning)))
+            }
+        },
     }
 }
 

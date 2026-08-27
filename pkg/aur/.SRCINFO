@@ -4,13 +4,13 @@
 # Regenerate after any PKGBUILD change with:
 #   makepkg --printsrcinfo > .SRCINFO
 #
-# NOTE: The sha256sums below are the real digests for the v1.0.0 archives.
+# NOTE: The sha256sums below are the real digests for the v1.0.1 archives.
 # This file is generated — after changing PKGBUILD, regenerate it with
 # `makepkg --printsrcinfo > .SRCINFO` rather than editing it by hand.
 
 pkgbase = trail
 	pkgdesc = Terminal-first workspace for navigating, inspecting and acting on the filesystem
-	pkgver = 1.0.0
+	pkgver = 1.0.1
 	pkgrel = 1
 	url = https://github.com/WeedonSctt/trail
 	arch = x86_64
@@ -20,10 +20,10 @@ pkgbase = trail
 	conflicts = trail
 	install = trail.install
 
-	source_x86_64 = trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+	source_x86_64 = trail-v1.0.1-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.1/trail-v1.0.1-x86_64-unknown-linux-gnu.tar.gz
 	sha256sums_x86_64 = 1cac0fbc34298c33b78a3ce53de50c6d3aab4781248fa175608a5cb81807a52d
 
-	source_aarch64 = trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz
+	source_aarch64 = trail-v1.0.1-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.1/trail-v1.0.1-aarch64-unknown-linux-gnu.tar.gz
 	sha256sums_aarch64 = 8eead4e1b470e8a87931c870f75be7e2f134a4c622c099d1ba5d19e65c695341
 
 pkgname = trail
