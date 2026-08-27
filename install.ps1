@@ -90,7 +90,18 @@ function Verify-Checksum {
 
     Write-Info "Downloading checksums for verification..."
     try {
-        $checksumContent = (Invoke-WebRequest -Uri $ChecksumsUrl -UseBasicParsing).Content
+        # GitHub serves release assets as application/octet-stream, and for a
+        # non-text content type Invoke-WebRequest hands back .Content as a
+        # System.Byte[] rather than a string. Running -match against a byte
+        # array never matches, which silently routes every install into the
+        # "skipping verification" branch below — i.e. the integrity check
+        # quietly does nothing. Decode explicitly instead of trusting the type.
+        $raw = (Invoke-WebRequest -Uri $ChecksumsUrl -UseBasicParsing).Content
+        $checksumContent = if ($raw -is [byte[]]) {
+            [System.Text.Encoding]::UTF8.GetString($raw)
+        } else {
+            [string]$raw
+        }
         if ($checksumContent -match "([a-fA-F0-9]{64})\s+$([regex]::Escape($ArchiveName))") {
             $expected = $Matches[1].ToLower()
             $actual   = (Get-FileHash -Path $FilePath -Algorithm SHA256).Hash.ToLower()
