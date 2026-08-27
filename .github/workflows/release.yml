@@ -284,6 +284,10 @@ jobs:
     needs: checksums
     runs-on: ubuntu-latest
     steps:
+      # Needed for the installer scripts, which are attached from the repo
+      # rather than produced by the build matrix.
+      - uses: actions/checkout@v4
+
       - name: Download all archives
         uses: actions/download-artifact@v4
         with:
@@ -297,6 +301,14 @@ jobs:
             -exec cp {} release-assets/ \;
           # Checksums artifact is also one level deep.
           find dist/ -name "checksums.txt" -exec cp {} release-assets/ \;
+          # The installer scripts must be release assets, not just repo files:
+          # README.md and docs/installation.md document the one-line install as
+          #   curl -fsSL .../releases/latest/download/install.sh | sh
+          #   irm .../releases/latest/download/install.ps1 | iex
+          # and that URL resolves against the release's attached assets. If they
+          # are missing, the primary documented install path 404s on every
+          # platform.
+          cp install.sh install.ps1 release-assets/
           ls -lh release-assets/
 
       - name: Create or update GitHub Release
