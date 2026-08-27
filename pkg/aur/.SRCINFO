@@ -21,9 +21,9 @@ pkgbase = trail
 	install = trail.install
 
 	source_x86_64 = trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums_x86_64 = 39896aac5887c84dca1d134b29a496e55654c47357bd85f67510cf69237875ec
+	sha256sums_x86_64 = 1cac0fbc34298c33b78a3ce53de50c6d3aab4781248fa175608a5cb81807a52d
 
 	source_aarch64 = trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz
-	sha256sums_aarch64 = db6052adace032cc123ca7f6b3ac18d46d77c59f8b9e090750d2b4037a465f83
+	sha256sums_aarch64 = 8eead4e1b470e8a87931c870f75be7e2f134a4c622c099d1ba5d19e65c695341
 
 pkgname = trail
