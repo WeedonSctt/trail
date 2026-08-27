@@ -250,13 +250,23 @@ jobs:
         run: |
           cd dist/
           # Each artifact was uploaded into its own subdirectory by
-          # actions/upload-artifact@v4's default behaviour.  Find every
-          # archive recursively and compute a checksum.
+          # actions/upload-artifact@v4's default behaviour.  Flatten them
+          # first, then checksum from inside the flat directory so the second
+          # column is a bare filename.
+          #
+          # The filename column is load-bearing, not cosmetic: install.sh and
+          # install.ps1 locate a hash with /<sha256>\s+<archive-name>/, and the
+          # Scoop manifest's autoupdate block uses the same shape.  A nested
+          # "./<dir>/<file>" path silently fails those matches, and the
+          # installers then fall through to "skipping verification" — turning
+          # a corrupted or tampered download into a successful install.
+          mkdir -p flat
           find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) \
-            | sort \
-            | xargs sha256sum \
-            | sed 's|^\./[^/]*/||' \
-            > checksums.txt
+            -exec cp {} flat/ \;
+          cd flat
+          sha256sum * | sort -k 2 > ../checksums.txt
+          cd ..
+          rm -rf flat
           cat checksums.txt
 
       - name: Upload checksums as workflow artifact
