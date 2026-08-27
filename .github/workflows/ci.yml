@@ -16,10 +16,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Coding standard §1: rustfmt is mandatory.
       - run: cargo fmt --check
 
+      # Coding standard §2: clippy must pass with -D warnings.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - run: cargo build --workspace --all-features
 
       - run: cargo test --workspace --all-features
+
+      # Coding standard §3: cargo doc must build without warnings before a
+      # phase is considered closed.
+      - run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"

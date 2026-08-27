@@ -168,7 +168,7 @@ fn compute_git_status(path: &Path) -> (Option<GitDirState>, Vec<(String, GitFile
 /// tracked files and marks files not found on disk as `Deleted`. Untracked
 /// files remain unlisted (callers can interpret absent = untracked).
 fn compute_file_statuses(repo: &gix::Repository, dir: &Path) -> Vec<(String, GitFileStatus)> {
-    let workdir = match repo.work_dir() {
+    let workdir = match repo.workdir() {
         Some(p) => p.to_owned(),
         None => return vec![], // bare repo
     };

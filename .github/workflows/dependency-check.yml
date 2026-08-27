@@ -3,6 +3,9 @@ name: Dependency Audit
 on:
   schedule:
     - cron: "0 4 * * 1"
+  # Allow the audit to be run on demand, so a dependency fix can be verified
+  # immediately instead of waiting for the next Monday cron tick.
+  workflow_dispatch:
 
 jobs:
   audit:
@@ -13,6 +16,9 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - run: cargo install cargo-audit
+      # --locked: build cargo-audit against its own committed lockfile so a
+      # freshly-published transitive dependency cannot break the audit job
+      # itself.
+      - run: cargo install cargo-audit --locked
 
       - run: cargo audit
