@@ -86,67 +86,27 @@ pub fn filename_text(entry_path: &Path) -> Result<String, ClipboardError> {
         .to_owned())
 }
 
-// ── Clipboard writes ──────────────────────────────────────────────────────────
+// ── Clipboard write ───────────────────────────────────────────────────────────
 
 /// Writes `text` to the OS clipboard.
 ///
 /// The single place in this module that talks to `arboard`, so the pure
 /// path-computation functions above stay free of I/O.
 ///
+/// Callers are expected to treat a failure here as non-fatal: the text was
+/// computed successfully, only the hand-off to the OS failed. `actions::apply`
+/// still records the yank in `AppState::last_yank` and surfaces the error in
+/// the status bar, so the operation degrades gracefully on machines with no
+/// reachable clipboard (headless servers, bare TTYs, CI runners).
+///
 /// # Errors
 ///
 /// Returns [`ClipboardError::Arboard`] if the OS clipboard cannot be opened
-/// or written to (e.g. no display server available).
-fn set_clipboard(text: &str) -> Result<(), ClipboardError> {
+/// or written to.
+pub fn set_clipboard(text: &str) -> Result<(), ClipboardError> {
     let mut clipboard = arboard::Clipboard::new()?;
     clipboard.set_text(text.to_owned())?;
     Ok(())
-}
-
-/// Copies the absolute path of `entry_path` to the OS clipboard.
-///
-/// Returns the string that was yanked so the caller can store it in state.
-///
-/// # Errors
-///
-/// Returns [`ClipboardError::NotUtf8`] if the path cannot be UTF-8 encoded.
-/// Returns [`ClipboardError::Arboard`] if the OS clipboard write fails.
-pub fn copy_absolute_path(entry_path: &Path) -> Result<String, ClipboardError> {
-    let s = absolute_path_text(entry_path)?;
-    set_clipboard(&s)?;
-
-    tracing::info!(yank = %s, "yanked absolute path");
-    Ok(s)
-}
-
-/// Copies the path of `entry_path` relative to `cwd` to the OS clipboard.
-///
-/// Falls back to the absolute path if a relative path cannot be computed.
-///
-/// # Errors
-///
-/// Returns [`ClipboardError::NotUtf8`] if the resulting path is not valid UTF-8.
-/// Returns [`ClipboardError::Arboard`] if the OS clipboard write fails.
-pub fn copy_relative_path(entry_path: &Path, cwd: &Path) -> Result<String, ClipboardError> {
-    let s = relative_path_text(entry_path, cwd)?;
-    set_clipboard(&s)?;
-
-    tracing::info!(yank = %s, "yanked relative path");
-    Ok(s)
-}
-
-/// Copies only the file name component of `entry_path` to the OS clipboard.
-///
-/// # Errors
-///
-/// Returns [`ClipboardError::NotUtf8`] if the file name is not valid UTF-8.
-/// Returns [`ClipboardError::Arboard`] if the OS clipboard write fails.
-pub fn copy_filename(entry_path: &Path) -> Result<String, ClipboardError> {
-    let s = filename_text(entry_path)?;
-    set_clipboard(&s)?;
-
-    tracing::info!(yank = %s, "yanked filename");
-    Ok(s)
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────

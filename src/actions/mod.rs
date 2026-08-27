@@ -410,50 +410,20 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         // ── Clipboard ─────────────────────────────────────────────────────────
         Action::CopyAbsPath => {
             if let Some(entry) = state.selected_entry().cloned() {
-                match clipboard::copy_absolute_path(&entry.path) {
-                    Ok(s) => {
-                        state.last_yank = Some(s);
-                        state.error_message = None;
-                        state.dirty = true;
-                    }
-                    Err(e) => {
-                        state.error_message = Some(format!("yank: {e}"));
-                        state.dirty = true;
-                    }
-                }
+                record_yank(state, clipboard::absolute_path_text(&entry.path));
             }
         }
 
         Action::CopyRelPath => {
             if let Some(entry) = state.selected_entry().cloned() {
                 let cwd = state.cwd.clone();
-                match clipboard::copy_relative_path(&entry.path, &cwd) {
-                    Ok(s) => {
-                        state.last_yank = Some(s);
-                        state.error_message = None;
-                        state.dirty = true;
-                    }
-                    Err(e) => {
-                        state.error_message = Some(format!("yank: {e}"));
-                        state.dirty = true;
-                    }
-                }
+                record_yank(state, clipboard::relative_path_text(&entry.path, &cwd));
             }
         }
 
         Action::CopyFilename => {
             if let Some(entry) = state.selected_entry().cloned() {
-                match clipboard::copy_filename(&entry.path) {
-                    Ok(s) => {
-                        state.last_yank = Some(s);
-                        state.error_message = None;
-                        state.dirty = true;
-                    }
-                    Err(e) => {
-                        state.error_message = Some(format!("yank: {e}"));
-                        state.dirty = true;
-                    }
-                }
+                record_yank(state, clipboard::filename_text(&entry.path));
             }
         }
 
@@ -557,6 +527,36 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
     }
     Ok(())
+}
+
+/// Records the outcome of a yank operation in `state`.
+///
+/// `text` is the already-computed string to yank (see the `*_text` functions
+/// in [`clipboard`]). On success the string is stored in
+/// `AppState::last_yank` **whether or not** the OS clipboard accepted it: the
+/// path was computed correctly, and only the hand-off to the OS can fail. That
+/// keeps the status bar honest on machines with no reachable clipboard
+/// (headless servers, bare TTYs) while still reporting the failure, rather
+/// than silently doing nothing.
+fn record_yank(state: &mut AppState, text: Result<String, clipboard::ClipboardError>) {
+    match text {
+        Ok(s) => {
+            if let Err(e) = clipboard::set_clipboard(&s) {
+                // Non-fatal: the yank still happened as far as Trail is
+                // concerned, the OS just would not take it.
+                tracing::debug!("clipboard write failed: {e}");
+                state.error_message = Some(format!("clipboard unavailable: {e}"));
+            } else {
+                state.error_message = None;
+            }
+            tracing::info!(yank = %s, "yanked");
+            state.last_yank = Some(s);
+        }
+        Err(e) => {
+            state.error_message = Some(format!("yank: {e}"));
+        }
+    }
+    state.dirty = true;
 }
 
 /// Executes a [`ParsedCommand`] against `state`, performing the corresponding
