@@ -9,11 +9,12 @@
 ## open a PR against homebrew/homebrew-core following their contribution
 ## guidelines.
 ##
-## NOTE ON SHA256 PLACEHOLDERS:
-##   The sha256 values below are placeholders that MUST be replaced with the
-##   actual digests of the release archives before this formula is published.
-##   Run `sha256sum` (Linux) or `shasum -a 256` (macOS) against each archive,
-##   or read them from the checksums.txt attached to the GitHub Release.
+## NOTE ON SHA256 DIGESTS:
+##   The sha256 values below are the real digests of the v1.0.0 macOS release
+##   archives, taken from the checksums.txt attached to the GitHub Release.
+##   On every version bump they must be refreshed alongside `version` — read
+##   the new values from that release's checksums.txt, or run `shasum -a 256`
+##   (macOS) / `sha256sum` (Linux) against each downloaded archive.
 ##
 ## NOTE ON SHELL WRAPPERS:
 ##   Trail's "cd-on-exit" behaviour requires a shell function, not just the
@@ -36,13 +37,13 @@ class Trail < Formula
     on_arm do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-aarch64-apple-darwin.tar.gz"
       # TODO(release): replace with `shasum -a 256` of the arm64 macOS archive.
-      sha256 "PLACEHOLDER_SHA256_AARCH64_APPLE_DARWIN"
+      sha256 "ee852a0dad02c9b9a951d25f41c5ef029452b790a625d231e63a4acf30844e3f"
     end
 
     on_intel do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-x86_64-apple-darwin.tar.gz"
       # TODO(release): replace with `shasum -a 256` of the x86_64 macOS archive.
-      sha256 "PLACEHOLDER_SHA256_X86_64_APPLE_DARWIN"
+      sha256 "e32a094bc25a1a60abda41f5dce1550fd3459c04ef96fa7c6613559878065464"
     end
   end
 

@@ -10,11 +10,12 @@
 # Or use an AUR helper (e.g. paru / yay):
 #   paru -S trail
 #
-# NOTE ON SHA256 PLACEHOLDERS:
-#   The sha256sum values below are placeholders that MUST be replaced with the
-#   actual digests of the release archives before this PKGBUILD is published.
-#   Run `sha256sum` against each downloaded archive, or read the values from
-#   the checksums.txt attached to the GitHub Release.
+# NOTE ON SHA256 DIGESTS:
+#   The sha256sum values below are the real digests of the v1.0.0 Linux release
+#   archives, taken from the checksums.txt attached to the GitHub Release.
+#   On every version bump they must be refreshed alongside `pkgver` — read the
+#   new values from that release's checksums.txt, or run `sha256sum` against
+#   each downloaded archive, then regenerate .SRCINFO.
 #
 # NOTE ON SHELL WRAPPERS:
 #   Trail's "cd-on-exit" behaviour requires a shell function wrapper.  This
@@ -39,10 +40,9 @@ options=(!debug)
 source_x86_64=("trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
 source_aarch64=("trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
 
-# TODO(release): Replace these placeholder digests with the actual sha256sums
-# from checksums.txt before publishing.
-sha256sums_x86_64=("PLACEHOLDER_SHA256_X86_64_UNKNOWN_LINUX_GNU")
-sha256sums_aarch64=("PLACEHOLDER_SHA256_AARCH64_UNKNOWN_LINUX_GNU")
+# Digests for the v1.0.0 archives, from the release's checksums.txt.
+sha256sums_x86_64=("39896aac5887c84dca1d134b29a496e55654c47357bd85f67510cf69237875ec")
+sha256sums_aarch64=("db6052adace032cc123ca7f6b3ac18d46d77c59f8b9e090750d2b4037a465f83")
 
 install=trail.install
 
