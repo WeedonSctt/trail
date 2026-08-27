@@ -37,13 +37,13 @@ class Trail < Formula
     on_arm do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-aarch64-apple-darwin.tar.gz"
       # TODO(release): replace with `shasum -a 256` of the arm64 macOS archive.
-      sha256 "49efdf66a262ad49198c6cf829f7398eaa85d4342f434409a402dd61a7353f43"
+      sha256 "08ef7667ff42a32bb3ce628b9bd5e9a3007883ef598d141eda454c83347c2c26"
     end
 
     on_intel do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-x86_64-apple-darwin.tar.gz"
       # TODO(release): replace with `shasum -a 256` of the x86_64 macOS archive.
-      sha256 "1faeec8a78bd7a8549c077567aef21f5d0a2079d06ea2882b5c5d4de2b92c13a"
+      sha256 "7558d28999a2f2e48d50e07ad55c3f099519cb5193bf8745065f404a79622be9"
     end
   end
 

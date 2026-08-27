@@ -41,8 +41,8 @@ source_x86_64=("trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github
 source_aarch64=("trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
 
 # Digests for the v1.0.1 archives, from the release's checksums.txt.
-sha256sums_x86_64=("1cac0fbc34298c33b78a3ce53de50c6d3aab4781248fa175608a5cb81807a52d")
-sha256sums_aarch64=("8eead4e1b470e8a87931c870f75be7e2f134a4c622c099d1ba5d19e65c695341")
+sha256sums_x86_64=("66baf8dbd4e8e5aa96c1a6e59a96d9dbd619a4da5b3c76b7236c3e8036c0c984")
+sha256sums_aarch64=("cfad7af37ffa6b64e70cf52992241e7665030fb472e27255dbbfd503823e6340")
 
 install=trail.install
 
