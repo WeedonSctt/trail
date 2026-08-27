@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
+  "version": "1.0.0",
+  "description": "Terminal-first workspace for navigating, inspecting and acting on the filesystem",
+  "homepage": "https://github.com/WeedonSctt/trail",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-x86_64-pc-windows-msvc.zip",
+      "hash": "PLACEHOLDER_SHA256_X86_64_PC_WINDOWS_MSVC"
+    }
+  },
+  "extract_dir": "trail-v1.0.0-x86_64-pc-windows-msvc",
+  "bin": "trail.exe",
+  "shortcuts": [],
+  "notes": [
+    "Trail's 'cd-on-exit' behaviour requires a PowerShell wrapper function.",
+    "The binary alone cannot change the parent shell's working directory.",
+    "",
+    "To enable cd-on-exit, add the following line to your PowerShell profile.",
+    "Find your profile path with:  $PROFILE",
+    "",
+    "  . \"$env:SCOOP\\apps\\trail\\current\\shell\\trail.ps1\"",
+    "",
+    "Then reload your profile:",
+    "",
+    "  . $PROFILE",
+    "",
+    "After that, invoking 'trail' from PowerShell will use the wrapper, and",
+    "your session will change to the last-browsed directory when you quit."
+  ],
+  "checkver": {
+    "github": "https://github.com/WeedonSctt/trail"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/WeedonSctt/trail/releases/download/v$version/trail-v$version-x86_64-pc-windows-msvc.zip",
+        "hash": {
+          "url": "https://github.com/WeedonSctt/trail/releases/download/v$version/checksums.txt",
+          "regex": "([a-fA-F0-9]{64})\\s+trail-v$version-x86_64-pc-windows-msvc\\.zip"
+        }
+      }
+    },
+    "extract_dir": "trail-v$version-x86_64-pc-windows-msvc"
+  }
+}

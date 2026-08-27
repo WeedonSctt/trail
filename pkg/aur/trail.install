@@ -1,0 +1,26 @@
+post_install() {
+    echo ""
+    echo "==> Trail has been installed successfully."
+    echo ""
+    echo "==> Trail's \"cd-on-exit\" behaviour requires a shell wrapper function."
+    echo "    The binary alone cannot change the parent shell's working directory."
+    echo ""
+    echo "    ── Bash ──────────────────────────────────────────────────────────"
+    echo "    Add to your ~/.bashrc:"
+    echo ""
+    echo "      source /usr/share/trail/shell/trail.bash"
+    echo ""
+    echo "    ── Zsh ───────────────────────────────────────────────────────────"
+    echo "    Add to your ~/.zshrc:"
+    echo ""
+    echo "      source /usr/share/trail/shell/trail.zsh"
+    echo ""
+    echo "    ── Fish ──────────────────────────────────────────────────────────"
+    echo "    The fish wrapper was installed to the vendor_functions.d directory"
+    echo "    and loads automatically in new fish sessions. No action needed."
+    echo ""
+}
+
+post_upgrade() {
+    post_install
+}

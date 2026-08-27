@@ -1,0 +1,301 @@
+##
+## Trail — Release Workflow
+##
+## Triggered on every push of a tag matching "v*" (e.g. v0.1.0).
+##
+## Pipeline:
+##   1. quality-gate  — fmt + clippy + test on Linux; must pass before any
+##                      build starts (fail-fast saves CI minutes).
+##   2. build         — matrix across 5 targets; each job:
+##                        a. compiles a --release binary for its target
+##                        b. packages the binary + shell wrappers + README into
+##                           a platform archive (.tar.gz or .zip)
+##                        c. uploads the archive as a workflow artifact
+##   3. checksums     — downloads every archive, computes SHA-256, uploads a
+##                      single checksums.txt
+##   4. release       — creates/updates the GitHub Release and uploads all
+##                      archives + checksums.txt as release assets
+##
+## Shell wrappers (trail.bash / trail.zsh / trail.fish / trail.ps1) are
+## included in every archive so that users get the cd-on-exit behaviour
+## regardless of which channel they install from.  Omitting them from any
+## archive is a distribution bug, not a minor oversight.
+##
+## Cross-compilation strategy:
+##   - Linux x86_64  : native ubuntu-latest
+##   - Linux aarch64 : cross-rs/cross on ubuntu-latest
+##   - macOS x86_64  : macos-latest with explicit --target (universal SDK)
+##   - macOS arm64   : macos-latest with explicit --target
+##   - Windows x86_64: windows-latest (MSVC toolchain)
+##
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# All jobs in this workflow only need read access to the repo.  The release
+# job additionally needs write access to create/update a Release.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # Name of the binary produced by `cargo build`.
+  BIN_NAME: trail
+
+##############################################################################
+# 1. Quality gate — fail fast before spending time on cross-compile builds.  #
+##############################################################################
+jobs:
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + build artefacts
+        uses: Swatinem/rust-cache@v2
+
+      # Coding standard §1
+      - name: Check formatting
+        run: cargo fmt --check
+
+      # Coding standard §2
+      - name: Clippy (all targets, all features, -D warnings)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      # Coding standard §8 — project must compile
+      - name: Build (debug, all features)
+        run: cargo build --workspace --all-features
+
+      # Tests must pass before release artifacts are built.
+      - name: Test suite
+        run: cargo test --workspace --all-features
+
+      # Coding standard §3 — docs must build warning-free
+      - name: Documentation
+        run: cargo doc --workspace --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+##############################################################################
+# 2. Build matrix                                                            #
+##############################################################################
+  build:
+    name: Build — ${{ matrix.target }}
+    needs: quality-gate
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # ── Linux ────────────────────────────────────────────────────────
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: false
+            archive_ext: tar.gz
+
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use_cross: true   # cross-rs handles the sysroot + linker
+            archive_ext: tar.gz
+
+          # ── macOS ────────────────────────────────────────────────────────
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            use_cross: false
+            archive_ext: tar.gz
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            use_cross: false  # Xcode SDK on macos-latest supports arm64
+            archive_ext: tar.gz
+
+          # ── Windows ──────────────────────────────────────────────────────
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use_cross: false
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Toolchain ────────────────────────────────────────────────────────
+      - name: Install Rust stable + target ${{ matrix.target }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry + build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # ── Install cross (Linux aarch64 only) ───────────────────────────────
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      # ── Compile ──────────────────────────────────────────────────────────
+      - name: Build (cross)
+        if: matrix.use_cross
+        run: cross build --release --locked --target ${{ matrix.target }}
+
+      - name: Build (cargo)
+        if: "!matrix.use_cross"
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # ── Determine binary path ─────────────────────────────────────────────
+      # Windows adds .exe; everything else does not.
+      - name: Set binary name
+        id: bin
+        shell: bash
+        run: |
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            echo "path=target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" >> "$GITHUB_OUTPUT"
+            echo "name=${{ env.BIN_NAME }}.exe" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" >> "$GITHUB_OUTPUT"
+            echo "name=${{ env.BIN_NAME }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Package archive ───────────────────────────────────────────────────
+      # Archive layout for every platform:
+      #   trail-<version>-<target>/
+      #     trail[.exe]            ← compiled binary
+      #     shell/
+      #       trail.bash           ← bash/POSIX wrapper (cd-on-exit)
+      #       trail.zsh            ← zsh wrapper
+      #       trail.fish           ← fish wrapper
+      #       trail.ps1            ← PowerShell wrapper (all archives)
+      #     README.md
+      #     LICENSE                ← if present in repo root
+      #
+      # The shell wrappers MUST be in every archive.  The binary alone does
+      # not provide cd-on-exit behaviour (see implementation plan Phase 9 and
+      # Phase 6 for the rationale).
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Set archive stem
+        id: stem
+        shell: bash
+        run: |
+          echo "name=${{ env.BIN_NAME }}-${{ steps.version.outputs.tag }}-${{ matrix.target }}" >> "$GITHUB_OUTPUT"
+
+      - name: Stage archive contents
+        shell: bash
+        run: |
+          STEM="${{ steps.stem.outputs.name }}"
+          mkdir -p "$STEM/shell"
+          cp "${{ steps.bin.outputs.path }}" "$STEM/${{ steps.bin.outputs.name }}"
+          cp shell/trail.bash "$STEM/shell/"
+          cp shell/trail.zsh  "$STEM/shell/"
+          cp shell/trail.fish "$STEM/shell/"
+          cp shell/trail.ps1  "$STEM/shell/"
+          cp README.md "$STEM/"
+          # LICENSE is optional — only copy if it exists.
+          if [ -f LICENSE ]; then cp LICENSE "$STEM/"; fi
+          if [ -f LICENSE-MIT ]; then cp LICENSE-MIT "$STEM/"; fi
+          if [ -f LICENSE-APACHE ]; then cp LICENSE-APACHE "$STEM/"; fi
+
+      - name: Create .tar.gz archive (Linux / macOS)
+        if: matrix.archive_ext == 'tar.gz'
+        run: |
+          STEM="${{ steps.stem.outputs.name }}"
+          tar -czf "$STEM.tar.gz" "$STEM"
+          echo "ARCHIVE=$STEM.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Create .zip archive (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          $stem = "${{ steps.stem.outputs.name }}"
+          Compress-Archive -Path $stem -DestinationPath "$stem.zip"
+          "ARCHIVE=$stem.zip" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Upload archive as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.stem.outputs.name }}
+          path: ${{ env.ARCHIVE }}
+          retention-days: 1
+
+##############################################################################
+# 3. Checksums                                                               #
+##############################################################################
+  checksums:
+    name: Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Compute SHA-256 checksums
+        run: |
+          cd dist/
+          # Each artifact was uploaded into its own subdirectory by
+          # actions/upload-artifact@v4's default behaviour.  Find every
+          # archive recursively and compute a checksum.
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) \
+            | sort \
+            | xargs sha256sum \
+            | sed 's|^\./[^/]*/||' \
+            > checksums.txt
+          cat checksums.txt
+
+      - name: Upload checksums as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/checksums.txt
+          retention-days: 1
+
+##############################################################################
+# 4. Publish GitHub Release                                                  #
+##############################################################################
+  release:
+    name: Publish Release
+    needs: checksums
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+
+      - name: Collect release assets into flat directory
+        run: |
+          mkdir -p release-assets/
+          # Archives are nested one level deep (artifact name → file).
+          find dist/ -type f \( -name "*.tar.gz" -o -name "*.zip" \) \
+            -exec cp {} release-assets/ \;
+          # Checksums artifact is also one level deep.
+          find dist/ -name "checksums.txt" -exec cp {} release-assets/ \;
+          ls -lh release-assets/
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # draft: true lets a human review the release page before publishing.
+          # Change to false (or remove) if you want fully-automated publishing.
+          draft: true
+          generate_release_notes: true
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

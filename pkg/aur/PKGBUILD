@@ -1,0 +1,79 @@
+# Maintainer: <Your Name> <your@email.invalid>
+#
+# AUR package for Trail — a terminal file manager.
+#
+# Build and install:
+#   git clone https://aur.archlinux.org/trail.git
+#   cd trail
+#   makepkg -si
+#
+# Or use an AUR helper (e.g. paru / yay):
+#   paru -S trail
+#
+# NOTE ON SHA256 PLACEHOLDERS:
+#   The sha256sum values below are placeholders that MUST be replaced with the
+#   actual digests of the release archives before this PKGBUILD is published.
+#   Run `sha256sum` against each downloaded archive, or read the values from
+#   the checksums.txt attached to the GitHub Release.
+#
+# NOTE ON SHELL WRAPPERS:
+#   Trail's "cd-on-exit" behaviour requires a shell function wrapper.  This
+#   package installs shell/trail.bash, shell/trail.zsh, and shell/trail.fish
+#   to /usr/share/trail/shell/.  A post-install message (trail.install) tells
+#   users how to source the appropriate wrapper for their shell.
+#
+
+pkgname=trail
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Terminal-first workspace for navigating, inspecting and acting on the filesystem"
+arch=("x86_64" "aarch64")
+url="https://github.com/WeedonSctt/trail"
+license=("MIT")  # Update when a LICENSE file is present in the repository.
+provides=("trail")
+conflicts=("trail")
+options=(!debug)
+
+# Source archives produced by the GitHub Actions release workflow.
+# The aarch64 source is listed second; makepkg selects by $CARCH.
+source_x86_64=("trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
+source_aarch64=("trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
+
+# TODO(release): Replace these placeholder digests with the actual sha256sums
+# from checksums.txt before publishing.
+sha256sums_x86_64=("PLACEHOLDER_SHA256_X86_64_UNKNOWN_LINUX_GNU")
+sha256sums_aarch64=("PLACEHOLDER_SHA256_AARCH64_UNKNOWN_LINUX_GNU")
+
+install=trail.install
+
+package() {
+    # Determine the archive stem for the current architecture.
+    if [[ "$CARCH" == "x86_64" ]]; then
+        local stem="trail-v${pkgver}-x86_64-unknown-linux-gnu"
+    else
+        local stem="trail-v${pkgver}-aarch64-unknown-linux-gnu"
+    fi
+
+    cd "$srcdir/$stem"
+
+    # Binary
+    install -Dm755 "trail" "$pkgdir/usr/bin/trail"
+
+    # Shell wrappers — installed to /usr/share/trail/shell/ so users can
+    # source them from their rc files.  Fish is additionally linked in the
+    # standard fish functions directory for automatic loading.
+    install -Dm644 "shell/trail.bash" "$pkgdir/usr/share/trail/shell/trail.bash"
+    install -Dm644 "shell/trail.zsh"  "$pkgdir/usr/share/trail/shell/trail.zsh"
+    install -Dm644 "shell/trail.fish" "$pkgdir/usr/share/trail/shell/trail.fish"
+    install -Dm644 "shell/trail.fish" "$pkgdir/usr/share/fish/vendor_functions.d/trail.fish"
+
+    # README
+    if [[ -f README.md ]]; then
+        install -Dm644 README.md "$pkgdir/usr/share/doc/trail/README.md"
+    fi
+
+    # License (install if present; adjust path when LICENSE is added to repo).
+    if [[ -f LICENSE ]]; then
+        install -Dm644 LICENSE "$pkgdir/usr/share/licenses/trail/LICENSE"
+    fi
+}

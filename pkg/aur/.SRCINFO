@@ -1,0 +1,28 @@
+# .SRCINFO for Trail
+#
+# This file is auto-generated from PKGBUILD and must be kept in sync with it.
+# Regenerate after any PKGBUILD change with:
+#   makepkg --printsrcinfo > .SRCINFO
+#
+# NOTE: The sha256sums below are placeholder values.  Replace them with the
+# actual digests before publishing to the AUR.
+
+pkgbase = trail
+	pkgdesc = Terminal-first workspace for navigating, inspecting and acting on the filesystem
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/WeedonSctt/trail
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	provides = trail
+	conflicts = trail
+	install = trail.install
+
+	source_x86_64 = trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums_x86_64 = PLACEHOLDER_SHA256_X86_64_UNKNOWN_LINUX_GNU
+
+	source_aarch64 = trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.0.0/trail-v1.0.0-aarch64-unknown-linux-gnu.tar.gz
+	sha256sums_aarch64 = PLACEHOLDER_SHA256_AARCH64_UNKNOWN_LINUX_GNU
+
+pkgname = trail

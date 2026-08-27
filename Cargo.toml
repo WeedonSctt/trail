@@ -1,14 +1,14 @@
 [package]
 name = "trail"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 # Minimum Supported Rust Version.  Verified against the stable toolchain used
 # in CI.  Bump only when a dependency or language feature requires it.
 rust-version = "1.80"
 description = "A terminal-first workspace for navigating, inspecting and acting on the filesystem"
 license = "MIT"
-repository = "https://github.com/OWNER/trail"
-homepage = "https://github.com/OWNER/trail"
+repository = "https://github.com/WeedonSctt/trail"
+homepage = "https://github.com/WeedonSctt/trail"
 readme = "README.md"
 keywords = ["file-manager", "terminal", "tui", "cli", "filesystem"]
 categories = ["command-line-utilities", "filesystem"]
