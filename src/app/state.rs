@@ -224,6 +224,18 @@ pub struct AppState {
     pub config: TrailConfig,
     /// Current working directory being displayed.
     pub cwd: PathBuf,
+    /// The directory Trail was launched from — the shell's working directory
+    /// at startup, which is unaffected by navigation.
+    ///
+    /// This is the base for `yr` (copy relative path): the point of a relative
+    /// path is that it can be pasted back into the shell that started Trail,
+    /// and that shell has not moved. Relative to `cwd` instead, every yank
+    /// would be the selection's own file name, which is what `yn` yanks.
+    ///
+    /// Canonicalized to match the form of `cwd` and of entry paths, so the two
+    /// can be related component-by-component (on Windows both therefore carry
+    /// the same `\\?\` verbatim prefix).
+    pub launch_dir: PathBuf,
     /// Directory-first sorted listing of the current directory.
     /// Hidden entries are included but may be filtered from display.
     pub entries: Vec<Entry>,
@@ -271,7 +283,7 @@ pub struct AppState {
 
     // ── Phase 3 multi-key sequence state ───────────────────────────────────────
     /// Tracks the first key of multi-key Navigation Mode sequences:
-    /// `y` (for `ya`/`yr`/`yn`) and `d` (for `dd`).
+    /// `y` (for `ya`/`yr`/`yn`/`yc`) and `d` (for `dd`).
     pub pending_nav_key: Option<char>,
 
     // ── Phase 6 shell integration ──────────────────────────────────────────────
@@ -329,9 +341,22 @@ impl AppState {
     pub fn with_config(start_path: PathBuf, config: TrailConfig) -> Result<Self, StateError> {
         let cwd = start_path.canonicalize().unwrap_or(start_path);
 
+        // The process working directory at startup is the shell's, since
+        // nothing has navigated yet — Trail changes `cwd` here, never the
+        // process's own directory. If it cannot be read (the shell was started
+        // in a directory that has since been deleted), fall back to the start
+        // path, which at worst makes `yr` behave as it did before.
+        let launch_dir = std::env::current_dir()
+            .map(|dir| dir.canonicalize().unwrap_or(dir))
+            .unwrap_or_else(|e| {
+                tracing::debug!("could not read the launch directory: {e}");
+                cwd.clone()
+            });
+
         let mut state = AppState {
             config,
             cwd: cwd.clone(),
+            launch_dir,
             entries: Vec::new(),
             selected: 0,
             mode: Mode::default(),

@@ -355,6 +355,7 @@ const NAV_ACTIONS: &[&str] = &[
     "copy_absolute_path",
     "copy_relative_path",
     "copy_filename",
+    "copy_content",
     "delete",
     "enter_search",
     "enter_command",

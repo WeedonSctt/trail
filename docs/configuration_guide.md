@@ -109,8 +109,9 @@ Overrides keybindings for Navigation Mode.
 - `refresh`: Manually refresh directory
 - `toggle_hidden`: Toggle visibility of hidden files
 - `copy_absolute_path`: Copy absolute path of selection
-- `copy_relative_path`: Copy relative path of selection
+- `copy_relative_path`: Copy path of selection relative to the launch directory
 - `copy_filename`: Copy filename of selection
+- `copy_content`: Copy content of selection (file text, or directory listing)
 - `delete`: Prompt to delete selection
 - `enter_search`: Enter Search Mode
 - `enter_command`: Enter Command Mode

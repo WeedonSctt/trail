@@ -33,8 +33,9 @@ Trail supports multiple tabs for multitasking.
 
 ### File Operations
 - `ya`: Copy absolute path of the selected item to clipboard
-- `yr`: Copy relative path to clipboard
+- `yr`: Copy path relative to the directory Trail was launched from
 - `yn`: Copy filename to clipboard
+- `yc`: Copy content to clipboard — file text, or directory listing
 - `dd`: Delete the selected item (prompts for confirmation: `y`/`Enter` to confirm, `n`/`Esc` to cancel)
 - `o`: Open the selected item with the OS default application
 

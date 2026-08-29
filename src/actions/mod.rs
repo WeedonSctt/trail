@@ -74,6 +74,9 @@ pub enum Action {
     CopyRelPath,
     /// Copy the filename of the selected entry to the yank buffer.
     CopyFilename,
+    /// Copy the content of the selected entry to the yank buffer: the text of
+    /// a file, or the listing of a directory.
+    CopyContent,
     /// Begin the `dd` delete flow — sets `pending_delete = true`.
     BeginDelete,
     /// Confirm and execute the pending delete.
@@ -416,14 +419,24 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         Action::CopyRelPath => {
             if let Some(entry) = state.selected_entry().cloned() {
-                let cwd = state.cwd.clone();
-                record_yank(state, clipboard::relative_path_text(&entry.path, &cwd));
+                // Relative to where Trail was launched, not to the directory
+                // being browsed — see `AppState::launch_dir`. Against `cwd`
+                // this yanked the bare file name, duplicating `yn`.
+                let base = state.launch_dir.clone();
+                record_yank(state, clipboard::relative_path_text(&entry.path, &base));
             }
         }
 
         Action::CopyFilename => {
             if let Some(entry) = state.selected_entry().cloned() {
                 record_yank(state, clipboard::filename_text(&entry.path));
+            }
+        }
+
+        Action::CopyContent => {
+            if let Some(entry) = state.selected_entry().cloned() {
+                let show_hidden = state.show_hidden;
+                record_yank(state, clipboard::content_text(&entry.path, show_hidden));
             }
         }
 
@@ -531,10 +544,11 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
 /// Records the outcome of a yank operation in `state`.
 ///
-/// `text` is the already-computed string to yank (see the `*_text` functions
-/// in [`clipboard`]). On success the string is stored in
+/// `text` is the already-computed string to yank — a path from one of the
+/// `*_text` functions in [`clipboard`], or an entry's content from
+/// `clipboard::content_text`. On success the string is stored in
 /// `AppState::last_yank` **whether or not** the OS clipboard accepted it: the
-/// path was computed correctly, and only the hand-off to the OS can fail. That
+/// text was computed correctly, and only the hand-off to the OS can fail. That
 /// keeps the status bar honest on machines with no reachable clipboard
 /// (headless servers, bare TTYs) while still reporting the failure, rather
 /// than silently doing nothing.

@@ -436,13 +436,87 @@ fn copy_filename_stores_just_name() {
 }
 
 #[test]
-fn copy_rel_path_is_relative_to_cwd() {
+fn copy_rel_path_is_relative_to_the_launch_dir() {
     let dir = tempfile::tempdir().unwrap();
-    fs::write(dir.path().join("rel.txt"), b"").unwrap();
-    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let launched_from = dir.path().join("launched");
+    let browsing = dir.path().join("browsing");
+    fs::create_dir(&launched_from).unwrap();
+    fs::create_dir(&browsing).unwrap();
+    fs::write(browsing.join("rel.txt"), b"").unwrap();
+
+    let mut state = trail::app::state::AppState::new(browsing).unwrap();
+    state.launch_dir = launched_from.canonicalize().unwrap();
 
     trail::actions::apply(trail::actions::Action::CopyRelPath, &mut state).unwrap();
     let yank = state.last_yank.as_deref().expect("last_yank should be set");
-    // The relative path from cwd to a file in cwd is just the filename.
-    assert_eq!(yank, "rel.txt");
+    // Relative to the launch directory, climbing out of it as needed — this is
+    // what makes the yank pasteable in the shell Trail was started from.
+    assert_eq!(yank.replace('\\', "/"), "../browsing/rel.txt");
+}
+
+#[test]
+fn copy_rel_path_and_copy_filename_yank_different_strings() {
+    // Regression: `yr` used to resolve against `cwd`, where every entry's
+    // relative path is its own file name — making it a duplicate of `yn`.
+    let dir = tempfile::tempdir().unwrap();
+    let browsing = dir.path().join("browsing");
+    fs::create_dir(&browsing).unwrap();
+    fs::write(browsing.join("rel.txt"), b"").unwrap();
+
+    let mut state = trail::app::state::AppState::new(browsing).unwrap();
+    state.launch_dir = dir.path().canonicalize().unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyRelPath, &mut state).unwrap();
+    let relative = state.last_yank.clone().expect("last_yank should be set");
+
+    trail::actions::apply(trail::actions::Action::CopyFilename, &mut state).unwrap();
+    let filename = state.last_yank.clone().expect("last_yank should be set");
+
+    assert_eq!(relative.replace('\\', "/"), "browsing/rel.txt");
+    assert_eq!(filename, "rel.txt");
+    assert_ne!(relative, filename);
+}
+
+#[test]
+fn copy_content_yanks_file_text() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("notes.txt"), b"first\nsecond\n").unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyContent, &mut state).unwrap();
+    assert_eq!(state.last_yank.as_deref(), Some("first\nsecond\n"));
+}
+
+#[test]
+fn copy_content_yanks_directory_listing() {
+    let dir = tempfile::tempdir().unwrap();
+    // Directories sort first, so `sub` is the selection at index 0.
+    fs::create_dir(dir.path().join("sub")).unwrap();
+    fs::write(dir.path().join("sub").join("inner.txt"), b"").unwrap();
+    fs::create_dir(dir.path().join("sub").join("deeper")).unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyContent, &mut state).unwrap();
+    assert_eq!(state.last_yank.as_deref(), Some("deeper/\ninner.txt"));
+}
+
+#[test]
+fn copy_content_of_a_binary_file_reports_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("blob.bin"), [0u8, 1, 0, 2]).unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyContent, &mut state).unwrap();
+    assert!(
+        state.last_yank.is_none(),
+        "nothing should be yanked for a binary file"
+    );
+    let err = state
+        .error_message
+        .as_deref()
+        .expect("a binary yank should surface an error");
+    assert!(
+        err.contains("binary"),
+        "error should name the cause; got: {err}"
+    );
 }

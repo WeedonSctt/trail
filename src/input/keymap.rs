@@ -140,6 +140,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "copy_absolute_path" => Some(Action::CopyAbsPath),
         "copy_relative_path" => Some(Action::CopyRelPath),
         "copy_filename" => Some(Action::CopyFilename),
+        "copy_content" => Some(Action::CopyContent),
         "delete" => Some(Action::BeginDelete),
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
