@@ -661,6 +661,18 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
 
         ParsedCommand::Set { key, value } => match state.config.set_value(&key, &value) {
             Ok(()) => {
+                // `preview.*` keys feed process-wide graphics state rather than
+                // being read out of the config at render time, so it has to be
+                // rebuilt here. Cheap, and applies to the next preview.
+                if key.contains("image_") {
+                    crate::preview::graphics::configure(
+                        &state.config.preview.image_protocol,
+                        (
+                            state.config.preview.image_cell_width,
+                            state.config.preview.image_cell_height,
+                        ),
+                    );
+                }
                 state.error_message = None;
                 state.dirty = true;
             }

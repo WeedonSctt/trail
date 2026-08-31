@@ -6,6 +6,17 @@ text_sync_threshold_kb = 256
 git_status_enabled = true
 fs_watch_debounce_ms = 200
 
+[preview]
+# Inline-image protocol: auto | kitty | iterm2 | sixel | halfblocks | none
+image_protocol = "auto"
+# Terminal character cell size in pixels.  0 detects it where the platform will
+# say (never on Windows) and otherwise assumes a deliberately small default, so
+# that an image errs towards leaving a margin rather than overflowing the pane
+# and being dropped by the terminal.  Set a real measurement to fill the pane
+# exactly: lower these if images overflow, raise them if images look too small.
+image_cell_width = 0
+image_cell_height = 0
+
 [theme]
 foreground = "white"
 background = "black"

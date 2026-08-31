@@ -1,14 +1,16 @@
 //! Preview panel rendering.
 //!
-//! Renders the preview of the currently selected entry. Phase 1 added
-//! synchronous directory/text preview. Phase 5 adds syntax highlighting
-//! (`Highlighted`), binary metadata (`Binary`), and image metadata rendering.
+//! Renders the preview of the currently selected entry: syntax-highlighted
+//! text, binary or image metadata, a directory summary, or — for image files
+//! in a capable terminal — the image itself, drawn through the inline-image
+//! protocol resolved by `preview::graphics`.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
+use ratatui_image::StatefulImage;
 
 use crate::app::state::AppState;
 use crate::preview::provider::PreviewContent;
@@ -22,8 +24,12 @@ use crate::ui::theme;
 /// - `Text(lines)` → numbered lines of plain text.
 /// - `Highlighted` → syntax-highlighted lines from the worker.
 /// - `Binary`      → metadata lines for binary or image files.
+/// - `Image`       → the decoded image plus a one-line caption.
 /// - `Directory`   → summary header and child entry names.
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+///
+/// Takes `state` mutably because `Image` re-encodes itself when the pane
+/// changes size; every other variant is read-only.
+pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let styles = theme::resolve(&state.config.theme);
     let title = if let Some(entry) = state.selected_entry() {
         format!(" {} ", entry.file_name)
@@ -37,7 +43,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         .border_style(styles.border)
         .border_type(BorderType::Rounded);
 
-    match &state.preview.content {
+    match &mut state.preview.content {
         PreviewContent::Empty => {
             frame.render_widget(block, area);
         }
@@ -129,6 +135,51 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
             let p = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
             frame.render_widget(p, area);
+        }
+
+        PreviewContent::Image(preview) => {
+            // The image is drawn into the block's interior, reserving the last
+            // row for the caption. `render_stateful_widget` is what triggers
+            // the resize-and-encode inside ratatui-image, which is why this
+            // arm needs `&mut`.
+            let inner = block.inner(area);
+            frame.render_widget(block, area);
+
+            if inner.height == 0 || inner.width == 0 {
+                return;
+            }
+
+            let (image_area, caption_area) = if inner.height > 1 {
+                (
+                    Rect {
+                        height: inner.height - 1,
+                        ..inner
+                    },
+                    Some(Rect {
+                        y: inner.y + inner.height - 1,
+                        height: 1,
+                        ..inner
+                    }),
+                )
+            } else {
+                (inner, None)
+            };
+
+            frame.render_stateful_widget(
+                StatefulImage::new(None),
+                image_area,
+                &mut preview.protocol,
+            );
+
+            if let Some(caption_area) = caption_area {
+                frame.render_widget(
+                    Paragraph::new(Line::from(Span::styled(
+                        preview.caption.as_str(),
+                        styles.status,
+                    ))),
+                    caption_area,
+                );
+            }
         }
 
         PreviewContent::Directory {

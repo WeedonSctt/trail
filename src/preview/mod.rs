@@ -9,6 +9,7 @@
 
 pub mod binary;
 pub mod directory;
+pub mod graphics;
 pub mod image;
 pub mod provider;
 pub mod text;

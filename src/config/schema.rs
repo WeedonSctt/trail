@@ -1,8 +1,8 @@
 //! Serde structs mirroring the TOML config shape.
 //!
-//! Covers `[general]`, `[theme]`, `[keymap]`, and `[plugins]` sections. All
-//! structs reject unknown TOML keys so user typos are surfaced instead of
-//! silently ignored.
+//! Covers `[general]`, `[preview]`, `[theme]`, `[keymap]`, and `[plugins]`
+//! sections. All structs reject unknown TOML keys so user typos are surfaced
+//! instead of silently ignored.
 
 use std::collections::HashMap;
 
@@ -33,6 +33,8 @@ pub enum SetConfigError {
 pub struct TrailConfig {
     /// General behavior settings.
     pub general: GeneralConfig,
+    /// Preview pane settings, including inline image rendering.
+    pub preview: PreviewConfig,
     /// UI color settings.
     pub theme: ThemeConfig,
     /// Key binding overrides.
@@ -59,6 +61,18 @@ impl TrailConfig {
                 "must be greater than zero",
             ));
         }
+        if !self.preview.image_protocol.eq_ignore_ascii_case("auto")
+            && crate::preview::graphics::ImageProtocol::parse(&self.preview.image_protocol)
+                .is_none()
+        {
+            return Err(invalid_value(
+                "preview.image_protocol",
+                &self.preview.image_protocol,
+                "must be auto, kitty, iterm2, sixel, halfblocks or none",
+            ));
+        }
+        // The cell size needs no range check: zero means "detect it", and any
+        // other u16 is a legitimate, if unusual, cell dimension.
         validate_color_value("theme.foreground", &self.theme.foreground)?;
         validate_color_value("theme.background", &self.theme.background)?;
         validate_color_value("theme.border", &self.theme.border)?;
@@ -104,6 +118,24 @@ impl TrailConfig {
             }
             "general.fs_watch_debounce_ms" | "fs_watch_debounce_ms" => {
                 self.general.fs_watch_debounce_ms = parse_u64(key, value)?;
+            }
+            "preview.image_protocol" | "image_protocol" => {
+                if !value.trim().eq_ignore_ascii_case("auto")
+                    && crate::preview::graphics::ImageProtocol::parse(value).is_none()
+                {
+                    return Err(invalid_value(
+                        key,
+                        value,
+                        "must be auto, kitty, iterm2, sixel, halfblocks or none",
+                    ));
+                }
+                self.preview.image_protocol = value.trim().to_ascii_lowercase();
+            }
+            "preview.image_cell_width" | "image_cell_width" => {
+                self.preview.image_cell_width = parse_cell_size(key, value)?;
+            }
+            "preview.image_cell_height" | "image_cell_height" => {
+                self.preview.image_cell_height = parse_cell_size(key, value)?;
             }
             "theme.foreground" => self.theme.foreground = parse_color_value(key, value)?,
             "theme.background" => self.theme.background = parse_color_value(key, value)?,
@@ -158,6 +190,24 @@ pub struct GeneralConfig {
     pub fs_watch_debounce_ms: u64,
 }
 
+/// Preview pane settings.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewConfig {
+    /// Inline-image protocol to use: `"auto"` to detect from the environment,
+    /// or one of `kitty`, `iterm2`, `sixel`, `halfblocks`, `none`.
+    pub image_protocol: String,
+    /// Width, in pixels, of one terminal character cell, or `0` to detect it.
+    ///
+    /// Used to convert the preview pane's size in cells into the pixel size an
+    /// image is encoded at. Only some platforms report it, so `0` means
+    /// "measure it, and assume a conservative default if that fails" — see
+    /// `crate::preview::graphics`.
+    pub image_cell_width: u16,
+    /// Height, in pixels, of one terminal character cell, or `0` to detect it.
+    pub image_cell_height: u16,
+}
+
 /// UI color configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -208,6 +258,17 @@ pub struct KeymapConfig {
 pub struct PluginsConfig {
     /// Plugin names enabled for loading in Phase 8.
     pub enabled: Vec<String>,
+}
+
+/// Parses one axis of `[preview]`'s character cell size.
+///
+/// `0` is accepted, and means "detect it" — see
+/// [`crate::preview::graphics::AUTO_CELL_SIZE`].
+fn parse_cell_size(key: &str, value: &str) -> Result<u16, SetConfigError> {
+    value
+        .trim()
+        .parse()
+        .map_err(|_| invalid_value(key, value, "expected a whole number, or 0 to detect"))
 }
 
 fn parse_bool(key: &str, value: &str) -> Result<bool, SetConfigError> {

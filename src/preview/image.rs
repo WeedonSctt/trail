@@ -1,41 +1,29 @@
 //! Image file preview provider.
 //!
-//! Displays image metadata (format, dimensions, file size, colour mode) always,
-//! and adds a pixel-preview hint when the terminal supports an inline-image
-//! protocol (Kitty, iTerm2, or Sixel). Pixel rendering is delegated to
-//! `workers/image_decode.rs` via the async worker pool.
+//! Recognises image files by extension and hands them to
+//! `workers/image_decode.rs`, which decodes them off-thread and builds the
+//! encoder state for the terminal's inline-image protocol. The protocol itself
+//! is resolved once per process by [`crate::preview::graphics`].
 //!
-//! # Protocol detection
-//!
-//! The protocol probe runs once per process (lazily on the first image preview)
-//! via `workers::image_decode::detect_image_protocol`. Subsequent calls read the
-//! cached result without re-probing the environment.
+//! Only `[preview] image_protocol = "none"` takes the synchronous path, which
+//! reports metadata without decoding anything.
 
 use std::path::Path;
-use std::sync::OnceLock;
 
 use crate::app::state::{Entry, EntryKind};
+use crate::preview::graphics::{self, ImageProtocol};
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
-use crate::workers::image_decode::{detect_image_protocol, ImageProtocol};
 
 /// Known image file extensions this provider handles.
 const IMAGE_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "bmp", "ico", "tiff", "tif", "webp", "avif", "svg",
 ];
 
-/// Cached protocol detection result. Initialised on first image preview.
-static DETECTED_PROTOCOL: OnceLock<ImageProtocol> = OnceLock::new();
-
-/// Returns the cached protocol, detecting it the first time.
-fn cached_protocol() -> ImageProtocol {
-    *DETECTED_PROTOCOL.get_or_init(detect_image_protocol)
-}
-
 /// Preview provider for image files.
 ///
-/// Always provides metadata lines (format, dimensions, size). When the terminal
-/// supports an inline-image protocol, the decode is delegated to the async
-/// worker pool which sends `WorkerMsg::ImageMeta` back to the UI thread.
+/// Delegates the decode to the async worker pool, which sends
+/// `WorkerMsg::ImageMeta` back to the UI thread. Falls back to a synchronous
+/// metadata preview only when image previews are switched off.
 pub struct ImageProvider;
 
 impl PreviewProvider for ImageProvider {
@@ -47,23 +35,19 @@ impl PreviewProvider for ImageProvider {
     }
 
     fn preview(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
-        let protocol = cached_protocol();
-
-        if protocol != ImageProtocol::None {
-            // Spawn async worker that decodes metadata (and in a future release,
-            // pixel data). Show Loading placeholder until the result arrives.
-            crate::workers::image_decode::spawn_image_decode(
-                entry.path.clone(),
-                ctx.generation,
-                ctx.worker_tx.clone(),
-            );
-            PreviewOutcome::Deferred
-        } else {
-            // No inline-image support: produce a compact metadata preview
+        if graphics::active() == ImageProtocol::None {
+            // Previews are disabled: produce a compact metadata preview
             // synchronously so there is no unnecessary loading flash.
             let content = build_metadata_preview_sync(&entry.path, entry.metadata.as_ref());
-            PreviewOutcome::Ready(content)
+            return PreviewOutcome::Ready(content);
         }
+
+        crate::workers::image_decode::spawn_image_decode(
+            entry.path.clone(),
+            ctx.generation,
+            ctx.worker_tx.clone(),
+        );
+        PreviewOutcome::Deferred
     }
 }
 
@@ -77,9 +61,9 @@ pub fn is_image_path(path: &Path) -> bool {
 
 /// Produces a compact metadata preview without spawning a worker.
 ///
-/// Used when no inline-image protocol is available. Reads only filesystem
-/// metadata (size, extension) — does not decode the image — so it is safe to
-/// call on the UI thread.
+/// Used when image previews are disabled. Reads only filesystem metadata
+/// (size, extension) — does not decode the image — so it is safe to call on
+/// the UI thread.
 fn build_metadata_preview_sync(
     path: &Path,
     metadata: Option<&std::fs::Metadata>,
@@ -103,8 +87,8 @@ fn build_metadata_preview_sync(
         format!("  Type  : {} image", ext),
         format!("  Size  : {}", size_str),
         String::new(),
-        "  (no inline image protocol detected)".to_owned(),
-        "  Run trail in a Kitty, iTerm2, or Sixel terminal for pixel preview.".to_owned(),
+        "  (image previews disabled)".to_owned(),
+        "  Set [preview] image_protocol to re-enable them.".to_owned(),
     ])
 }
 

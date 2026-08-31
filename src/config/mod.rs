@@ -13,7 +13,8 @@ use thiserror::Error;
 
 pub use last_used::ConfigSource;
 pub use schema::{
-    GeneralConfig, KeymapConfig, PluginsConfig, SetConfigError, ThemeConfig, TrailConfig,
+    GeneralConfig, KeymapConfig, PluginsConfig, PreviewConfig, SetConfigError, ThemeConfig,
+    TrailConfig,
 };
 
 /// Built-in default configuration shipped with the binary.
@@ -110,6 +111,7 @@ fn parse_overrides(content: &str, path: &Path) -> Result<ConfigOverrides, Config
 #[serde(deny_unknown_fields)]
 struct ConfigOverrides {
     general: Option<GeneralOverrides>,
+    preview: Option<PreviewOverrides>,
     theme: Option<ThemeOverrides>,
     keymap: Option<KeymapOverrides>,
     plugins: Option<PluginsOverrides>,
@@ -119,6 +121,9 @@ impl ConfigOverrides {
     fn apply_to(self, config: &mut TrailConfig) {
         if let Some(general) = self.general {
             general.apply_to(&mut config.general);
+        }
+        if let Some(preview) = self.preview {
+            preview.apply_to(&mut config.preview);
         }
         if let Some(theme) = self.theme {
             theme.apply_to(&mut config.theme);
@@ -154,6 +159,28 @@ impl GeneralOverrides {
         }
         if let Some(fs_watch_debounce_ms) = self.fs_watch_debounce_ms {
             general.fs_watch_debounce_ms = fs_watch_debounce_ms;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PreviewOverrides {
+    image_protocol: Option<String>,
+    image_cell_width: Option<u16>,
+    image_cell_height: Option<u16>,
+}
+
+impl PreviewOverrides {
+    fn apply_to(self, preview: &mut PreviewConfig) {
+        if let Some(image_protocol) = self.image_protocol {
+            preview.image_protocol = image_protocol;
+        }
+        if let Some(image_cell_width) = self.image_cell_width {
+            preview.image_cell_width = image_cell_width;
+        }
+        if let Some(image_cell_height) = self.image_cell_height {
+            preview.image_cell_height = image_cell_height;
         }
     }
 }

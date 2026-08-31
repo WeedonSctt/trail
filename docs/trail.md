@@ -74,9 +74,10 @@ The preview depends on the selected object's type.
 
 ### Image
 
-- Metadata
-- Resolution
-- Dimensions
+- The image itself, drawn inline through the terminal's graphics protocol
+  (Kitty, iTerm2 or Sixel), falling back to Unicode half-blocks in terminals
+  that support none of them
+- A caption line: format, dimensions, file size, and the protocol in use
 
 Additional preview providers may be added without changing the navigation workflow.
 

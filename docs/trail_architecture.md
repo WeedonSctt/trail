@@ -17,7 +17,7 @@ This document translates `trail.md` (the product spec) into a concrete tech stac
 | Syntax highlighting | `syntect` or `tree-sitter-highlight` | Text file preview |
 | Git status/branch | `gix` (pure Rust) or `git2` (libgit2 bindings) | Repo indicators, branch name, optional status |
 | Filesystem watching | `notify` | "Automatic refresh after filesystem changes" |
-| Image handling | `image` + `ratatui-image` | Metadata/dimensions always; pixel preview if terminal supports Kitty/iTerm2/Sixel |
+| Image handling | `image` + `ratatui-image` | Inline pixel preview via Kitty/iTerm2/Sixel, with a Unicode half-block fallback that works everywhere; protocol resolved once at startup from `[preview] image_protocol` |
 | Plugin scripting | `mlua` (Lua) or `extism` (WASM) | User-defined commands, custom preview providers |
 | Config | `serde` + `toml` | Keybindings, theme, extension points |
 | CLI parsing | `clap` | Initial invocation flags (e.g. `--cwd-file`) |
@@ -115,7 +115,7 @@ Everything that is optional, variable-latency, or explicitly deferred in the spe
 | Git status worker | Computes repo indicator, branch, optional per-file status; cached, invalidated on fs events |
 | Filesystem watcher | Watches the current directory via `notify`; debounces bursts of events (e.g. a `git checkout`) into a single refresh signal |
 | Syntax highlighter | Highlights text file previews off-thread for large files |
-| Image worker | Decodes metadata/dimensions, and pixel data if the terminal protocol supports inline images |
+| Image worker | Decodes the image off-thread and builds the encoder state for the active graphics protocol; resize and re-encode happen on the UI thread only when the preview pane changes size |
 
 ### Program logic
 

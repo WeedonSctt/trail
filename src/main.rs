@@ -142,6 +142,16 @@ async fn main() -> Result<()> {
     plugin::load_enabled_plugins(&mut engine, &state.config.plugins.enabled);
     state.plugin_engine = Some(engine);
 
+    // Resolve the terminal's inline-image protocol before the first preview is
+    // requested, so image decodes never race the detection.
+    preview::graphics::configure(
+        &state.config.preview.image_protocol,
+        (
+            state.config.preview.image_cell_width,
+            state.config.preview.image_cell_height,
+        ),
+    );
+
     // Build the preview registry once at startup. All providers are registered
     // here; the main loop calls registry.preview_for on every selection change.
     let mut registry = PreviewRegistry::new();

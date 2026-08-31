@@ -29,7 +29,10 @@ use crate::app::state::AppState;
 ///
 /// Generic over `B: Backend` so that integration tests can use
 /// `ratatui::backend::TestBackend` without a real terminal.
-pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &AppState) -> io::Result<()> {
+///
+/// Takes `state` mutably because an image preview owns encoder state that
+/// `ratatui-image` re-encodes whenever the preview pane changes size.
+pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> io::Result<()> {
     // Physically clear the screen and reset ratatui's previous buffer before
     // every draw. This prevents ghost content from lingering on the physical
     // terminal when content shrinks between frames (e.g. navigating from a
@@ -65,8 +68,10 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &AppState) -> io::R
             .split(outer[0]);
 
         nav_panel::draw(frame, inner[0], state);
-        preview_panel::draw(frame, inner[1], state);
         status_bar::draw(frame, outer[1], state);
+        // Drawn last: it borrows `state` mutably, so the read-only panels above
+        // must have finished with it.
+        preview_panel::draw(frame, inner[1], state);
     })?;
     Ok(())
 }

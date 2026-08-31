@@ -17,6 +17,7 @@ use thiserror::Error;
 use tokio::sync::mpsc;
 
 use crate::app::state::Entry;
+use crate::preview::graphics::ImagePreview;
 use crate::workers::WorkerMsg;
 
 // ── Error ─────────────────────────────────────────────────────────────────────
@@ -91,6 +92,13 @@ pub enum PreviewContent {
     /// Each string is one line of formatted metadata (size, type, modified
     /// timestamp, etc.).
     Binary(Vec<String>),
+
+    /// Pixel image preview drawn through a terminal graphics protocol.
+    ///
+    /// Produced by `workers/image_decode.rs` once the image has been decoded
+    /// off-thread. Carries its own encoder state, so the render path needs no
+    /// further I/O.
+    Image(ImagePreview),
 
     /// Directory preview: a summary block followed by entry names.
     Directory {

@@ -1,105 +1,36 @@
 //! Image decoding worker.
 //!
-//! Decodes image metadata/dimensions always; decodes pixel data only if the
-//! detected terminal protocol supports inline images (Kitty, iTerm2, Sixel).
+//! Decodes an image file off the UI thread and turns it into a
+//! `PreviewContent::Image` carrying the encoder state for the terminal's
+//! inline-image protocol. Which protocol that is, and whether pixel previews
+//! are enabled at all, is decided by [`crate::preview::graphics`].
 //!
-//! # Protocol detection
-//!
-//! Detection is done via environment variable inspection at startup. The probe
-//! order (Kitty → iTerm2 → Sixel → metadata-only fallback) follows the
-//! implementation plan's Decision Log and matches `ratatui-image`'s own picker
-//! logic, which is also referenced here.
-//!
-//! The detected protocol is determined once per process and reused for every
-//! image preview, so there's no repeated probing cost.
+//! Decoding is the expensive part (a large JPEG can take tens of milliseconds),
+//! which is why it runs on `spawn_blocking` and reports back through
+//! `WorkerMsg::ImageMeta` tagged with the preview generation. Resizing and
+//! encoding for the pane's current size happen later, on the UI thread, and are
+//! cached by `ratatui-image` until the pane changes size.
 
-use std::env;
 use std::path::PathBuf;
 
 use image::GenericImageView;
 use tokio::sync::mpsc;
 
+use crate::preview::graphics::{self, ImagePreview};
 use crate::preview::provider::PreviewContent;
 use crate::workers::WorkerMsg;
 
-// ── Protocol detection ────────────────────────────────────────────────────────
-
-/// The inline-image protocol the current terminal supports, or `None` for
-/// metadata-only fallback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ImageProtocol {
-    /// Kitty Graphics Protocol (`TERM=xterm-kitty` or `KITTY_WINDOW_ID`).
-    Kitty,
-    /// iTerm2 inline images (`TERM_PROGRAM=iTerm.app` or `LC_TERMINAL=iTerm2`).
-    Iterm2,
-    /// Sixel graphics (detected via `TERM` containing `sixel`, e.g. from `mlterm`
-    /// or `xterm -ti vt340`). This is a best-effort heuristic — proper detection
-    /// would query the terminal via XTSMGRAPHICS, but that requires a round-trip
-    /// to the tty which is not safe on the async worker thread.
-    Sixel,
-    /// No inline image support detected; show metadata only.
-    None,
-}
-
-/// Probes the environment once and returns the best available image protocol.
-///
-/// Called by the image provider when it first needs to know whether pixel data
-/// should be decoded. The result should be cached by the caller (or the single
-/// static initialized at startup).
-///
-/// # Detection order
-/// 1. `KITTY_WINDOW_ID` set → `Kitty`
-/// 2. `TERM=xterm-kitty` → `Kitty`
-/// 3. `TERM_PROGRAM=iTerm.app` or `LC_TERMINAL=iTerm2` → `Iterm2`
-/// 4. `TERM` contains `sixel` → `Sixel`
-/// 5. Fallback → `None`
-pub fn detect_image_protocol() -> ImageProtocol {
-    // Kitty: most explicit indicator.
-    if env::var("KITTY_WINDOW_ID").is_ok() {
-        return ImageProtocol::Kitty;
-    }
-    if env::var("TERM")
-        .unwrap_or_default()
-        .to_lowercase()
-        .contains("kitty")
-    {
-        return ImageProtocol::Kitty;
-    }
-
-    // iTerm2.
-    let term_program = env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
-    let lc_terminal = env::var("LC_TERMINAL").unwrap_or_default().to_lowercase();
-    if term_program.contains("iterm") || lc_terminal.contains("iterm") {
-        return ImageProtocol::Iterm2;
-    }
-
-    // Sixel (heuristic via TERM).
-    if env::var("TERM")
-        .unwrap_or_default()
-        .to_lowercase()
-        .contains("sixel")
-    {
-        return ImageProtocol::Sixel;
-    }
-
-    ImageProtocol::None
-}
-
 // ── Spawn helper ─────────────────────────────────────────────────────────────
 
-/// Decodes image metadata (and optionally pixel data) off-thread, sending a
-/// `WorkerMsg::ImageMeta` result through `tx` tagged with `generation`.
+/// Decodes `path` off-thread, sending a `WorkerMsg::ImageMeta` result through
+/// `tx` tagged with `generation`.
 ///
-/// Always produces at least the dimensions and format string. Pixel data is
-/// only decoded when `protocol != ImageProtocol::None`, but for v1 the pixel
-/// rendering is not yet wired through `ratatui-image` (Phase 8 config / Phase 9
-/// packaging will finalize the render path). The metadata lines are always
-/// populated so the fallback is always useful.
+/// The generation tag is what lets `workers::merge` drop a result whose
+/// selection has already been abandoned.
 pub fn spawn_image_decode(path: PathBuf, generation: u64, tx: mpsc::Sender<WorkerMsg>) {
-    let protocol = detect_image_protocol();
     tokio::spawn(async move {
         let path_clone = path.clone();
-        let content = tokio::task::spawn_blocking(move || decode_image_sync(&path_clone, protocol))
+        let content = tokio::task::spawn_blocking(move || decode_image_sync(&path_clone))
             .await
             .unwrap_or_else(|_| PreviewContent::Binary(vec!["[image decode error]".to_owned()]));
 
@@ -115,69 +46,131 @@ pub fn spawn_image_decode(path: PathBuf, generation: u64, tx: mpsc::Sender<Worke
 
 // ── Blocking decode ───────────────────────────────────────────────────────────
 
-/// Performs the blocking image decode. Returns metadata lines suitable for
-/// `PreviewContent::Binary` (reused for image metadata since it's the same
-/// "formatted text lines" shape).
+/// Performs the blocking decode and builds the renderable preview.
 ///
-/// In v1, pixel preview is not rendered into the ratatui frame (the terminal
-/// graphics API requires a stateful render pass that isn't wired yet). A
-/// `[pixel preview: <Protocol>]` hint line is included so users know their
-/// terminal supports it.
-fn decode_image_sync(path: &std::path::Path, protocol: ImageProtocol) -> PreviewContent {
-    let img = match image::open(path) {
-        Ok(i) => i,
-        Err(e) => return PreviewContent::Binary(vec![format!("Image decode error: {e}")]),
+/// Falls back to `PreviewContent::Binary` metadata lines when the file cannot
+/// be decoded (an unsupported format such as SVG, or a truncated file) or when
+/// image previews are disabled, so the pane always shows something useful.
+fn decode_image_sync(path: &std::path::Path) -> PreviewContent {
+    let image = match image::open(path) {
+        Ok(image) => image,
+        Err(e) => {
+            return PreviewContent::Binary(vec![
+                format!("  Type    : {} image", format_label(path)),
+                format!("  Size    : {}", file_size(path)),
+                String::new(),
+                format!("  Cannot decode: {e}"),
+            ])
+        }
     };
 
-    let (width, height) = img.dimensions();
-    let color = img.color();
-    let file_size = std::fs::metadata(path)
-        .map(|m| humansize::format_size(m.len(), humansize::DECIMAL))
-        .unwrap_or_else(|_| "unknown".to_owned());
+    let (width, height) = image.dimensions();
+    let colour = image.color();
+    let (cell_width, cell_height) = graphics::cell_size();
+    let protocol = graphics::active();
 
-    let format_str = match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => ext.to_uppercase(),
-        None => "Unknown".to_owned(),
-    };
+    let caption = format!(
+        "  {} · {}×{} px · {} · {} {}×{}",
+        format_label(path),
+        width,
+        height,
+        file_size(path),
+        protocol.label(),
+        cell_width,
+        cell_height,
+    );
 
-    let mut lines = vec![
-        format!("  Type    : {} image", format_str),
-        format!("  Size    : {}", file_size),
-        format!("  Dims    : {}×{} px", width, height),
-        format!("  Colour  : {:?}", color),
-    ];
-
-    match protocol {
-        ImageProtocol::None => {
-            lines.push(String::new());
-            lines.push("  (no inline image protocol detected)".to_owned());
-        }
-        p => {
-            lines.push(String::new());
-            lines.push(format!("  [pixel preview available via {p:?}]"));
-            lines.push("  (pixel rendering not yet active in this build)".to_owned());
-        }
+    match graphics::build(image) {
+        Some(protocol) => PreviewContent::Image(ImagePreview { protocol, caption }),
+        // Image previews are switched off via `[preview] image_protocol`.
+        None => PreviewContent::Binary(vec![
+            format!("  Type    : {} image", format_label(path)),
+            format!("  Size    : {}", file_size(path)),
+            format!("  Dims    : {width}×{height} px"),
+            format!("  Colour  : {colour:?}"),
+            String::new(),
+            "  (image previews disabled: [preview] image_protocol = \"none\")".to_owned(),
+        ]),
     }
+}
 
-    PreviewContent::Binary(lines)
+/// The uppercased file extension, used as a human-readable format label.
+fn format_label(path: &std::path::Path) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_uppercase())
+        .unwrap_or_else(|| "Unknown".to_owned())
+}
+
+/// The file size formatted for display, or `"unknown"` if it cannot be read.
+fn file_size(path: &std::path::Path) -> String {
+    std::fs::metadata(path)
+        .map(|m| humansize::format_size(m.len(), humansize::DECIMAL))
+        .unwrap_or_else(|_| "unknown".to_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    /// Writes a tiny valid PNG to a temp file and returns the handle.
+    fn sample_png() -> tempfile::NamedTempFile {
+        let image = image::DynamicImage::new_rgb8(4, 3);
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("encode sample png");
+
+        let mut file = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp file");
+        file.write_all(&bytes.into_inner()).expect("write png");
+        file.flush().expect("flush png");
+        file
+    }
 
     #[test]
-    fn detect_protocol_returns_valid_variant() {
-        // Verifies that detect_image_protocol never panics and always returns
-        // a variant of the enum. The concrete value depends on the test
-        // environment (e.g. running inside Kitty CI) — that is expected.
-        let p = detect_image_protocol();
-        assert!(matches!(
-            p,
-            ImageProtocol::Kitty
-                | ImageProtocol::Iterm2
-                | ImageProtocol::Sixel
-                | ImageProtocol::None
-        ));
+    fn decodes_a_real_image_into_an_image_preview() {
+        let file = sample_png();
+        // The test process is not a terminal, so detection lands on
+        // Halfblocks — which still produces a drawable preview.
+        match decode_image_sync(file.path()) {
+            PreviewContent::Image(preview) => {
+                assert!(
+                    preview.caption.contains("4×3 px"),
+                    "caption should carry the decoded dimensions, got {:?}",
+                    preview.caption
+                );
+            }
+            other => panic!("expected an image preview, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn undecodable_file_falls_back_to_metadata() {
+        let mut file = tempfile::Builder::new()
+            .suffix(".png")
+            .tempfile()
+            .expect("temp file");
+        file.write_all(b"not actually a png").expect("write");
+        file.flush().expect("flush");
+
+        match decode_image_sync(file.path()) {
+            PreviewContent::Binary(lines) => {
+                assert!(
+                    lines.iter().any(|l| l.contains("Cannot decode")),
+                    "expected a decode failure line, got {lines:?}"
+                );
+            }
+            other => panic!("expected metadata fallback, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn format_label_falls_back_when_there_is_no_extension() {
+        assert_eq!(format_label(std::path::Path::new("photo.JpEg")), "JPEG");
+        assert_eq!(format_label(std::path::Path::new("photo")), "Unknown");
     }
 }

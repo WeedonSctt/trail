@@ -59,7 +59,7 @@ editor = "nvim"
 
 ### Complete Configuration Schema
 
-The TOML configuration is strictly validated. Unknown keys will cause Trail to fail to load the config. The file is divided into four main sections:
+The TOML configuration is strictly validated. Unknown keys will cause Trail to fail to load the config. The file is divided into five main sections:
 
 #### `[general]`
 Controls overall application behavior.
@@ -67,6 +67,89 @@ Controls overall application behavior.
 - `text_sync_threshold_kb` (Positive Integer): Maximum file size in KiB to preview synchronously on the UI thread. Larger files skip synchronous preview. Must be > 0. (Default: `256`)
 - `git_status_enabled` (Boolean): Enable or disable background git status workers. (Default: `true`)
 - `fs_watch_debounce_ms` (Non-negative Integer): Debounce delay for filesystem watching in milliseconds. (Default: `200`)
+
+#### `[preview]`
+Controls the preview pane, including inline image rendering.
+
+- `image_protocol` (String): Which terminal graphics protocol to draw images
+  with. (Default: `"auto"`)
+
+  | Value | Meaning |
+  |---|---|
+  | `"auto"` | Detect from the environment (see below). |
+  | `"kitty"` | Kitty graphics protocol — Kitty, Ghostty, Konsole, WezTerm. |
+  | `"iterm2"` | iTerm2 inline images — iTerm2, WezTerm, mintty, Tabby, Hyper, VS Code. |
+  | `"sixel"` | Sixel graphics — mlterm, foot, xterm built with sixel support. |
+  | `"halfblocks"` | Unicode half-blocks. Works in every terminal, at half the vertical resolution. |
+  | `"none"` | Disable image previews; show metadata only. |
+
+- `image_cell_width` (Integer): Width, in pixels, of one terminal character
+  cell, or `0` to work it out. (Default: `0`)
+- `image_cell_height` (Integer): Height, in pixels, of one terminal character
+  cell, or `0` to work it out. (Default: `0`)
+
+##### How detection works
+
+No portable way exists to ask a terminal what it supports — the query requires a
+raw read on the same stdin the event loop owns, and is unavailable on Windows
+without unsafe code, which Trail forbids. Detection therefore reads environment
+variables, in this order:
+
+1. `KITTY_WINDOW_ID`, or `TERM` containing `kitty` → **kitty**
+2. `ITERM_SESSION_ID`, or `TERM_PROGRAM`/`LC_TERMINAL` containing `iterm` → **iterm2**
+3. `WEZTERM_EXECUTABLE`, or `TERM_PROGRAM=WezTerm` → **iterm2**
+4. `TERM_PROGRAM` naming mintty, VS Code, Tabby, Hyper, Rio or Warp → **iterm2**
+5. `TERM` naming sixel, mlterm, yaft or foot → **sixel**
+6. Anything else → **halfblocks**
+
+The last step matters: an unrecognised terminal still draws the image, just at
+lower fidelity. Image previews are never silently skipped — only
+`image_protocol = "none"` turns them off.
+
+If detection picks wrong for your terminal, name the protocol explicitly rather
+than working around it.
+
+##### Tuning the cell size
+
+A pixel protocol is told how large the image is *in pixels*, and the terminal
+draws it across however many cells those pixels cover. Trail therefore has to
+know the terminal's character cell size to fit an image to the preview pane.
+
+At `0`, Trail asks the platform for it. That works on Linux and macOS when the
+kernel reports the terminal's pixel size; it is **never** available on Windows,
+where neither `crossterm` nor `ratatui-image` implements it. When it cannot be
+measured, Trail assumes `7 × 14`.
+
+That assumption deliberately errs *low*, because the two failure directions are
+not symmetric:
+
+- **Too small** → the image covers fewer cells than the pane, and renders
+  correctly with a margin around it. Cosmetic.
+- **Too large** → the image covers more cells than the pane reserved. Trail
+  paints the rest of the interface over the overflow, and terminals respond by
+  dropping the whole image rather than the covered part of it, so the preview
+  disappears — typically the moment you resize the window.
+
+So if images are missing or flicker away when you resize, **lower** these
+numbers; if they render correctly but look smaller than the pane, raise them.
+The preview caption shows the protocol and the cell size in use, and both keys
+work with `:set` (see below), so you can tune them live and watch the result:
+
+```
+:set image_cell_width 8
+:set image_cell_height 17
+```
+
+To find the real values, divide your terminal window's pixel size by its size in
+columns and rows. In WezTerm, `wezterm ls-fonts` reports the cell metrics for
+your configured font and size. Setting one axis and leaving the other at `0` is
+fine — each is resolved independently.
+
+##### Supported formats
+
+PNG, JPEG, GIF, BMP, ICO, TIFF, WebP and AVIF are decoded. SVG is listed as an
+image extension but is not rasterised — it falls back to a metadata preview
+reporting the decode failure.
 
 #### `[theme]`
 Customizes the UI colors.
@@ -153,6 +236,14 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 - `:set text_sync_threshold_kb 512`
 - `:set git_status_enabled false` (Accepts `true`, `yes`, `on`, `1` / `false`, `no`, `off`, `0`)
 - `:set fs_watch_debounce_ms 500`
+
+**Preview Properties (Aliases supported):**
+- `:set image_protocol halfblocks` (or `:set preview.image_protocol halfblocks`)
+- `:set image_cell_width 8`
+- `:set image_cell_height 17`
+
+Preview changes apply to the next preview, so move the selection off the image
+and back to see the effect.
 
 **Theme Properties (Requires `theme.` prefix):**
 - `:set theme.background #1a1b26`

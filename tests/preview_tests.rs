@@ -4,11 +4,25 @@
 //! fixture files in `tests/fixtures/`. All tests are deterministic: no
 //! wall-clock time, no network, no ambient machine state.
 //!
-//! The manual image-protocol matrix (Kitty × iTerm2 × Sixel × none) is
-//! intentionally not covered here — as noted in the implementation plan it is
-//! unautomatable and is treated as a recurring release gate.
+//! Inline images are covered only through the Halfblocks protocol, which
+//! needs no terminal support. Whether Kitty, iTerm2 or Sixel escape sequences
+//! actually paint pixels cannot be asserted without the terminal in question,
+//! so that matrix stays a manual release gate.
 
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// Serialises the tests that touch `preview::graphics`.
+///
+/// The protocol and cell size are process-wide, so two image tests running
+/// concurrently in this binary would clobber each other's configuration.
+static GRAPHICS: Mutex<()> = Mutex::new(());
+
+/// Takes [`GRAPHICS`], recovering rather than propagating poisoning so that one
+/// failing image test does not cascade into the others.
+fn graphics_lock() -> MutexGuard<'static, ()> {
+    GRAPHICS.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 // ── Text provider tests ───────────────────────────────────────────────────────
 
@@ -121,27 +135,172 @@ fn image_provider_recognises_png_extension() {
     );
 }
 
-#[test]
-fn image_provider_metadata_only_path_produces_binary_content() {
-    // The metadata-only path (no inline-image protocol) is exercised here by
-    // directly calling the worker's decode function with ImageProtocol::None.
-    // This avoids needing to run the actual async worker in a sync test.
-    use trail::workers::image_decode::ImageProtocol;
+/// Drives the image provider end to end for both of its outcomes.
+///
+/// The two cases share one test because they are two halves of one decision,
+/// and the whole test holds [`GRAPHICS`] because the protocol it selects is
+/// process-wide.
+// `graphics_lock` is a plain `Mutex`, and this test holds it across `.await`.
+// That is safe here: `#[tokio::test]` gives every test its own current-thread
+// runtime, so blocking on the guard cannot stall another test's progress.
+#[allow(clippy::await_holding_lock)]
+#[tokio::test]
+async fn image_provider_renders_pixels_and_honours_being_switched_off() {
+    use trail::app::state::{Entry, EntryKind};
+    use trail::preview::graphics::{self, DEFAULT_CELL_SIZE};
+    use trail::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
 
-    // Build metadata preview synchronously using the image decode logic.
-    // Protocol::None forces the metadata-only code path in decode_image_sync.
-    // We call it via the public image provider's synchronous helper instead,
-    // since decode_image_sync is private.
+    let _guard = graphics_lock();
     let path = Path::new("tests/fixtures/sample.png");
     assert!(path.exists(), "fixture file missing: {}", path.display());
 
-    // Verify protocol detection at least returns a valid variant (may or may
-    // not be None depending on the test environment).
-    let protocol = trail::workers::image_decode::detect_image_protocol();
-    assert!(matches!(
-        protocol,
-        ImageProtocol::Kitty | ImageProtocol::Iterm2 | ImageProtocol::Sixel | ImageProtocol::None
-    ));
+    let entry = Entry {
+        path: path.to_path_buf(),
+        file_name: "sample.png".to_owned(),
+        kind: EntryKind::File,
+        metadata: std::fs::metadata(path).ok(),
+        is_hidden: false,
+        git_status: None,
+        is_text: Some(false),
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let ctx = PreviewCtx {
+        show_hidden: false,
+        worker_tx: tx,
+        generation: 7,
+        text_sync_threshold_bytes: 256 * 1024,
+    };
+    let provider = trail::preview::image::ImageProvider;
+
+    // 1. Halfblocks is the protocol every terminal supports, so it is the one
+    //    case that is deterministic on CI. The provider must defer to the
+    //    worker, and the worker must come back with a drawable image.
+    graphics::configure("halfblocks", DEFAULT_CELL_SIZE);
+    assert!(
+        matches!(provider.preview(&entry, &ctx), PreviewOutcome::Deferred),
+        "an enabled protocol must decode off-thread"
+    );
+
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("image decode timed out")
+        .expect("worker channel closed");
+
+    match msg {
+        trail::workers::WorkerMsg::ImageMeta {
+            generation,
+            content,
+            ..
+        } => {
+            assert_eq!(generation, 7, "result must carry the requesting generation");
+            assert!(
+                matches!(content, PreviewContent::Image(_)),
+                "expected a pixel preview, got {content:?}"
+            );
+        }
+        other => panic!("expected ImageMeta, got {other:?}"),
+    }
+
+    // 2. Switched off, the provider answers synchronously with metadata and
+    //    never touches the worker pool.
+    graphics::configure("none", DEFAULT_CELL_SIZE);
+    match provider.preview(&entry, &ctx) {
+        PreviewOutcome::Ready(PreviewContent::Binary(lines)) => {
+            assert!(
+                lines.iter().any(|l| l.contains("disabled")),
+                "expected the disabled notice, got {lines:?}"
+            );
+        }
+        other => panic!("expected a ready metadata preview, got {other:?}"),
+    }
+
+    // Leave the shared state as the rest of the suite expects to find it.
+    graphics::configure("auto", DEFAULT_CELL_SIZE);
+}
+
+/// A preview must survive the pane changing size, in both directions.
+///
+/// This is the regression test for images vanishing on terminal resize: the
+/// encoder state is built once, off-thread, and then re-encoded on the UI
+/// thread for whatever area the pane currently has. If that re-encode does not
+/// happen, or paints outside the area it was handed, a real terminal ends up
+/// with the surrounding UI drawn over the image and drops it entirely.
+///
+/// Halfblocks is used because it needs no terminal support and maps one buffer
+/// cell to one cell of the image, so the footprint is directly observable.
+#[test]
+fn image_preview_refits_itself_when_the_pane_is_resized() {
+    use image::{ImageBuffer, Rgb};
+    use ratatui::buffer::Buffer;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::StatefulWidget;
+    use ratatui_image::StatefulImage;
+    use trail::preview::graphics::{self, ImagePreview};
+
+    /// The character the halfblocks protocol paints with.
+    const HALF_BLOCK: &str = "\u{2580}";
+
+    let _guard = graphics_lock();
+
+    // Pin the cell size so the expected geometry does not depend on whichever
+    // terminal happens to be running the suite.
+    graphics::configure("halfblocks", (7, 14));
+    let source = ImageBuffer::from_pixel(800, 600, Rgb::<u8>([200, 30, 30])).into();
+    let mut preview = ImagePreview {
+        protocol: graphics::build(source).expect("halfblocks always builds an encoder"),
+        caption: String::new(),
+    };
+
+    // The image is drawn into a sub-rect of the screen, exactly as the preview
+    // panel draws it inside its border. Painting outside that rect is what
+    // makes a terminal discard the image.
+    let screen = Rect::new(0, 0, 120, 40);
+
+    // Shrink well past the image's natural size, then grow back.
+    let mut footprints = Vec::new();
+    for (width, height) in [(60, 30), (40, 20), (16, 8), (4, 2), (40, 20), (60, 30)] {
+        let area = Rect::new(4, 2, width, height);
+        let mut buf = Buffer::empty(screen);
+        StatefulImage::new(None).render(area, &mut buf, &mut preview.protocol);
+
+        let mut painted = 0usize;
+        for y in screen.top()..screen.bottom() {
+            for x in screen.left()..screen.right() {
+                if buf[(x, y)].symbol() != HALF_BLOCK {
+                    continue;
+                }
+                painted += 1;
+                assert!(
+                    x >= area.left() && x < area.right() && y >= area.top() && y < area.bottom(),
+                    "pane {width}x{height}: painted cell ({x}, {y}) escaped {area:?}"
+                );
+            }
+        }
+
+        assert!(
+            painted > 0,
+            "the image disappeared at pane {width}x{height}"
+        );
+        footprints.push(painted);
+    }
+
+    // Shrinking the pane must shrink the image and growing it must grow the
+    // image back, which only holds if every resize re-encodes rather than
+    // reusing the previous frame's data.
+    assert!(
+        footprints[0] > footprints[1]
+            && footprints[1] > footprints[2]
+            && footprints[2] > footprints[3],
+        "footprint did not shrink with the pane: {footprints:?}"
+    );
+    assert_eq!(
+        (footprints[4], footprints[5]),
+        (footprints[1], footprints[0]),
+        "growing back to a previous size must restore its footprint: {footprints:?}"
+    );
+
+    graphics::configure("auto", graphics::AUTO_CELL_SIZE);
 }
 
 // ── Directory provider tests ──────────────────────────────────────────────────
