@@ -206,6 +206,9 @@ jobs:
           cp shell/trail.fish "$STEM/shell/"
           cp shell/trail.ps1  "$STEM/shell/"
           cp README.md "$STEM/"
+          # Ship the uninstaller inside the archive too, so an archive install
+          # carries its own way back out.
+          cp uninstall.sh uninstall.ps1 "$STEM/"
           # LICENSE is optional — only copy if it exists.
           if [ -f LICENSE ]; then cp LICENSE "$STEM/"; fi
           if [ -f LICENSE-MIT ]; then cp LICENSE-MIT "$STEM/"; fi
@@ -308,7 +311,10 @@ jobs:
           # and that URL resolves against the release's attached assets. If they
           # are missing, the primary documented install path 404s on every
           # platform.
-          cp install.sh install.ps1 release-assets/
+          # The uninstall scripts are fetched the same way, and by someone
+          # who no longer has the repository checked out - so they have to be
+          # assets too, not merely files in the tree.
+          cp install.sh install.ps1 uninstall.sh uninstall.ps1 release-assets/
           ls -lh release-assets/
 
       - name: Create or update GitHub Release

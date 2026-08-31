@@ -24,3 +24,25 @@ post_install() {
 post_upgrade() {
     post_install
 }
+
+post_remove() {
+    echo ""
+    echo "==> Trail has been removed."
+    echo ""
+    echo "    If you added a wrapper line to your shell rc file, remove it now."
+    echo "    Left in place it makes every new shell report a missing file:"
+    echo ""
+    echo "      ~/.bashrc :  source /usr/share/trail/shell/trail.bash"
+    echo "      ~/.zshrc  :  source /usr/share/trail/shell/trail.zsh"
+    echo ""
+    echo "    The fish wrapper was installed to vendor_functions.d and has"
+    echo "    been removed with the package. No action needed there."
+    echo ""
+    echo "    Your configuration and data were NOT removed:"
+    echo ""
+    echo "      ~/.config/trail/       config and Lua plugins"
+    echo "      ~/.local/share/trail/  bookmarks, recent directories"
+    echo ""
+    echo "    Delete those directories yourself if you want them gone."
+    echo ""
+}

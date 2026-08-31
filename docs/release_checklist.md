@@ -47,15 +47,22 @@ Copy this list into the GitHub Release draft and check off items as you go.
 ## GitHub Release Review
 
 - [ ] Release title: `Trail vX.Y.Z`
-- [ ] All six expected assets are attached:
+- [ ] All ten expected assets are attached:
   - [ ] `trail-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
   - [ ] `trail-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz`
   - [ ] `trail-vX.Y.Z-x86_64-apple-darwin.tar.gz`
   - [ ] `trail-vX.Y.Z-aarch64-apple-darwin.tar.gz`
   - [ ] `trail-vX.Y.Z-x86_64-pc-windows-msvc.zip`
   - [ ] `checksums.txt`
+  - [ ] `install.sh`, `install.ps1`
+  - [ ] `uninstall.sh`, `uninstall.ps1`
 - [ ] `checksums.txt` contains one line per archive (5 lines total)
-- [ ] Each archive contains: binary + `shell/` directory + README
+- [ ] Each archive contains: binary + `shell/` directory + README + uninstallers
+
+The four scripts are attached as assets, not merely present in the repository,
+because the documented one-liners resolve against the release
+(`.../releases/latest/download/uninstall.sh`). A missing asset turns the
+documented uninstall command into a 404.
 - [ ] Release notes are accurate and complete
 - [ ] Release published (un-draft)
 
@@ -138,6 +145,18 @@ Run these on a **clean machine or VM** with no prior Trail installation.
 ### cargo install
 - [ ] `cargo install trail` from crates.io (or `--git`) succeeds
 - [ ] Binary is at `~/.cargo/bin/trail` and on PATH
+
+### Uninstall (run last, after the install checks above)
+- [ ] `uninstall.sh --dry-run` lists the binary and wrappers, removes nothing
+- [ ] `uninstall.sh` removes them; config and data survive
+- [ ] `uninstall.sh --purge` removes config and data too
+- [ ] `uninstall.ps1` also clears the `%LOCALAPPDATA%	railin` PATH entry,
+      leaving other PATH entries and any `%VAR%` references unexpanded
+- [ ] Both scripts report the leftover rc/`$PROFILE` line rather than editing it
+- [ ] `uninstall.ps1` parses under Windows PowerShell 5.1, not just pwsh 7
+      (it must stay pure ASCII — see the header comment for why)
+- [ ] Package-manager installs are refused with the right command
+      (`brew uninstall` / `pacman -Rns` / `scoop uninstall` / `cargo uninstall`)
 - [ ] Note: shell wrappers are NOT installed — document this in release notes
 
 ---

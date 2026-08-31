@@ -246,3 +246,116 @@ trail
 ```
 
 Navigate to a directory and quit with `q`. Your shell should `cd` to the last-browsed directory.
+
+---
+
+## Where Trail Keeps Things
+
+Trail writes to three places, and the paths differ per platform. Rather than
+guessing, ask the binary:
+
+```sh
+trail --paths
+```
+
+It prints the binary, the configuration and data directories, the log file, and
+any shell wrappers it finds, each marked with whether it exists. This is the
+authoritative answer for the build you are actually running, and it is what the
+uninstall instructions below refer to.
+
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Config, plugins | `~/.config/trail/` | `~/Library/Application Support/trail/` | `%APPDATA%\trail\config\` |
+| Bookmarks, recent dirs, remembered `--config` | `~/.local/share/trail/` | `~/Library/Application Support/trail/` | `%APPDATA%\trail\data\` |
+| Log | `$TMPDIR/trail.log` | `$TMPDIR/trail.log` | `%TEMP%\trail.log` |
+
+---
+
+## Uninstalling
+
+Use the method that matches how you installed. In every case, **configuration
+and data are left alone unless you explicitly ask for them to be removed** —
+uninstalling a program should not destroy the bookmarks you built up in it.
+
+Whatever the method, if you added a wrapper line to your shell rc file by hand,
+remove it. Leave it behind and every new shell will complain about a file that
+no longer exists. The uninstall scripts find that line and print it for you;
+they do not edit your rc files.
+
+### Install script (Linux and macOS)
+
+```sh
+curl -fsSL https://github.com/WeedonSctt/trail/releases/latest/download/uninstall.sh | sh
+```
+
+Or, if you still have the repository or a release archive:
+
+```sh
+sh uninstall.sh --dry-run   # show what would be removed, change nothing
+sh uninstall.sh             # remove the binary and the shell wrappers
+sh uninstall.sh --purge     # also remove configuration and data
+```
+
+It honours the same environment variables as `install.sh`, so a custom install
+is undone by passing the same values:
+
+```sh
+INSTALL_DIR=$HOME/bin SHELL_DIR=$HOME/.trail sh uninstall.sh
+```
+
+### Install script (Windows)
+
+```pwsh
+irm https://github.com/WeedonSctt/trail/releases/latest/download/uninstall.ps1 | iex
+```
+
+Or from a downloaded copy:
+
+```pwsh
+powershell -ExecutionPolicy Bypass -File uninstall.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File uninstall.ps1
+powershell -ExecutionPolicy Bypass -File uninstall.ps1 -Purge
+```
+
+This also removes the `%LOCALAPPDATA%\trail\bin` entry that `install.ps1` added
+to your user PATH. Quit any running Trail first — Windows will not delete an
+executable that is still mapped into a live process.
+
+### Homebrew
+
+```sh
+brew uninstall trail
+brew untap WeedonSctt/trail   # optional, if you added the tap
+```
+
+### AUR
+
+```sh
+sudo pacman -Rns trail        # or: paru -Rns trail
+```
+
+### Scoop
+
+```pwsh
+scoop uninstall trail
+```
+
+### `cargo install`
+
+```sh
+cargo uninstall trail
+```
+
+`cargo install` never installed the shell wrappers, so there are none to
+remove — but if you set one up by hand, remove its rc line too.
+
+### Removing configuration and data by hand
+
+The uninstall scripts do this for you with `--purge` / `-Purge`. To do it
+yourself, run `trail --paths` first to get the exact locations, then remove the
+configuration and data directories it names.
+
+> **Linux users:** the default wrapper directory `~/.local/share/trail/shell`
+> lives *inside* the data directory `~/.local/share/trail`. Removing the parent
+> to get rid of the wrappers takes your bookmarks with it. Remove the `shell`
+> subdirectory specifically, or use `uninstall.sh`, which handles this.
