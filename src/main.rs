@@ -14,6 +14,7 @@ mod app;
 mod cli;
 mod config;
 mod input;
+mod paths;
 mod plugin;
 mod preview;
 mod session;
@@ -47,6 +48,14 @@ use crate::workers::{GitCache, WorkerMsg};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // `--paths` is a report, not a session. Answer it and leave before the
+    // panic hook, the logger or the terminal are touched, so the output is
+    // ordinary stdout that can be piped, redirected or read by a script.
+    if cli.paths {
+        println!("{}", paths::report());
+        return Ok(());
+    }
+
     // Capture cwd_file path before consuming `cli` below.
     let cwd_file = cli.cwd_file.clone();
 
@@ -69,7 +78,7 @@ async fn main() -> Result<()> {
     //
     // Failures here are non-fatal: the app works fine without logs.
     if let Ok(log_dir) = std::env::temp_dir().canonicalize() {
-        let file_appender = tracing_appender::rolling::never(&log_dir, "trail.log");
+        let file_appender = tracing_appender::rolling::never(&log_dir, paths::LOG_FILE);
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
         let _ = tracing_subscriber::fmt()
             .with_writer(non_blocking)
@@ -86,7 +95,7 @@ async fn main() -> Result<()> {
     // The data directory holds everything Trail persists between runs
     // (bookmarks, recent directories, the remembered --config path). Resolve
     // it before loading config, since the remembered path lives there.
-    let data_dir = data_dir();
+    let data_dir = paths::data_dir();
 
     if let Err(e) = std::fs::create_dir_all(&data_dir) {
         tracing::debug!("failed to create data dir: {e}");
@@ -125,7 +134,7 @@ async fn main() -> Result<()> {
     state.error_message = config_warning;
 
     state.bookmark_store =
-        match plugin::bookmarks::BookmarkStore::open(data_dir.join("bookmarks.toml")) {
+        match plugin::bookmarks::BookmarkStore::open(data_dir.join(paths::BOOKMARKS_FILE)) {
             Ok(store) => Some(store),
             Err(e) => {
                 tracing::debug!("failed to load bookmarks: {e}");
@@ -133,7 +142,7 @@ async fn main() -> Result<()> {
             }
         };
 
-    state.recent_dirs = session::RecentDirs::load(&data_dir.join("recent_dirs.toml"));
+    state.recent_dirs = session::RecentDirs::load(&data_dir.join(paths::RECENT_DIRS_FILE));
     state.recent_dirs.visit(state.cwd.clone());
 
     let mut engine = plugin::PluginEngine::new()
@@ -220,10 +229,14 @@ async fn main() -> Result<()> {
             }
         }
 
-        state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
+        state
+            .recent_dirs
+            .save(&data_dir.join(paths::RECENT_DIRS_FILE));
     } else if cancelled {
         // Cancelled (Ctrl+C): save recent dirs but do NOT write cwd-file.
-        state.recent_dirs.save(&data_dir.join("recent_dirs.toml"));
+        state
+            .recent_dirs
+            .save(&data_dir.join(paths::RECENT_DIRS_FILE));
     }
 
     // Re-surface real errors; treat "cancelled" as a clean exit.
@@ -232,17 +245,6 @@ async fn main() -> Result<()> {
     } else {
         run_result
     }
-}
-
-/// Returns the directory Trail persists cross-run state into.
-///
-/// Falls back to the current working directory when the platform's data
-/// directory cannot be determined, so persistence degrades to "beside the
-/// user" rather than being dropped entirely.
-fn data_dir() -> PathBuf {
-    directories::ProjectDirs::from("", "", "trail")
-        .map(|dirs| dirs.data_dir().to_path_buf())
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
 /// Loads the configuration named by `source`, applying the failure policy that

@@ -55,7 +55,8 @@ verification. Rendering is verified through `tests/render_snapshot_tests.rs`
 src/
   main.rs          startup, terminal setup, the event loop; the only place anyhow is allowed
   lib.rs           library surface (so integration tests can reach internals)
-  cli.rs           clap flags (--config, --cwd-file, ...)
+  cli.rs           clap flags (--config, --cwd-file, --paths, ...)
+  paths.rs         every location Trail owns; the only ProjectDirs caller
   session.rs       cd-on-exit handoff to the shell wrappers
   app/             state.rs (AppState), mode.rs, history.rs, tabs.rs
   ui/              mod.rs (render entry), nav_panel, preview_panel, status_bar, theme

@@ -33,6 +33,15 @@ pub struct Cli {
     #[arg(long, conflicts_with = "config")]
     pub no_config: bool,
 
+    /// Print every file and directory Trail uses, then exit.
+    ///
+    /// Reports the binary, config and data directories, the log file and any
+    /// shell wrappers found, each marked with whether it exists. The locations
+    /// are platform-dependent and not guessable, so this is what the uninstall
+    /// documentation and scripts point at.
+    #[arg(long)]
+    pub paths: bool,
+
     /// Starting directory. Defaults to the current working directory.
     #[arg(default_value = ".")]
     pub start_path: PathBuf,

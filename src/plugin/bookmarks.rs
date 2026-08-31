@@ -191,11 +191,7 @@ impl BookmarkStore {
 // clippy: dead_code — API consumed in Phase 9 UI
 #[allow(dead_code)]
 pub fn default_bookmark_path() -> PathBuf {
-    if let Some(proj_dirs) = directories::ProjectDirs::from("", "", "trail") {
-        proj_dirs.data_dir().join("bookmarks.toml")
-    } else {
-        PathBuf::from("trail_bookmarks.toml")
-    }
+    crate::paths::bookmarks_file()
 }
 
 #[cfg(test)]

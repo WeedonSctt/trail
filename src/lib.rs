@@ -14,6 +14,7 @@ pub mod app;
 pub mod cli;
 pub mod config;
 pub mod input;
+pub mod paths;
 pub mod plugin;
 pub mod preview;
 pub mod session;

@@ -42,12 +42,10 @@ pub fn load_enabled_plugins(engine: &mut PluginEngine, enabled: &[String]) {
             }
             other => {
                 // Try to load as a file from the user's plugin dir.
-                let plugin_path =
-                    if let Some(dirs) = directories::ProjectDirs::from("", "", "trail") {
-                        dirs.config_dir().join(other).with_extension("lua")
-                    } else {
-                        std::path::PathBuf::from(other).with_extension("lua")
-                    };
+                let plugin_path = match crate::paths::config_dir() {
+                    Some(dir) => dir.join(other).with_extension("lua"),
+                    None => std::path::PathBuf::from(other).with_extension("lua"),
+                };
 
                 if let Err(e) = engine.load_plugin(&plugin_path) {
                     tracing::debug!("failed to load plugin '{other}': {e}");
