@@ -284,8 +284,21 @@ they do not edit your rc files.
 
 ### Install script (Linux and macOS)
 
+> **Availability.** The uninstall scripts are attached to releases from
+> **v1.1.0** onward. On v1.0.1 and earlier the `releases/latest/download/`
+> URLs below return 404 — fetch the script from the repository instead:
+> `curl -fsSL https://raw.githubusercontent.com/WeedonSctt/trail/main/uninstall.sh | sh`
+
 ```sh
 curl -fsSL https://github.com/WeedonSctt/trail/releases/latest/download/uninstall.sh | sh
+```
+
+A piped script cannot take arguments directly. To pass `--dry-run` or
+`--purge`, hand them to `sh` after `-s --`:
+
+```sh
+curl -fsSL .../uninstall.sh | sh -s -- --dry-run
+curl -fsSL .../uninstall.sh | sh -s -- --purge
 ```
 
 Or, if you still have the repository or a release archive:
@@ -305,19 +318,35 @@ INSTALL_DIR=$HOME/bin SHELL_DIR=$HOME/.trail sh uninstall.sh
 
 ### Install script (Windows)
 
+> **Availability.** As above, the release asset exists from **v1.1.0** onward.
+> On earlier versions use the repository copy:
+> `irm https://raw.githubusercontent.com/WeedonSctt/trail/main/uninstall.ps1 | iex`
+
 ```pwsh
 irm https://github.com/WeedonSctt/trail/releases/latest/download/uninstall.ps1 | iex
+```
+
+`iex` runs the script text with no way to pass parameters, so that form always
+takes the defaults. For `-DryRun` or `-Purge`, turn the downloaded text into a
+script block and call it:
+
+```pwsh
+& ([scriptblock]::Create((irm .../uninstall.ps1))) -DryRun
+& ([scriptblock]::Create((irm .../uninstall.ps1))) -Purge
 ```
 
 Or from a downloaded copy:
 
 ```pwsh
-powershell -ExecutionPolicy Bypass -File uninstall.ps1 -DryRun
-powershell -ExecutionPolicy Bypass -File uninstall.ps1
-powershell -ExecutionPolicy Bypass -File uninstall.ps1 -Purge
+pwsh -File uninstall.ps1 -DryRun
+pwsh -File uninstall.ps1
+pwsh -File uninstall.ps1 -Purge
 ```
 
-This also removes the `%LOCALAPPDATA%\trail\bin` entry that `install.ps1` added
+Windows PowerShell 5.1 works too, via
+`powershell -ExecutionPolicy Bypass -File uninstall.ps1`.
+
+This also removes the `%LOCALAPPDATA%	railin` entry that `install.ps1` added
 to your user PATH. Quit any running Trail first — Windows will not delete an
 executable that is still mapped into a live process.
 
