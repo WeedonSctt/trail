@@ -53,10 +53,13 @@ Trail supports multiple tabs for multitasking.
 
 Search Mode allows you to filter the current directory's contents. Type any characters to filter the list.
 
+Every unmodified character you press is typed into the query - `j` and `k` included.
+Movement therefore uses keys that are not text:
+
+- `↓` / `Ctrl-n`: Move selection down through search results
+- `↑` / `Ctrl-p`: Move selection up through search results
 - `Enter` or `→`: Confirm search and return to Navigation Mode with the item selected
 - `Esc`: Cancel search and exit Search Mode
-- `j` / `↓`: Move selection down through search results
-- `k` / `↑`: Move selection up through search results
 - `Backspace` / `Ctrl-h`: Delete the last character of the search query
 
 ## 4. Command Mode

@@ -206,7 +206,18 @@ Overrides keybindings for Navigation Mode.
 - `switch_tab_prev`: Switch to previous tab
 
 #### `[keymap.search]`
-Overrides keybindings for Search Mode (using the same valid key formats).
+Overrides keybindings for Search Mode.
+
+> **Single characters are not valid here.** Search Mode is a typing mode: every
+> unmodified character is appended to the query, so binding one to an action
+> would make that character impossible to search for. Use a named key (`up`,
+> `down`, `enter`, `esc`, `backspace`) or a chord (`ctrl-n`). A single-character
+> binding is rejected at load and by `:set`, with a message saying why.
+>
+> This is why the defaults are `down` and `up` rather than `j` and `k`.
+> `Ctrl-n` / `Ctrl-p` / `Ctrl-h` also work as built-in aliases that no config
+> is needed to enable.
+
 **Allowed Action Names:**
 - `exit`: Leave Search Mode
 - `confirm`: Select the currently matched item

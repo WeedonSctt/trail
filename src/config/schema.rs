@@ -89,6 +89,9 @@ impl TrailConfig {
         validate_color_value("theme.git_dirty", &self.theme.git_dirty)?;
         validate_keymap_table("keymap.navigation", &self.keymap.navigation, NAV_ACTIONS)?;
         validate_keymap_table("keymap.search", &self.keymap.search, SEARCH_ACTIONS)?;
+        for (action, binding) in &self.keymap.search {
+            validate_search_binding(&format!("keymap.search.{action}"), binding)?;
+        }
         Ok(())
     }
 
@@ -165,9 +168,9 @@ impl TrailConfig {
                 if !SEARCH_ACTIONS.contains(&action) {
                     return Err(SetConfigError::UnknownKey(key.to_owned()));
                 }
-                self.keymap
-                    .search
-                    .insert(action.to_owned(), parse_key_binding(key, value)?);
+                let binding = parse_key_binding(key, value)?;
+                validate_search_binding(key, &binding)?;
+                self.keymap.search.insert(action.to_owned(), binding);
             }
             _ => return Err(SetConfigError::UnknownKey(key.to_owned())),
         }
@@ -323,6 +326,26 @@ fn validate_keymap_table(
     Ok(())
 }
 
+/// Rejects a Search Mode binding that would shadow typing.
+///
+/// Search Mode appends every unmodified character to the query, so binding a
+/// bare character to an action would make that character unsearchable. The
+/// shipped defaults used to bind `move_down = "j"` and `move_up = "k"`, which
+/// meant neither letter could be typed into a search at all.
+///
+/// Named and modified keys are unaffected, because they are not text: `up`,
+/// `down`, `enter`, `esc`, `backspace`, `ctrl-n`.
+fn validate_search_binding(key: &str, binding: &str) -> Result<(), SetConfigError> {
+    if binding.chars().count() == 1 {
+        return Err(invalid_value(
+            key,
+            binding,
+            "must not be a single character - those are typed into the query;              use a named or modified key such as up, down, enter, esc or ctrl-n",
+        ));
+    }
+    Ok(())
+}
+
 fn validate_key_binding(key: &str, value: &str) -> Result<(), SetConfigError> {
     if value.is_empty() {
         return Err(invalid_value(key, value, "must not be empty"));
@@ -433,6 +456,40 @@ const SEARCH_ACTIONS: &[&str] = &["exit", "confirm", "move_down", "move_up", "de
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_bindings_reject_bare_characters() {
+        let mut config = crate::config::load(None).unwrap();
+        config
+            .keymap
+            .search
+            .insert("move_down".to_owned(), "j".to_owned());
+
+        let err = config.validate().unwrap_err();
+        assert!(
+            format!("{err}").contains("single character"),
+            "expected the shadowing explanation, got: {err}"
+        );
+    }
+
+    #[test]
+    fn set_value_rejects_a_bare_character_search_binding() {
+        let mut config = crate::config::load(None).unwrap();
+        let err = config.set_value("keymap.search.move_up", "k").unwrap_err();
+        assert!(format!("{err}").contains("single character"));
+        // The rejected binding must not have been applied.
+        assert_eq!(config.keymap.search.get("move_up"), Some(&"up".to_owned()));
+    }
+
+    #[test]
+    fn search_bindings_accept_named_and_modified_keys() {
+        let mut config = crate::config::load(None).unwrap();
+        for binding in ["down", "ctrl-n", "enter", "esc"] {
+            config
+                .set_value("keymap.search.move_down", binding)
+                .unwrap_or_else(|e| panic!("{binding} should be allowed: {e}"));
+        }
+    }
 
     #[test]
     fn set_value_updates_general_and_keymap_values() {

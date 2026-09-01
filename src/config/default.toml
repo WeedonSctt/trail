@@ -59,10 +59,14 @@ switch_tab_next = "tab"
 switch_tab_prev = "shift-tab"
 
 [keymap.search]
+# Search Mode is a typing mode: unmodified characters go into the query, so
+# these must be named or modified keys.  Binding a bare letter here is a
+# config error -- it would make that letter impossible to search for.
+# Ctrl-n / Ctrl-p / Ctrl-h also work as built-in aliases.
 exit = "esc"
 confirm = "enter"
-move_down = "j"
-move_up = "k"
+move_down = "down"
+move_up = "up"
 delete_char = "backspace"
 
 [plugins]

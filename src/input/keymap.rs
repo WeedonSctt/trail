@@ -62,9 +62,29 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
 
 /// Translates a `KeyEvent` in Search Mode into an `Action`.
 ///
-/// Printable characters not claimed by the configured search keymap are
-/// appended to the active query.
+/// Search Mode is a typing mode, so an unmodified printable character is
+/// **always** appended to the query — before the configured keymap is even
+/// consulted. Binding a bare character to a movement action here would make
+/// that character impossible to search for, which is exactly what the shipped
+/// defaults used to do with `j` and `k`: the list moved and the letter never
+/// reached the query.
+///
+/// Everything that is not text therefore drives the mode: arrows and
+/// `Ctrl-n`/`Ctrl-p` move, Enter confirms, Esc leaves, Backspace deletes.
+/// Those are what `[keymap.search]` may rebind, and
+/// `TrailConfig::validate` rejects a single-character binding so the
+/// shadowing cannot be reintroduced through config.
 pub fn search(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
+    if let KeyCode::Char(ch) = key.code {
+        // SHIFT is deliberately not excluded: capital letters are text too.
+        if !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return Some(Action::SearchAppendChar(ch));
+        }
+    }
+
     if let Some(action) = configured_search_action(key, keymap) {
         return Some(action);
     }
@@ -75,11 +95,16 @@ pub fn search(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
         KeyCode::Down => Some(Action::SearchMoveDown),
         KeyCode::Up => Some(Action::SearchMoveUp),
         KeyCode::Backspace => Some(Action::SearchDeleteChar),
+        // Readline-style chords, so the hands never have to leave the home row
+        // now that j/k are text. Built-in aliases, like Ctrl-h for backspace.
+        KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SearchMoveDown)
+        }
+        KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            Some(Action::SearchMoveUp)
+        }
         KeyCode::Char('h') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             Some(Action::SearchDeleteChar)
-        }
-        KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::SearchAppendChar(ch))
         }
         _ => None,
     }
@@ -217,6 +242,67 @@ mod tests {
             state: KeyEventState::NONE,
         };
         assert_eq!(key_to_config_string(event), Some("ctrl-r".to_owned()));
+    }
+
+    /// The bug this guards: `j` and `k` moved the selection instead of being
+    /// typed, so neither letter could appear in a search query. A configured
+    /// binding must not be able to reintroduce that.
+    #[test]
+    fn search_types_every_bare_character_even_when_bound() {
+        let mut keymap = crate::config::load(None).unwrap().keymap;
+        keymap.search.insert("move_down".to_owned(), "j".to_owned());
+        keymap.search.insert("move_up".to_owned(), "k".to_owned());
+
+        for ch in ['j', 'k', 'q', ':', '/', 'Z'] {
+            assert_eq!(
+                search(key(KeyCode::Char(ch)), &keymap),
+                Some(Action::SearchAppendChar(ch)),
+                "{ch} must reach the query"
+            );
+        }
+    }
+
+    #[test]
+    fn search_moves_with_keys_that_are_not_text() {
+        let keymap = crate::config::load(None).unwrap().keymap;
+        let ctrl = |ch| KeyEvent {
+            code: KeyCode::Char(ch),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert_eq!(
+            search(key(KeyCode::Down), &keymap),
+            Some(Action::SearchMoveDown)
+        );
+        assert_eq!(
+            search(key(KeyCode::Up), &keymap),
+            Some(Action::SearchMoveUp)
+        );
+        assert_eq!(search(ctrl('n'), &keymap), Some(Action::SearchMoveDown));
+        assert_eq!(search(ctrl('p'), &keymap), Some(Action::SearchMoveUp));
+        assert_eq!(search(ctrl('h'), &keymap), Some(Action::SearchDeleteChar));
+        assert_eq!(
+            search(key(KeyCode::Enter), &keymap),
+            Some(Action::SearchConfirm)
+        );
+        assert_eq!(search(key(KeyCode::Esc), &keymap), Some(Action::ExitMode));
+    }
+
+    #[test]
+    fn shifted_characters_are_still_text() {
+        let keymap = crate::config::load(None).unwrap().keymap;
+        let shifted = KeyEvent {
+            code: KeyCode::Char('K'),
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        assert_eq!(
+            search(shifted, &keymap),
+            Some(Action::SearchAppendChar('K'))
+        );
     }
 
     #[test]

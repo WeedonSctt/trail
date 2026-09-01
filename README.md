@@ -260,9 +260,10 @@ Press `/` and type to fuzzy-filter the current directory. Results reorder by mat
 
 | Key | Action |
 |---|---|
+| *any character* | Typed into the query - every letter is text here, including `j` and `k` |
+| `↓` / `Ctrl-n`, `↑` / `Ctrl-p` | Move through results |
 | `Enter` / `→` | Confirm and return to Navigation mode with the match selected |
 | `Esc` | Cancel and restore the full listing |
-| `j` / `↓`, `k` / `↑` | Move through results |
 | `Backspace` / `Ctrl-h` | Delete the last character |
 
 ### Command mode
