@@ -1,6 +1,6 @@
 [package]
 name = "trail"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 # Minimum Supported Rust Version.  Verified against the stable toolchain used
 # in CI.  Bump only when a dependency or language feature requires it.

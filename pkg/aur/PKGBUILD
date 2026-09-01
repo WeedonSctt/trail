@@ -11,7 +11,8 @@
 #   paru -S trail
 #
 # NOTE ON SHA256 DIGESTS:
-#   The sha256sum values below are the real digests of the v1.0.1 Linux release
+#   The sha256sum values below are STALE v1.0.1 digests, kept until the
+#   v1.1.0 archives exist to hash.  Refresh before pushing to the AUR.
 #   archives, taken from the checksums.txt attached to the GitHub Release.
 #   On every version bump they must be refreshed alongside `pkgver` — read the
 #   new values from that release's checksums.txt, or run `sha256sum` against
@@ -25,7 +26,7 @@
 #
 
 pkgname=trail
-pkgver=1.0.1
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Terminal-first workspace for navigating, inspecting and acting on the filesystem"
 arch=("x86_64" "aarch64")
@@ -40,7 +41,7 @@ options=(!debug)
 source_x86_64=("trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
 source_aarch64=("trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
 
-# Digests for the v1.0.1 archives, from the release's checksums.txt.
+# STALE: v1.0.1 digests. Refresh from the v1.1.0 checksums.txt before use.
 sha256sums_x86_64=("66baf8dbd4e8e5aa96c1a6e59a96d9dbd619a4da5b3c76b7236c3e8036c0c984")
 sha256sums_aarch64=("cfad7af37ffa6b64e70cf52992241e7665030fb472e27255dbbfd503823e6340")
 

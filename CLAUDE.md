@@ -257,7 +257,7 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 8. Current state and known traps
 
-- Released: **v1.0.1**. Commits sit past that tag unreleased.
+- Released: **v1.1.0**.
 - `ratatui-image` must resolve against the **same** `ratatui` the crate uses (0.28). Its
   dependency range also admits ratatui 0.30, and a `cargo update` will happily re-split
   the graph into two ratatui versions — at which point `StatefulImage` no longer matches
