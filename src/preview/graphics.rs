@@ -137,6 +137,44 @@ impl ImageProtocol {
 
 // ── Detection ─────────────────────────────────────────────────────────────────
 
+/// The environment Trail reads to identify the host terminal.
+///
+/// Detection is split from the `std::env` lookups so that every terminal in the
+/// matrix can be exercised as a plain value. Reading the process environment
+/// inside the decision would make the rules testable only for whichever
+/// terminal happened to run the suite, and `std::env::set_var` is not a way
+/// out: the suite is multi-threaded, so one test mutating the environment would
+/// race every other.
+#[derive(Debug, Default, Clone)]
+struct TerminalEnv {
+    /// `TERM`, lowercased.
+    term: String,
+    /// `TERM_PROGRAM`, lowercased.
+    term_program: String,
+    /// `LC_TERMINAL`, lowercased.
+    lc_terminal: String,
+    /// Whether `KITTY_WINDOW_ID` is set to a non-empty value.
+    kitty_window_id: bool,
+    /// Whether `ITERM_SESSION_ID` is set to a non-empty value.
+    iterm_session_id: bool,
+    /// Whether `WEZTERM_EXECUTABLE` is set to a non-empty value.
+    wezterm_executable: bool,
+}
+
+impl TerminalEnv {
+    /// Reads the variables detection depends on from the process environment.
+    fn from_env() -> TerminalEnv {
+        TerminalEnv {
+            term: lowercased("TERM"),
+            term_program: lowercased("TERM_PROGRAM"),
+            lc_terminal: lowercased("LC_TERMINAL"),
+            kitty_window_id: is_set("KITTY_WINDOW_ID"),
+            iterm_session_id: is_set("ITERM_SESSION_ID"),
+            wezterm_executable: is_set("WEZTERM_EXECUTABLE"),
+        }
+    }
+}
+
 /// Identifies the host terminal's best inline-image protocol from the
 /// environment.
 ///
@@ -146,19 +184,21 @@ impl ImageProtocol {
 /// Never returns [`ImageProtocol::None`]: an unrecognised terminal gets
 /// [`ImageProtocol::Halfblocks`], which always works.
 pub fn detect_from_env() -> ImageProtocol {
-    let term = env::var("TERM").unwrap_or_default().to_ascii_lowercase();
-    let term_program = env::var("TERM_PROGRAM")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let lc_terminal = env::var("LC_TERMINAL")
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+    detect(&TerminalEnv::from_env())
+}
 
-    if is_set("KITTY_WINDOW_ID") || term.contains("kitty") {
+/// Decides the protocol for an already-read environment.
+///
+/// The probe order is the contract documented on [`detect_from_env`]; the
+/// comments below record why each individual rule exists.
+fn detect(env: &TerminalEnv) -> ImageProtocol {
+    if env.kitty_window_id || env.term.contains("kitty") {
         return ImageProtocol::Kitty;
     }
 
-    if is_set("ITERM_SESSION_ID") || term_program.contains("iterm") || lc_terminal.contains("iterm")
+    if env.iterm_session_id
+        || env.term_program.contains("iterm")
+        || env.lc_terminal.contains("iterm")
     {
         return ImageProtocol::Iterm2;
     }
@@ -167,23 +207,32 @@ pub fn detect_from_env() -> ImageProtocol {
     // by WEZTERM_EXECUTABLE (set on every platform, including Windows) and by
     // TERM_PROGRAM=WezTerm, while TERM stays the generic xterm-256color — which
     // is why a TERM-only probe misses it entirely.
-    if is_set("WEZTERM_EXECUTABLE") || term_program.contains("wezterm") {
+    if env.wezterm_executable || env.term_program.contains("wezterm") {
         return ImageProtocol::Iterm2;
     }
 
     // Terminals that implement the iTerm2 sequence without a dedicated marker.
     if ["mintty", "vscode", "tabby", "hyper", "rio", "warpterminal"]
         .iter()
-        .any(|name| term_program.contains(name))
+        .any(|name| env.term_program.contains(name))
     {
         return ImageProtocol::Iterm2;
     }
 
-    if term.contains("sixel") || term == "mlterm" || term == "yaft-256color" || term == "foot" {
+    if env.term.contains("sixel")
+        || env.term == "mlterm"
+        || env.term == "yaft-256color"
+        || env.term == "foot"
+    {
         return ImageProtocol::Sixel;
     }
 
     ImageProtocol::Halfblocks
+}
+
+/// The value of environment variable `name`, lowercased, or empty if unset.
+fn lowercased(name: &str) -> String {
+    env::var(name).unwrap_or_default().to_ascii_lowercase()
 }
 
 /// Whether `name` is present in the environment with a non-empty value.
@@ -428,6 +477,81 @@ mod tests {
         // Whatever terminal the tests run under — including none at all, as on
         // CI — detection must land on a protocol that can draw something.
         assert_ne!(detect_from_env(), ImageProtocol::None);
+    }
+
+    /// A terminal environment with only `TERM` and `TERM_PROGRAM` set, which
+    /// is what most emulators actually give Trail to work with.
+    fn env_with(term: &str, term_program: &str) -> TerminalEnv {
+        TerminalEnv {
+            term: term.to_owned(),
+            term_program: term_program.to_owned(),
+            ..TerminalEnv::default()
+        }
+    }
+
+    #[test]
+    fn wezterm_gets_pixel_previews_on_every_platform() {
+        // The bug this guards: WezTerm leaves TERM at the generic
+        // xterm-256color and sets no kitty or iTerm2 marker, so a probe that
+        // only reads TERM files it under "unknown terminal" and the pane falls
+        // back to metadata text. Either WezTerm signal on its own must be
+        // enough, because WEZTERM_EXECUTABLE is what identifies it on Windows.
+        let by_executable = TerminalEnv {
+            term: "xterm-256color".to_owned(),
+            wezterm_executable: true,
+            ..TerminalEnv::default()
+        };
+        assert_eq!(detect(&by_executable), ImageProtocol::Iterm2);
+        assert_eq!(
+            detect(&env_with("xterm-256color", "wezterm")),
+            ImageProtocol::Iterm2
+        );
+    }
+
+    #[test]
+    fn kitty_wins_over_a_terminal_that_also_speaks_iterm2() {
+        // WezTerm speaks both; the kitty marker is only set when the terminal
+        // really is kitty-compatible, so it is the stronger signal.
+        let both = TerminalEnv {
+            term: "xterm-256color".to_owned(),
+            term_program: "wezterm".to_owned(),
+            kitty_window_id: true,
+            wezterm_executable: true,
+            ..TerminalEnv::default()
+        };
+        assert_eq!(detect(&both), ImageProtocol::Kitty);
+        assert_eq!(detect(&env_with("xterm-kitty", "")), ImageProtocol::Kitty);
+    }
+
+    #[test]
+    fn iterm2_family_terminals_are_recognised() {
+        for program in ["iterm.app", "mintty", "vscode", "tabby", "hyper", "rio"] {
+            assert_eq!(
+                detect(&env_with("xterm-256color", program)),
+                ImageProtocol::Iterm2,
+                "expected iterm2 for TERM_PROGRAM={program}"
+            );
+        }
+    }
+
+    #[test]
+    fn sixel_terminals_are_recognised_from_term() {
+        for term in ["mlterm", "foot", "xterm-sixel"] {
+            assert_eq!(
+                detect(&env_with(term, "")),
+                ImageProtocol::Sixel,
+                "expected sixel for TERM={term}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_terminal_floors_at_halfblocks() {
+        assert_eq!(
+            detect(&env_with("xterm-256color", "")),
+            ImageProtocol::Halfblocks
+        );
+        assert_eq!(detect(&TerminalEnv::default()), ImageProtocol::Halfblocks);
     }
 
     #[test]
