@@ -73,6 +73,13 @@ impl TrailConfig {
         }
         // The cell size needs no range check: zero means "detect it", and any
         // other u16 is a legitimate, if unusual, cell dimension.
+        if self.preview.max_lines == 0 || self.preview.max_lines > PREVIEW_MAX_LINES_LIMIT {
+            return Err(invalid_value(
+                "preview.max_lines",
+                &self.preview.max_lines.to_string(),
+                "must be between 1 and 100000",
+            ));
+        }
         validate_color_value("theme.foreground", &self.theme.foreground)?;
         validate_color_value("theme.background", &self.theme.background)?;
         validate_color_value("theme.border", &self.theme.border)?;
@@ -139,6 +146,13 @@ impl TrailConfig {
             }
             "preview.image_cell_height" | "image_cell_height" => {
                 self.preview.image_cell_height = parse_cell_size(key, value)?;
+            }
+            "preview.max_lines" | "max_lines" => {
+                let max_lines = parse_positive_usize(key, value)?;
+                if max_lines > PREVIEW_MAX_LINES_LIMIT {
+                    return Err(invalid_value(key, value, "must be at most 100000"));
+                }
+                self.preview.max_lines = max_lines;
             }
             "theme.foreground" => self.theme.foreground = parse_color_value(key, value)?,
             "theme.background" => self.theme.background = parse_color_value(key, value)?,
@@ -209,7 +223,22 @@ pub struct PreviewConfig {
     pub image_cell_width: u16,
     /// Height, in pixels, of one terminal character cell, or `0` to detect it.
     pub image_cell_height: u16,
+    /// Maximum number of lines a text preview loads.
+    ///
+    /// The preview scrolls within this window, and a longer file is marked as
+    /// truncated in the pane's footer. Raising it costs the highlight worker
+    /// proportionally more time and memory per preview; capped at
+    /// [`PREVIEW_MAX_LINES_LIMIT`].
+    pub max_lines: usize,
 }
+
+/// Upper bound accepted for `[preview] max_lines`.
+///
+/// A cap is needed because the value decides how much of a file one worker task
+/// reads and highlights: a mistyped value must not pin a worker on a multi-
+/// gigabyte file. 100 000 lines is far past any file a preview pane is useful
+/// for, so it constrains only typos.
+pub const PREVIEW_MAX_LINES_LIMIT: usize = 100_000;
 
 /// UI color configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -363,12 +392,21 @@ fn validate_key_binding(key: &str, value: &str) -> Result<(), SetConfigError> {
         "right",
         "up",
         "down",
+        "home",
+        "end",
     ];
     if known.contains(&lower.as_str()) {
         return Ok(());
     }
     if let Some(rest) = lower.strip_prefix("ctrl-") {
         if rest.chars().count() == 1 {
+            return Ok(());
+        }
+    }
+    // `shift-<named key>` — shift is only meaningful on keys that are not text;
+    // a shifted character arrives as the capital itself (`G`, `J`).
+    if let Some(rest) = lower.strip_prefix("shift-") {
+        if known.contains(&rest) {
             return Ok(());
         }
     }
@@ -449,6 +487,12 @@ const NAV_ACTIONS: &[&str] = &[
     "close_tab",
     "switch_tab_next",
     "switch_tab_prev",
+    "preview_scroll_down",
+    "preview_scroll_up",
+    "preview_page_down",
+    "preview_page_up",
+    "preview_scroll_top",
+    "preview_scroll_bottom",
 ];
 
 const SEARCH_ACTIONS: &[&str] = &["exit", "confirm", "move_down", "move_up", "delete_char"];
@@ -479,6 +523,41 @@ mod tests {
         assert!(format!("{err}").contains("single character"));
         // The rejected binding must not have been applied.
         assert_eq!(config.keymap.search.get("move_up"), Some(&"up".to_owned()));
+    }
+
+    #[test]
+    fn set_value_accepts_and_bounds_preview_max_lines() {
+        let mut config = crate::config::load(None).unwrap();
+        config.set_value("preview.max_lines", "8000").unwrap();
+        assert_eq!(config.preview.max_lines, 8000);
+        // The short alias reaches the same field.
+        config.set_value("max_lines", "500").unwrap();
+        assert_eq!(config.preview.max_lines, 500);
+
+        for rejected in ["0", "200000"] {
+            assert!(
+                config.set_value("preview.max_lines", rejected).is_err(),
+                "{rejected} must be rejected"
+            );
+        }
+        // A rejected value must not have been applied.
+        assert_eq!(config.preview.max_lines, 500);
+    }
+
+    #[test]
+    fn preview_scroll_bindings_are_configurable() {
+        let mut config = crate::config::load(None).unwrap();
+        config
+            .set_value("keymap.navigation.preview_scroll_down", "J")
+            .unwrap();
+        config
+            .set_value("keymap.navigation.preview_scroll_bottom", "shift-end")
+            .unwrap();
+        assert_eq!(
+            config.keymap.navigation.get("preview_scroll_bottom"),
+            Some(&"shift-end".to_owned())
+        );
+        config.validate().expect("shipped defaults must validate");
     }
 
     #[test]

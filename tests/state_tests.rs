@@ -712,6 +712,7 @@ fn make_state_with_preview(generation: u64, for_path: std::path::PathBuf) -> App
         for_path,
         generation,
         content: PreviewContent::Loading,
+        ..PreviewSlot::default()
     };
     state
 }
@@ -727,6 +728,7 @@ fn preview_merge_matching_generation_applies() {
             generation: 5,
             path: path.clone(),
             content: content.clone(),
+            truncated: false,
         },
         &mut state,
     );
@@ -749,6 +751,7 @@ fn preview_merge_stale_generation_dropped() {
             generation: 3,
             path: path.clone(),
             content: PreviewContent::Text(vec!["stale".to_owned()]),
+            truncated: false,
         },
         &mut state,
     );
@@ -770,6 +773,7 @@ fn preview_merge_path_mismatch_dropped() {
             generation: 5,
             path: stale_path,
             content: PreviewContent::Text(vec!["wrong".to_owned()]),
+            truncated: false,
         },
         &mut state,
     );
@@ -871,4 +875,171 @@ fn git_merge_correct_directory_applies() {
         "git state should be applied for the current directory"
     );
     assert!(state.dirty);
+}
+
+// ── Preview scrolling ─────────────────────────────────────────────────────────
+
+/// Builds a state whose preview holds `lines` lines of plain text in a pane
+/// `height` rows tall, as the renderer would have recorded it.
+fn state_with_text_preview(lines: usize, height: usize) -> AppState {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut state = AppState::new(tmp.path().to_owned()).expect("AppState::new");
+    state.preview.content = PreviewContent::Text((0..lines).map(|i| format!("line {i}")).collect());
+    state.preview.viewport_height = height;
+    state
+}
+
+#[test]
+fn preview_scroll_stops_with_the_last_line_on_screen() {
+    let mut state = state_with_text_preview(100, 20);
+
+    for _ in 0..500 {
+        state.scroll_preview_lines(1);
+    }
+
+    // 100 lines in a 20-row pane: the last screenful starts at line 81 (index 80).
+    assert_eq!(state.preview.scroll, 80);
+}
+
+#[test]
+fn preview_scroll_up_saturates_at_the_first_line() {
+    let mut state = state_with_text_preview(100, 20);
+    state.scroll_preview_lines(30);
+
+    for _ in 0..100 {
+        state.scroll_preview_lines(-1);
+    }
+
+    assert_eq!(state.preview.scroll, 0);
+}
+
+#[test]
+fn preview_page_scroll_overlaps_by_two_lines() {
+    let mut state = state_with_text_preview(100, 20);
+
+    state.scroll_preview_pages(1);
+    assert_eq!(state.preview.scroll, 18, "a page is the pane less 2 rows");
+
+    state.scroll_preview_pages(-1);
+    assert_eq!(state.preview.scroll, 0);
+}
+
+#[test]
+fn preview_scroll_to_edges() {
+    let mut state = state_with_text_preview(100, 20);
+
+    state.scroll_preview_to_edge(true);
+    assert_eq!(state.preview.scroll, 80);
+
+    state.scroll_preview_to_edge(false);
+    assert_eq!(state.preview.scroll, 0);
+}
+
+#[test]
+fn preview_that_fits_the_pane_does_not_scroll() {
+    let mut state = state_with_text_preview(5, 20);
+
+    state.scroll_preview_lines(1);
+    state.scroll_preview_pages(1);
+    state.scroll_preview_to_edge(true);
+
+    assert_eq!(state.preview.scroll, 0);
+}
+
+/// An image has no lines to offset, and a scroll request must not even mark the
+/// state dirty — otherwise every keypress would force a redraw of an unchanged
+/// pane.
+#[test]
+fn scrolling_unscrollable_content_is_a_no_op() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut state = AppState::new(tmp.path().to_owned()).expect("AppState::new");
+    state.preview.content = PreviewContent::Loading;
+    state.preview.viewport_height = 20;
+    state.dirty = false;
+
+    state.scroll_preview_lines(1);
+    state.scroll_preview_to_edge(true);
+
+    assert_eq!(state.preview.scroll, 0);
+    assert!(!state.dirty, "a no-op scroll must not request a redraw");
+}
+
+#[test]
+fn scroll_at_the_bottom_does_not_request_a_redraw() {
+    let mut state = state_with_text_preview(100, 20);
+    state.scroll_preview_to_edge(true);
+    state.dirty = false;
+
+    state.scroll_preview_lines(1);
+
+    assert!(!state.dirty, "already at the end; nothing changed");
+}
+
+#[test]
+fn clamp_scroll_follows_a_shrinking_pane() {
+    let mut state = state_with_text_preview(100, 20);
+    state.scroll_preview_to_edge(true);
+    assert_eq!(state.preview.scroll, 80);
+
+    // The terminal grew: more rows visible, so the maximum offset drops.
+    state.preview.viewport_height = 60;
+    state.preview.clamp_scroll();
+
+    assert_eq!(state.preview.scroll, 40);
+}
+
+/// Re-previewing the *same* path must keep the reader in place — this is what
+/// makes watching a file that is being appended to usable.
+#[test]
+fn begin_preserves_scroll_for_the_same_path_and_resets_for_another() {
+    let mut state = state_with_text_preview(100, 20);
+    let a = std::path::PathBuf::from("/some/a.txt");
+    let b = std::path::PathBuf::from("/some/b.txt");
+
+    state.preview.begin(&a);
+    state.scroll_preview_lines(30);
+    state.preview.truncated = true;
+    assert_eq!(state.preview.scroll, 30);
+
+    let generation_before = state.preview.generation;
+    state.preview.begin(&a);
+    assert_eq!(state.preview.scroll, 30, "same path keeps the position");
+    assert!(state.preview.truncated, "same path keeps the marker");
+    assert_eq!(
+        state.preview.generation,
+        generation_before.wrapping_add(1),
+        "every begin bumps the generation guard"
+    );
+
+    state.preview.begin(&b);
+    assert_eq!(state.preview.scroll, 0, "a new entry starts at the top");
+    assert!(!state.preview.truncated);
+    assert_eq!(state.preview.for_path, b);
+}
+
+/// Covers the wiring from `Action` to state: a binding that resolves to an
+/// action nothing applies is the failure this catches.
+#[test]
+fn preview_scroll_actions_reach_the_state() {
+    use trail::actions::{apply, Action};
+
+    let mut state = state_with_text_preview(100, 20);
+
+    apply(Action::PreviewScrollDown, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 1);
+
+    apply(Action::PreviewPageDown, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 19);
+
+    apply(Action::PreviewScrollUp, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 18);
+
+    apply(Action::PreviewPageUp, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 0);
+
+    apply(Action::PreviewScrollBottom, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 80);
+
+    apply(Action::PreviewScrollTop, &mut state).unwrap();
+    assert_eq!(state.preview.scroll, 0);
 }

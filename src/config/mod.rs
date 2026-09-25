@@ -169,6 +169,7 @@ struct PreviewOverrides {
     image_protocol: Option<String>,
     image_cell_width: Option<u16>,
     image_cell_height: Option<u16>,
+    max_lines: Option<usize>,
 }
 
 impl PreviewOverrides {
@@ -181,6 +182,9 @@ impl PreviewOverrides {
         }
         if let Some(image_cell_height) = self.image_cell_height {
             preview.image_cell_height = image_cell_height;
+        }
+        if let Some(max_lines) = self.max_lines {
+            preview.max_lines = max_lines;
         }
     }
 }

@@ -41,6 +41,13 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
     }
 
     match key.code {
+        // Shift+arrow scrolls the preview — checked before the bare arrows,
+        // which match on the key code alone and would otherwise swallow it and
+        // move the selection instead.
+        KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+            Some(Action::PreviewScrollDown)
+        }
+        KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::PreviewScrollUp),
         KeyCode::Down => Some(Action::MoveDown),
         KeyCode::Up => Some(Action::MoveUp),
         KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
@@ -176,6 +183,13 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "close_tab" => Some(Action::CloseTab),
         "switch_tab_next" => Some(Action::SwitchTabNext),
         "switch_tab_prev" => Some(Action::SwitchTabPrev),
+        // Preview pane scrolling.
+        "preview_scroll_down" => Some(Action::PreviewScrollDown),
+        "preview_scroll_up" => Some(Action::PreviewScrollUp),
+        "preview_page_down" => Some(Action::PreviewPageDown),
+        "preview_page_up" => Some(Action::PreviewPageUp),
+        "preview_scroll_top" => Some(Action::PreviewScrollTop),
+        "preview_scroll_bottom" => Some(Action::PreviewScrollBottom),
         _ => None,
     }
 }
@@ -201,21 +215,42 @@ fn append_to_sequence(prefix: char, key: KeyEvent) -> Option<String> {
     Some(format!("{prefix}{ch}"))
 }
 
+/// Renders `key` in the form `[keymap]` bindings are written in, or `None` for
+/// a key with no config spelling.
+///
+/// A character carries its own shift: crossterm delivers `Shift`+`j` as
+/// `Char('J')`, which is why `jump_bottom = "G"` works and why a `shift-`
+/// prefix is added only to *named* keys — `shift-down`, `shift-end`. Without
+/// that prefix every shifted arrow would be indistinguishable from the bare
+/// one, and `Shift`+`↓` could not scroll the preview while `↓` moves the
+/// selection.
 fn key_to_config_string(key: KeyEvent) -> Option<String> {
-    match key.code {
+    let named = match key.code {
         KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(format!("ctrl-{ch}").to_ascii_lowercase())
+            return Some(format!("ctrl-{ch}").to_ascii_lowercase());
         }
-        KeyCode::Char(ch) => Some(ch.to_string()),
-        KeyCode::Enter => Some("enter".to_owned()),
-        KeyCode::Esc => Some("esc".to_owned()),
-        KeyCode::Backspace => Some("backspace".to_owned()),
-        KeyCode::Tab => Some("tab".to_owned()),
-        KeyCode::Left => Some("left".to_owned()),
-        KeyCode::Right => Some("right".to_owned()),
-        KeyCode::Up => Some("up".to_owned()),
-        KeyCode::Down => Some("down".to_owned()),
-        _ => None,
+        KeyCode::Char(ch) => return Some(ch.to_string()),
+        KeyCode::Enter => "enter",
+        KeyCode::Esc => "esc",
+        KeyCode::Backspace => "backspace",
+        KeyCode::Tab => "tab",
+        // Terminals split on how they report Shift+Tab: some send Tab with the
+        // shift modifier, others a distinct BackTab with no modifier. Both must
+        // reach the same binding.
+        KeyCode::BackTab => return Some("shift-tab".to_owned()),
+        KeyCode::Left => "left",
+        KeyCode::Right => "right",
+        KeyCode::Up => "up",
+        KeyCode::Down => "down",
+        KeyCode::Home => "home",
+        KeyCode::End => "end",
+        _ => return None,
+    };
+
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        Some(format!("shift-{named}"))
+    } else {
+        Some(named.to_owned())
     }
 }
 
@@ -302,6 +337,121 @@ mod tests {
         assert_eq!(
             search(shifted, &keymap),
             Some(Action::SearchAppendChar('K'))
+        );
+    }
+
+    /// A shifted character carries its own capital, so `J`/`K` reach the
+    /// preview-scroll actions through the ordinary configured path — the same
+    /// one that already serves `G`.
+    #[test]
+    fn preview_scroll_bindings_resolve_from_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+        let ctrl = |ch| KeyEvent {
+            code: KeyCode::Char(ch),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        let shifted = |code| KeyEvent {
+            code,
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        for (event, expected) in [
+            (key(KeyCode::Char('J')), Action::PreviewScrollDown),
+            (key(KeyCode::Char('K')), Action::PreviewScrollUp),
+            (ctrl('f'), Action::PreviewPageDown),
+            (ctrl('b'), Action::PreviewPageUp),
+            (shifted(KeyCode::Home), Action::PreviewScrollTop),
+            (shifted(KeyCode::End), Action::PreviewScrollBottom),
+        ] {
+            assert_eq!(
+                navigation(event, &mut ctx, &state),
+                Some(expected.clone()),
+                "{event:?} must map to {expected:?}"
+            );
+        }
+    }
+
+    /// The bug this guards: the built-in arrow fallbacks match on the key code
+    /// alone, so `Shift+↓` used to move the selection. It must scroll the
+    /// preview while the bare arrow still moves, and `j`/`k` must be untouched.
+    #[test]
+    fn shift_arrows_scroll_the_preview_and_bare_arrows_still_move() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+        let shifted = |code| KeyEvent {
+            code,
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert_eq!(
+            navigation(shifted(KeyCode::Down), &mut ctx, &state),
+            Some(Action::PreviewScrollDown)
+        );
+        assert_eq!(
+            navigation(shifted(KeyCode::Up), &mut ctx, &state),
+            Some(Action::PreviewScrollUp)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Down), &mut ctx, &state),
+            Some(Action::MoveDown)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Up), &mut ctx, &state),
+            Some(Action::MoveUp)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Char('j')), &mut ctx, &state),
+            Some(Action::MoveDown)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Char('k')), &mut ctx, &state),
+            Some(Action::MoveUp)
+        );
+    }
+
+    #[test]
+    fn shift_is_spelled_out_for_named_keys_only() {
+        let shifted = |code| KeyEvent {
+            code,
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        assert_eq!(
+            key_to_config_string(shifted(KeyCode::Down)),
+            Some("shift-down".to_owned())
+        );
+        assert_eq!(
+            key_to_config_string(shifted(KeyCode::End)),
+            Some("shift-end".to_owned())
+        );
+        assert_eq!(
+            key_to_config_string(key(KeyCode::Home)),
+            Some("home".to_owned())
+        );
+        // A capital is already the shifted form of the character.
+        assert_eq!(
+            key_to_config_string(shifted(KeyCode::Char('J'))),
+            Some("J".to_owned())
+        );
+        // Terminals that send BackTab instead of Shift+Tab reach the same binding.
+        assert_eq!(
+            key_to_config_string(key(KeyCode::BackTab)),
+            Some("shift-tab".to_owned())
+        );
+        assert_eq!(
+            key_to_config_string(shifted(KeyCode::Tab)),
+            Some("shift-tab".to_owned())
         );
     }
 

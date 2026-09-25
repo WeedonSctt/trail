@@ -46,7 +46,7 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 |---|---|
 | State manager | Current directory, selection, mode, navigation history stack, tabs |
 | Navigation panel | Reads directory entries, sorts directories-first, renders the list, merges in git badges once workers report them |
-| Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation |
+| Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation; owns the pane's scroll offset — it records the pane height and clamps the offset each frame, because nothing else knows the pane's size |
 | Status bar | Pure reflection of current state — path, mode, filter, branch, entry count |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
 | Command mode parser | History, completion, validation for parameterized actions (rename, create, shell exec) |

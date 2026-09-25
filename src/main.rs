@@ -302,24 +302,28 @@ fn load_configured(source: &config::ConfigSource) -> Result<(config::TrailConfig
 /// Updates `state.preview` synchronously for the currently selected entry.
 ///
 /// Called after every action that might change the selection or current
-/// directory. Increments `state.preview.generation` on every call so that
-/// Phase 4/5 worker results for a since-abandoned selection can be discarded.
+/// directory. Goes through [`crate::app::state::PreviewSlot::begin`], which
+/// increments `state.preview.generation` on every call so that worker results
+/// for a since-abandoned selection are discarded, and resets the preview's
+/// scroll position only when the selected path actually changed.
 ///
 /// The `tx` sender is passed through to `PreviewCtx` so providers can spawn
 /// async worker tasks (highlight worker, image decode worker).
 fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::Sender<WorkerMsg>) {
-    state.preview.generation = state.preview.generation.wrapping_add(1);
-
     if let Some(entry) = state.selected_entry().cloned() {
         if let Some(engine) = &state.plugin_engine {
             engine.fire_on_select(&entry.path);
         }
-        state.preview.for_path = entry.path.clone();
+        // Bumps the generation, and resets the scroll position only when this is
+        // a different entry — a re-preview of the same path (filesystem watch,
+        // `R`, hidden-file toggle) leaves the reader where they were.
+        let generation = state.preview.begin(&entry.path);
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,
             worker_tx: tx.clone(),
-            generation: state.preview.generation,
+            generation,
             text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
+            max_preview_lines: state.config.preview.max_lines,
         };
         match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(content) => {
@@ -332,8 +336,10 @@ fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::
             }
         }
     } else {
+        // No selection: still bump the generation, so a result for the entry
+        // that was selected a moment ago cannot land in an empty pane.
+        state.preview.begin(&PathBuf::new());
         state.preview.content = PreviewContent::Empty;
-        state.preview.for_path = PathBuf::new();
     }
     state.dirty = true;
 }

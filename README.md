@@ -225,6 +225,25 @@ The default mode. Vim-style bindings, with arrow keys and standard keys as fallb
 | `R` | Refresh the current directory |
 | `.` | Toggle hidden files |
 
+**Preview pane**
+
+The preview scrolls without moving the selection, so you can read down a file and
+keep browsing from where you were. Moving to another entry starts its preview at
+the top again.
+
+| Key | Action |
+|---|---|
+| `J` / `Shift-↓` | Scroll preview down one line |
+| `K` / `Shift-↑` | Scroll preview up one line |
+| `Ctrl-f` | Scroll preview down one page |
+| `Ctrl-b` | Scroll preview up one page |
+| `Shift-Home` | Jump to the start of the preview |
+| `Shift-End` | Jump to the end of the loaded preview |
+
+When the content is longer than the pane, the pane's bottom-right corner shows
+the visible range — `41–61/200`. A trailing `+` means the file continues past
+what was loaded; raise `[preview] max_lines` to load more of it.
+
 **File operations**
 
 | Key | Action |

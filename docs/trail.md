@@ -83,6 +83,19 @@ Additional preview providers may be added without changing the navigation workfl
 
 Changing the selection immediately updates the preview.
 
+### Scrolling
+
+The preview scrolls independently of the selection, by line and by page, so a
+document longer than the pane can be read without opening it.
+
+Scrolling never moves the selection, and changing the selection returns the new
+preview to its first line.
+
+When the content exceeds the pane, the pane reports which lines are visible, and
+marks a preview that stops short of the end of the file.
+
+Line-based previews scroll; an inline image does not.
+
 ---
 
 ## Status Bar
@@ -145,6 +158,9 @@ Preview generation is automatic and read-only.
 Previewing never modifies filesystem contents.
 
 Large files may display only an initial portion of their contents to maintain responsiveness.
+
+That portion is scrollable and its extent is configurable, and the preview says when
+it is showing less than the whole file.
 
 ---
 

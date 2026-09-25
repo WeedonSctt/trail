@@ -178,6 +178,95 @@ pub struct PreviewSlot {
     pub generation: u64,
     /// The actual content to render, or a loading placeholder.
     pub content: PreviewContent,
+    /// Index of the first content line drawn in the pane.
+    ///
+    /// Counted in *logical* lines (one entry of the content's line vector), not
+    /// wrapped terminal rows, because the render path slices the line vector
+    /// rather than offsetting a `Paragraph`.
+    pub scroll: usize,
+    /// Height in rows of the pane's interior, recorded by the render pass.
+    ///
+    /// Only the renderer knows the pane size, so it writes this on every frame
+    /// and the scroll actions clamp against it. It is zero until the first
+    /// render, which makes every scroll request a no-op — harmless, because no
+    /// key can be pressed before the first frame is drawn.
+    pub viewport_height: usize,
+    /// Whether the loaded content stops short of the end of the file.
+    ///
+    /// Set from `WorkerMsg::Preview` when the highlight worker hit
+    /// `[preview] max_lines`. The renderer marks such a preview so the pane
+    /// never silently claims to show a whole file.
+    pub truncated: bool,
+}
+
+/// Number of lines a page scroll leaves on screen for continuity.
+///
+/// Matches the overlap Vim's `Ctrl-F`/`Ctrl-B` keep, so the eye has an anchor
+/// in the new screenful.
+const PAGE_OVERLAP_LINES: usize = 2;
+
+impl PreviewSlot {
+    /// Prepares the slot for a preview of `path` and returns the new generation.
+    ///
+    /// Bumps `generation` so that in-flight worker results for the previous
+    /// request are dropped by [`crate::workers::merge`], and resets the scroll
+    /// position **only when `path` differs from the current `for_path`**. A
+    /// re-preview of the same path (a filesystem-watch tick, `R`, or toggling
+    /// hidden files) therefore keeps the reader where they were.
+    pub fn begin(&mut self, path: &Path) -> u64 {
+        self.generation = self.generation.wrapping_add(1);
+        if self.for_path != path {
+            self.for_path = path.to_path_buf();
+            self.scroll = 0;
+            self.truncated = false;
+        }
+        self.generation
+    }
+
+    /// Returns the largest useful scroll offset: the offset at which the last
+    /// content line sits on the pane's last row.
+    ///
+    /// Returns `0` for content that does not scroll (an image, a placeholder)
+    /// and for content that fits the pane.
+    pub fn max_scroll(&self) -> usize {
+        self.content
+            .scrollable_len()
+            .unwrap_or(0)
+            .saturating_sub(self.viewport_height)
+    }
+
+    /// Clamps `scroll` into range, leaving it alone for content that does not
+    /// scroll.
+    ///
+    /// Called by the render pass once it has recorded `viewport_height`: it is
+    /// the only place that sees a terminal resize, and it must not zero a
+    /// position that a `Loading` frame is about to replace with real content.
+    pub fn clamp_scroll(&mut self) {
+        if self.content.scrollable_len().is_none() {
+            return;
+        }
+        self.scroll = self.scroll.min(self.max_scroll());
+    }
+
+    /// Number of lines one page scroll moves: the pane height less
+    /// [`PAGE_OVERLAP_LINES`], and never less than one line.
+    fn page_lines(&self) -> usize {
+        self.viewport_height
+            .saturating_sub(PAGE_OVERLAP_LINES)
+            .max(1)
+    }
+}
+
+/// Offsets `base` by `delta`, saturating at zero instead of wrapping.
+///
+/// `usize` cannot hold a negative intermediate, so an upward scroll past the
+/// first line must clamp rather than underflow.
+fn offset_by(base: usize, delta: isize) -> usize {
+    if delta >= 0 {
+        base.saturating_add(delta as usize)
+    } else {
+        base.saturating_sub(delta.unsigned_abs())
+    }
 }
 
 // ── Filter state ──────────────────────────────────────────────────────────────
@@ -688,6 +777,51 @@ impl AppState {
         let last = count - 1;
         if self.selected != last {
             self.selected = last;
+            self.dirty = true;
+        }
+    }
+
+    /// Scrolls the preview pane by `delta` logical lines, positive for down.
+    ///
+    /// Clamped to the loaded content: the first line never scrolls off the top
+    /// and the last line never scrolls off the bottom. A no-op — including for
+    /// `dirty` — when the content does not scroll (an image or a placeholder)
+    /// or is already at the requested edge.
+    pub fn scroll_preview_lines(&mut self, delta: isize) {
+        self.set_preview_scroll(offset_by(self.preview.scroll, delta));
+    }
+
+    /// Scrolls the preview pane by `pages` screenfuls, positive for down.
+    ///
+    /// A page is the pane height less a two-line overlap, so consecutive pages
+    /// share context.
+    pub fn scroll_preview_pages(&mut self, pages: isize) {
+        let step = self.preview.page_lines() as isize;
+        self.set_preview_scroll(offset_by(self.preview.scroll, pages.saturating_mul(step)));
+    }
+
+    /// Jumps the preview pane to the end of the loaded content (`to_end`) or
+    /// back to its first line.
+    ///
+    /// "End of the loaded content" is not necessarily the end of the file — see
+    /// [`PreviewSlot::truncated`].
+    pub fn scroll_preview_to_edge(&mut self, to_end: bool) {
+        let target = if to_end { self.preview.max_scroll() } else { 0 };
+        self.set_preview_scroll(target);
+    }
+
+    /// Applies a clamped preview scroll offset, marking the state dirty only if
+    /// the offset actually moved.
+    ///
+    /// Every public scroll entry point funnels through here so the clamp and
+    /// the `dirty` discipline live in exactly one place.
+    fn set_preview_scroll(&mut self, target: usize) {
+        if self.preview.content.scrollable_len().is_none() {
+            return;
+        }
+        let new = target.min(self.preview.max_scroll());
+        if new != self.preview.scroll {
+            self.preview.scroll = new;
             self.dirty = true;
         }
     }

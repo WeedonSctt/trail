@@ -16,6 +16,12 @@ image_protocol = "auto"
 # exactly: lower these if images overflow, raise them if images look too small.
 image_cell_width = 0
 image_cell_height = 0
+# How many lines of a text file the preview loads.  The preview scrolls within
+# this window (J/K, Shift-arrows, Ctrl-f/Ctrl-b) and its footer marks a file
+# that continues past it with a "+".  Raising this lets you scroll further into
+# long files, at proportionally more worker time and memory per preview; the
+# accepted range is 1 to 100000.
+max_lines = 2000
 
 [theme]
 foreground = "white"
@@ -57,6 +63,14 @@ new_tab = "ctrl-t"
 close_tab = "ctrl-w"
 switch_tab_next = "tab"
 switch_tab_prev = "shift-tab"
+# Preview pane scrolling.  Shift-down and Shift-up are built-in aliases for the
+# first two, the same way the plain arrows alias move_down/move_up.
+preview_scroll_down = "J"
+preview_scroll_up = "K"
+preview_page_down = "ctrl-f"
+preview_page_up = "ctrl-b"
+preview_scroll_top = "shift-home"
+preview_scroll_bottom = "shift-end"
 
 [keymap.search]
 # Search Mode is a typing mode: unmodified characters go into the query, so

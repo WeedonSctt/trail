@@ -39,6 +39,29 @@ Trail supports multiple tabs for multitasking.
 - `dd`: Delete the selected item (prompts for confirmation: `y`/`Enter` to confirm, `n`/`Esc` to cancel)
 - `o`: Open the selected item with the OS default application
 
+### Preview Pane
+The preview scrolls independently of the selection, so you can read through a long
+file without opening it and without losing your place in the listing.
+
+- `J` or `Shift-↓`: Scroll the preview down one line
+- `K` or `Shift-↑`: Scroll the preview up one line
+- `Ctrl-f`: Scroll the preview down one page (a screenful, less two lines of overlap)
+- `Ctrl-b`: Scroll the preview up one page
+- `Shift-Home`: Jump back to the start of the preview
+- `Shift-End`: Jump to the end of the loaded preview
+
+When there is more content than fits, the bottom-right of the pane shows which
+lines you are looking at, as `41–61/200`. A trailing `+` — `41–61/2000+` — means
+the file carries on past the part Trail loaded; raise `[preview] max_lines` in your
+config (or `:set max_lines 8000` for this session) to load more of it.
+
+Moving to a different entry resets its preview to the top. Re-previewing the *same*
+entry does not: if the file changes on disk while you are reading it, you stay where
+you were.
+
+Scrolling applies to text, binary metadata and directory previews. An image preview
+has no lines to scroll, so the keys do nothing there.
+
 ### Display Options
 - `R`: Refresh the current directory view
 - `.`: Toggle visibility of hidden files

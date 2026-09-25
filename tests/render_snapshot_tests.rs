@@ -49,6 +49,7 @@ async fn render_to_string(state: &mut AppState, width: u16, height: u16) -> Stri
             worker_tx: tx,
             generation: state.preview.generation,
             text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
+            max_preview_lines: state.config.preview.max_lines,
         };
         let content = match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(c) => c,
@@ -213,5 +214,102 @@ async fn status_bar_shows_entry_count() {
     assert!(
         rendered.contains(&count.to_string()),
         "status bar must display the visible entry count ({count})"
+    );
+}
+
+// ── Preview scrolling ─────────────────────────────────────────────────────────
+
+/// Number of interior rows the preview pane has in an 80×24 terminal: 24 rows
+/// less the status bar, less the panel's top and bottom borders.
+const PREVIEW_ROWS: usize = 21;
+
+/// Creates a directory holding one 200-line text file, each line tagged with its
+/// own number so the rendered output says exactly which lines are on screen.
+fn make_long_file_dir() -> TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let body: String = (1..=200).map(|i| format!("L{i:04} marker\n")).collect();
+    fs::write(dir.path().join("long.txt"), body).unwrap();
+    dir
+}
+
+#[tokio::test]
+async fn preview_starts_at_the_first_line() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("L0001 marker"),
+        "an unscrolled preview starts at line 1:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(&format!("L{PREVIEW_ROWS:04} marker")),
+        "the pane's last row shows the last line that fits:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(&format!("L{:04} marker", PREVIEW_ROWS + 1)),
+        "nothing past the pane's height is drawn:\n{rendered}"
+    );
+}
+
+/// The preview pane is scrolled by slicing the loaded lines, and the line
+/// numbers must keep counting from the file's start — a scrolled preview that
+/// restarts its numbering at 1 is the regression this guards.
+#[tokio::test]
+async fn scrolled_preview_shows_later_lines_with_their_own_numbers() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.scroll = 40;
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("41  L0041 marker"),
+        "line 41 must be drawn, numbered 41:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("L0001 marker"),
+        "the first screenful must have scrolled away:\n{rendered}"
+    );
+    // first–last/total, with last = 40 + 21 rows.
+    assert!(
+        rendered.contains("41–61/200"),
+        "the footer must report the visible range:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn preview_that_fits_has_no_position_footer() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // Select b_file.txt (one line) rather than the directory.
+    state.move_down();
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("hello world"),
+        "the file's content must be previewed:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("1–1/1"),
+        "content that fits needs no position footer:\n{rendered}"
+    );
+}
+
+/// A preview cut short by `[preview] max_lines` must say so: the footer's `+`
+/// is the only thing standing between the reader and a pane that looks like a
+/// whole file but isn't.
+#[tokio::test]
+async fn truncated_preview_is_marked_in_the_footer() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.truncated = true;
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("1–21/200+"),
+        "a truncated preview must carry the '+' marker:\n{rendered}"
     );
 }

@@ -113,6 +113,31 @@ pub enum PreviewContent {
     },
 }
 
+/// Number of lines the directory preview spends on its summary header before
+/// the first entry name: the counts line and the blank line under it.
+///
+/// The header scrolls with the entry list rather than staying pinned, so it is
+/// part of the scrollable length.
+const DIRECTORY_HEADER_LINES: usize = 2;
+
+impl PreviewContent {
+    /// Number of logical lines this content occupies, or `None` when it does
+    /// not scroll.
+    ///
+    /// `None` covers the placeholders and `Image`: an image is drawn as pixels
+    /// into the whole pane, so a line offset is meaningless, and returning
+    /// `None` for `Loading` is what stops a deferred re-preview of the same
+    /// file from resetting a scroll position that is about to be valid again.
+    pub fn scrollable_len(&self) -> Option<usize> {
+        match self {
+            Self::Empty | Self::Loading | Self::Image(_) => None,
+            Self::Text(lines) | Self::Binary(lines) => Some(lines.len()),
+            Self::Highlighted(lines) => Some(lines.len()),
+            Self::Directory { entries, .. } => Some(entries.len() + DIRECTORY_HEADER_LINES),
+        }
+    }
+}
+
 // ── PreviewOutcome ────────────────────────────────────────────────────────────
 
 /// The result of calling `PreviewProvider::preview`.
@@ -155,6 +180,12 @@ pub struct PreviewCtx {
     /// Maximum file size to preview synchronously on the UI thread.
     #[allow(dead_code)]
     pub text_sync_threshold_bytes: usize,
+    /// Maximum number of lines a text preview loads, from `[preview] max_lines`.
+    ///
+    /// The preview scrolls within this window; a file with more lines is
+    /// reported as truncated rather than silently cut. Read when the preview is
+    /// requested, so a `:set` of the key takes effect from the next preview on.
+    pub max_preview_lines: usize,
 }
 
 // ── PreviewProvider trait ─────────────────────────────────────────────────────

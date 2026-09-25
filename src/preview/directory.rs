@@ -63,6 +63,9 @@ fn spawn_directory_preview(
             generation,
             path: path_for_msg,
             content,
+            // The directory preview's own entry cap is not reported here; only
+            // the text path tracks truncation against `[preview] max_lines`.
+            truncated: false,
         };
         // If the channel is closed the UI thread has exited; ignore the error.
         let _ = tx.send(msg).await;

@@ -65,6 +65,7 @@ impl PreviewProvider for TextProvider {
             entry.path.clone(),
             ctx.generation,
             ctx.worker_tx.clone(),
+            ctx.max_preview_lines,
         );
         PreviewOutcome::Deferred
     }

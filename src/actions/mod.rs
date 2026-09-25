@@ -39,6 +39,21 @@ pub enum Action {
     /// Toggle visibility of hidden files.
     ToggleHidden,
 
+    // ── Preview scrolling ───────────────────────────────────────────────────
+    /// Scroll the preview pane down one line, leaving the selection alone.
+    PreviewScrollDown,
+    /// Scroll the preview pane up one line, leaving the selection alone.
+    PreviewScrollUp,
+    /// Scroll the preview pane down one screenful (less a two-line overlap).
+    PreviewPageDown,
+    /// Scroll the preview pane up one screenful (less a two-line overlap).
+    PreviewPageUp,
+    /// Scroll the preview pane back to its first line.
+    PreviewScrollTop,
+    /// Scroll the preview pane to the last loaded line, which is the end of the
+    /// file only when the preview is not truncated.
+    PreviewScrollBottom,
+
     // ── Mode transitions ──────────────────────────────────────────────────
     /// Enter Search Mode (Phase 2 wires the actual filter logic).
     EnterSearch,
@@ -144,6 +159,13 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         Action::MoveUp => state.move_up(),
         Action::JumpTop => state.jump_top(),
         Action::JumpBottom => state.jump_bottom(),
+
+        Action::PreviewScrollDown => state.scroll_preview_lines(1),
+        Action::PreviewScrollUp => state.scroll_preview_lines(-1),
+        Action::PreviewPageDown => state.scroll_preview_pages(1),
+        Action::PreviewPageUp => state.scroll_preview_pages(-1),
+        Action::PreviewScrollTop => state.scroll_preview_to_edge(false),
+        Action::PreviewScrollBottom => state.scroll_preview_to_edge(true),
 
         Action::EnterOrOpen => {
             if let Some(entry) = state.selected_entry().cloned() {

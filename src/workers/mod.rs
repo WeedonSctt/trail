@@ -83,6 +83,9 @@ pub enum WorkerMsg {
         path: PathBuf,
         /// The rendered content.
         content: PreviewContent,
+        /// Whether the file continues past the loaded content, because the
+        /// worker stopped at `[preview] max_lines`.
+        truncated: bool,
     },
 
     /// Image metadata (dimensions, format) is ready.
@@ -161,6 +164,7 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             generation,
             path,
             content,
+            truncated,
         } => {
             // Generation-guard: drop if the selection has moved on.
             if generation != state.preview.generation {
@@ -181,8 +185,11 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
                 return;
             }
             state.preview.content = content;
+            // Set after both guards, so a stale worker can never mark the
+            // current preview as truncated.
+            state.preview.truncated = truncated;
             state.dirty = true;
-            tracing::debug!(?path, generation, "merged Preview worker result");
+            tracing::debug!(?path, generation, truncated, "merged Preview worker result");
         }
 
         WorkerMsg::ImageMeta {
@@ -208,6 +215,9 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
                 return;
             }
             state.preview.content = content;
+            // Image metadata is always complete; clear any truncation marker
+            // left by an earlier preview of the same path.
+            state.preview.truncated = false;
             state.dirty = true;
             tracing::debug!(?path, generation, "merged ImageMeta worker result");
         }

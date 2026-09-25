@@ -60,7 +60,7 @@ fn text_provider_rs_highlight_produces_highlighted_or_text() {
     let path = Path::new("tests/fixtures/sample.rs");
     assert!(path.exists(), "fixture file missing: {}", path.display());
 
-    let content = trail::workers::highlight::highlight_text_sync(path);
+    let (content, _truncated) = trail::workers::highlight::highlight_text_sync(path, 2000);
     // Either Highlighted (syntect matched .rs) or Text (fallback) is acceptable.
     assert!(
         matches!(
@@ -170,6 +170,7 @@ async fn image_provider_renders_pixels_and_honours_being_switched_off() {
         worker_tx: tx,
         generation: 7,
         text_sync_threshold_bytes: 256 * 1024,
+        max_preview_lines: 2000,
     };
     let provider = trail::preview::image::ImageProvider;
 
@@ -349,6 +350,7 @@ fn generation_guard_drops_stale_preview() {
         generation: 3,
         path: dir.path().join("a.txt"),
         content: PreviewContent::Text(vec!["stale".to_owned()]),
+        truncated: false,
     };
     merge(stale_msg, &mut state);
     // Content should NOT have been updated.
@@ -362,6 +364,7 @@ fn generation_guard_drops_stale_preview() {
         generation: 5,
         path: dir.path().join("a.txt"),
         content: PreviewContent::Text(vec!["current".to_owned()]),
+        truncated: false,
     };
     state.dirty = false; // reset before merge
     merge(current_msg, &mut state);
@@ -410,4 +413,70 @@ fn generation_guard_drops_stale_image_meta() {
         "current image meta should have been applied"
     );
     assert!(state.dirty, "merge should set dirty=true");
+}
+
+// ── Preview line cap ─────────────────────────────────────────────────────────
+
+/// Drives the text provider end to end: `[preview] max_lines` must reach the
+/// highlight worker, bound what it loads, and come back with the truncation flag
+/// set — the flag the pane's footer turns into a visible `+`.
+#[tokio::test]
+async fn text_provider_caps_lines_and_reports_truncation() {
+    use trail::app::state::{Entry, EntryKind};
+    use trail::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
+    use trail::workers::WorkerMsg;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("long.rs");
+    let body: String = (0..300).map(|i| format!("let x{i} = {i};\n")).collect();
+    std::fs::write(&path, body).unwrap();
+
+    let entry = Entry {
+        path: path.clone(),
+        file_name: "long.rs".to_owned(),
+        kind: EntryKind::File,
+        metadata: std::fs::metadata(&path).ok(),
+        is_hidden: false,
+        git_status: None,
+        is_text: Some(true),
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let ctx = PreviewCtx {
+        show_hidden: false,
+        worker_tx: tx,
+        generation: 3,
+        text_sync_threshold_bytes: 256 * 1024,
+        max_preview_lines: 25,
+    };
+
+    // Text previews always defer — the UI thread must never read the file.
+    assert!(matches!(
+        trail::preview::text::TextProvider.preview(&entry, &ctx),
+        PreviewOutcome::Deferred
+    ));
+
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("highlight worker timed out")
+        .expect("worker channel closed");
+
+    let WorkerMsg::Preview {
+        generation,
+        content,
+        truncated,
+        ..
+    } = msg
+    else {
+        panic!("expected a Preview message");
+    };
+
+    assert_eq!(generation, 3, "the result must carry its generation");
+    assert!(truncated, "300 lines with a cap of 25 is truncated");
+    let loaded = match content {
+        PreviewContent::Highlighted(lines) => lines.len(),
+        PreviewContent::Text(lines) => lines.len(),
+        other => panic!("expected line content, got {other:?}"),
+    };
+    assert_eq!(loaded, 25, "the cap bounds what the worker loads");
 }

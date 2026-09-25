@@ -12,7 +12,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 use ratatui_image::StatefulImage;
 
-use crate::app::state::AppState;
+use crate::app::state::{AppState, PreviewSlot};
 use crate::preview::provider::PreviewContent;
 use crate::ui::theme;
 
@@ -27,8 +27,15 @@ use crate::ui::theme;
 /// - `Image`       → the decoded image plus a one-line caption.
 /// - `Directory`   → summary header and child entry names.
 ///
+/// Line-based content is scrolled by slicing: only the rows the pane can show
+/// are turned into `Line`s, starting at `state.preview.scroll`. The offset is
+/// therefore a logical line rather than a wrapped row, which is what makes it
+/// exactly clampable — and it keeps per-frame work proportional to the pane,
+/// not to the length of the file.
+///
 /// Takes `state` mutably because `Image` re-encodes itself when the pane
-/// changes size; every other variant is read-only.
+/// changes size, and because the pane's height is recorded here for the scroll
+/// actions to clamp against.
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let styles = theme::resolve(&state.config.theme);
     let title = if let Some(entry) = state.selected_entry() {
@@ -42,6 +49,19 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
         .borders(Borders::ALL)
         .border_style(styles.border)
         .border_type(BorderType::Rounded);
+
+    // Resolve the scroll offset before borrowing `content` below: the pane
+    // height is only known here, and the clamp needs the whole slot.
+    let height = usize::from(block.inner(area).height);
+    state.preview.viewport_height = height;
+    state.preview.clamp_scroll();
+    let offset = state.preview.scroll;
+    let block = match scroll_footer(&state.preview) {
+        Some(footer) => {
+            block.title_bottom(Line::from(Span::styled(footer, styles.status)).right_aligned())
+        }
+        None => block,
+    };
 
     match &mut state.preview.content {
         PreviewContent::Empty => {
@@ -62,6 +82,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
         PreviewContent::Text(lines) => {
             let text: Vec<Line> = lines
                 .iter()
+                .skip(offset)
+                .take(height)
                 .map(|l| {
                     // Split into line-number prefix and content for styling.
                     if let Some((num_part, rest)) = l.split_once("  ") {
@@ -86,10 +108,14 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
             let text: Vec<Line> = lines
                 .iter()
                 .enumerate()
+                .skip(offset)
+                .take(height)
                 .map(|(idx, spans)| {
                     let mut ratatui_spans = Vec::with_capacity(spans.len() + 1);
 
                     // Line number prefix (same style as plain-text path).
+                    // `enumerate` runs before `skip`, so the number is the line's
+                    // position in the file, not in the visible slice.
                     ratatui_spans.push(Span::styled(format!("{:>4}  ", idx + 1), styles.status));
 
                     // Highlighted spans from syntect.
@@ -115,6 +141,8 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
             // with a subtle colour to distinguish them from text previews.
             let text: Vec<Line> = lines
                 .iter()
+                .skip(offset)
+                .take(height)
                 .map(|l| {
                     if l.is_empty() {
                         Line::from("")
@@ -213,8 +241,29 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 lines.push(Line::from(Span::styled(format!("  {name}"), style)));
             }
 
-            let p = Paragraph::new(lines).block(block);
+            // The summary header scrolls with the list rather than staying
+            // pinned, so the offset applies to the assembled lines.
+            let visible: Vec<Line> = lines.into_iter().skip(offset).take(height).collect();
+
+            let p = Paragraph::new(visible).block(block);
             frame.render_widget(p, area);
         }
     }
+}
+
+/// Builds the pane's bottom-right position indicator, or `None` when the
+/// content fits and nothing was left unread.
+///
+/// The form is `first–last/total`, with a trailing `+` when the file continues
+/// past the loaded window (see [`PreviewSlot::truncated`]) — so a preview cut
+/// by `[preview] max_lines` says so instead of pretending to be the whole file.
+fn scroll_footer(slot: &PreviewSlot) -> Option<String> {
+    let total = slot.content.scrollable_len()?;
+    if total <= slot.viewport_height && !slot.truncated {
+        return None;
+    }
+    let first = slot.scroll + 1;
+    let last = (slot.scroll + slot.viewport_height).min(total);
+    let more = if slot.truncated { "+" } else { "" };
+    Some(format!(" {first}–{last}/{total}{more} "))
 }

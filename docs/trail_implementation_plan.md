@@ -425,6 +425,13 @@ Bugs in either invariant tend to show up as intermittent UI staleness that's har
 | Syntax highlighting | `syntect` for v1; `tree-sitter-highlight` revisited only if incremental re-highlight on edits becomes a requirement |
 | Image protocol detection | Runtime probe via `ratatui-image`'s picker (Kitty → iTerm2 → Sixel → metadata-only fallback) |
 
+### Resolved after v1
+
+| Question | Resolution |
+|---|---|
+| Preview scrolling: sliding window over the file, or scroll within one capped load? | **Scroll within one capped load.** `[preview] max_lines` bounds what the highlight worker loads, and the pane scrolls inside that window. A sliding window was rejected because `syntect` must parse from the start of the file to hold correct highlight state, so re-reading at an offset costs a full re-highlight on every scroll — strictly worse than one bounded load. The cost of the decision is that a file longer than `max_lines` cannot be read to its end in the preview; the pane's footer marks it with a `+` rather than pretending otherwise, and the key is configurable for readers who want a bigger window. |
+| Scroll offset: `Paragraph::scroll`, or slice the lines? | **Slice the lines.** `Paragraph::scroll` counts *wrapped* rows, which cannot be clamped without recomputing the wrap (ratatui 0.28 gates `line_count` behind an unstable feature). Slicing makes the scroll unit a logical line, exactly clampable, and keeps per-frame work proportional to the pane rather than to the file. The trade-off: a long wrapped line at the bottom edge can be cut mid-line. |
+
 ### Open — needs a decision during implementation
 
 - **Directory-first sort tie-break.** The spec requires directories before files but doesn't define ordering within each group. Recommend alphabetical, case-insensitive, as the Phase 1 default.

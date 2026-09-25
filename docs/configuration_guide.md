@@ -87,6 +87,19 @@ Controls the preview pane, including inline image rendering.
   cell, or `0` to work it out. (Default: `0`)
 - `image_cell_height` (Integer): Height, in pixels, of one terminal character
   cell, or `0` to work it out. (Default: `0`)
+- `max_lines` (Integer, `1`–`100000`): How many lines of a text file the preview
+  loads. (Default: `2000`)
+
+  The preview scrolls within this window (`J`/`K`, `Shift`+arrows, `Ctrl-f`/
+  `Ctrl-b`), and the pane's footer marks a file that continues past it with a
+  `+` — so a truncated preview says so rather than looking like the whole file.
+  Raising the value lets you scroll further into long files; each preview then
+  costs the highlight worker proportionally more time and memory. The work happens
+  off the UI thread either way, so navigation stays responsive.
+
+  Read when a preview is requested, not at render time: `:set max_lines 8000`
+  therefore applies from the next preview onwards. Move off the entry and back to
+  reload the one on screen.
 
 ##### How detection works
 
@@ -204,6 +217,20 @@ Overrides keybindings for Navigation Mode.
 - `close_tab`: Close current tab
 - `switch_tab_next`: Switch to next tab
 - `switch_tab_prev`: Switch to previous tab
+- `preview_scroll_down`: Scroll the preview pane down one line (default `J`)
+- `preview_scroll_up`: Scroll the preview pane up one line (default `K`)
+- `preview_page_down`: Scroll the preview pane down one page (default `ctrl-f`)
+- `preview_page_up`: Scroll the preview pane up one page (default `ctrl-b`)
+- `preview_scroll_top`: Jump to the start of the preview (default `shift-home`)
+- `preview_scroll_bottom`: Jump to the end of the loaded preview (default `shift-end`)
+
+`Shift-↓` and `Shift-↑` are built-in aliases for `preview_scroll_down` and
+`preview_scroll_up`, the same way the plain arrows alias `move_down`/`move_up`.
+Rebinding those two actions does not remove the arrow aliases.
+
+Shift is spelled out only on keys that are not text — `shift-down`, `shift-home`,
+`shift-end`, `shift-tab`. A shifted character is written as the capital itself:
+`G`, `J`, `K`.
 
 #### `[keymap.search]`
 Overrides keybindings for Search Mode.
