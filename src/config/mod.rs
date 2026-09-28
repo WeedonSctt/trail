@@ -141,6 +141,7 @@ impl ConfigOverrides {
 #[serde(deny_unknown_fields)]
 struct GeneralOverrides {
     editor: Option<String>,
+    shell: Option<String>,
     text_sync_threshold_kb: Option<usize>,
     git_status_enabled: Option<bool>,
     fs_watch_debounce_ms: Option<u64>,
@@ -150,6 +151,9 @@ impl GeneralOverrides {
     fn apply_to(self, general: &mut GeneralConfig) {
         if let Some(editor) = self.editor {
             general.editor = editor;
+        }
+        if let Some(shell) = self.shell {
+            general.shell = shell;
         }
         if let Some(text_sync_threshold_kb) = self.text_sync_threshold_kb {
             general.text_sync_threshold_kb = text_sync_threshold_kb;
@@ -357,6 +361,43 @@ navigation = { move_down = "n" }
             Some(&"n".to_owned())
         );
         assert_eq!(cfg.keymap.navigation.get("move_up"), Some(&"k".to_owned()));
+    }
+
+    #[test]
+    fn user_config_can_override_the_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        // A literal TOML string, the way a Windows path has to be written.
+        std::fs::write(
+            &path,
+            r#"
+[general]
+shell = 'pwsh -NoProfile -Command'
+"#,
+        )
+        .unwrap();
+
+        let cfg = load(Some(&path)).unwrap();
+        assert_eq!(cfg.general.shell, "pwsh -NoProfile -Command");
+        // Overriding the shell must not disturb its neighbours in the section.
+        assert_eq!(cfg.general.editor, "nvim");
+    }
+
+    #[test]
+    fn user_config_with_an_unspawnable_shell_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(
+            &path,
+            r#"
+[general]
+shell = '"pwsh -Command'
+"#,
+        )
+        .unwrap();
+
+        let err = load(Some(&path)).unwrap_err().to_string();
+        assert!(err.contains("general.shell"), "got: {err}");
     }
 
     #[test]

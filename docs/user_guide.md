@@ -104,6 +104,16 @@ Command mode allows you to execute powerful filesystem operations and shell comm
 You can run arbitrary shell commands by prefixing them with `!` instead of `:`.
 - `!<command>`: Execute a shell command (e.g., `!ls -la`)
 
+The command runs in the directory the nav panel is showing, and the whole string is handed
+to a shell to interpret, so pipes, redirection, `&&` and shell builtins all work. That
+shell is `cmd.exe /C` on Windows and `sh -c` elsewhere, and `:git` uses the same one.
+
+Change it with `[general] shell` — see
+[the configuration guide](configuration_guide.md#configuring-the-shell). On Windows the
+usual reason to is that `cmd.exe` rejects a leading `./`: `!./gradlew runClient` fails with
+`'.' is not recognized`, where `!.\gradlew runClient` and `!gradlew.bat runClient` both
+work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work too.
+
 ### Command Mode Features
 - **History**: Use `↑` and `↓` arrows to scroll through previously executed commands.
 - **Auto-completion**: Press `Tab` to cycle through command completions. Command verbs (e.g. `mkdir`, `mv`) and file paths (for `mv` and `cp` destinations) are auto-completed based on the current directory.

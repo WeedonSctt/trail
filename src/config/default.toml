@@ -2,6 +2,23 @@
 
 [general]
 editor = "nvim"
+# Shell that runs `!<command>` and `:git`: a program, then the flags that make
+# it read a command string as one argument.  Empty keeps the platform default
+# -- `cmd.exe /C` on Windows, `sh -c` elsewhere -- which is what Trail has
+# always used, so leaving this alone changes nothing.
+#
+# Set it to pick a different interpreter, e.g. `pwsh -NoProfile -Command` on
+# Windows so that `./program` and other POSIX-ish spellings resolve (cmd.exe
+# reads a leading `/` as a switch and fails on `./program`), or `bash -c` to
+# get bash syntax instead of whatever `sh` is on this system.  The trade-off is
+# startup cost per command -- pwsh is markedly slower to launch than cmd.exe,
+# and `-NoProfile` is what keeps that from getting worse -- and that shell
+# builtins stop matching the ones your muscle memory expects.
+#
+# Whitespace separates tokens; double-quote a program path containing spaces.
+# Windows paths need a TOML literal string, e.g.
+# shell = '"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Command'
+shell = ""
 text_sync_threshold_kb = 256
 git_status_enabled = true
 fs_watch_debounce_ms = 200

@@ -57,6 +57,51 @@ You can configure your preferred editor in the `[general]` section of your TOML 
 editor = "nvim"
 ```
 
+### Configuring the Shell
+
+Two commands hand a string to a shell to interpret rather than spawning a program
+directly: `!<command>` and `:git <subcommand>`. That is deliberate — it is what makes
+pipelines, redirection, quoting and shell builtins work inside `!`.
+
+By default the shell is `cmd.exe /C` on Windows and `sh -c` everywhere else. Note that
+this is `sh`, not `$SHELL`: the command you type is interpreted as POSIX shell syntax, so
+your interactive shell's aliases and functions are not in scope, and a shell with
+different syntax (fish) would not be a safe substitute without asking.
+
+The `shell` key changes that choice:
+
+```toml
+[general]
+shell = "pwsh -NoProfile -Command"
+```
+
+The value is a program followed by the flags that make it read a command string as one
+argument — the command is always appended as the final argument. Whitespace separates
+tokens, and a double-quoted run is a single token, which is how you write a program path
+containing spaces.
+
+**Windows users:** the default `cmd.exe` treats a leading `/` as the start of a switch, so
+`:!./program` fails with `'.' is not recognized as an internal or external command`. Three
+ways out: spell it `:!.\program`, drop the prefix entirely (`:!program.exe` — `cmd.exe`
+searches the current directory), or set `shell` to PowerShell, which resolves `./program`
+the way you would expect:
+
+```toml
+[general]
+# A TOML *literal* string (single quotes) — in a normal double-quoted TOML string
+# every backslash would have to be doubled, and `\P` is a TOML parse error.
+shell = '"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Command'
+```
+
+The trade-offs in picking a non-default shell are startup cost — PowerShell takes
+noticeably longer to launch than `cmd.exe` per command, and `-NoProfile` is what stops
+your profile script adding to that — and that the builtins available to `!` change with it.
+
+Two things the key deliberately does not touch: the editor (`enter_or_open` spawns
+`editor` directly, with no shell in between) and `open_with_os` (`o`), which must keep
+using the platform's own handler — `cmd.exe /C start` on Windows, `open` on macOS,
+`xdg-open` on Linux.
+
 ### Complete Configuration Schema
 
 The TOML configuration is strictly validated. Unknown keys will cause Trail to fail to load the config. The file is divided into five main sections:
@@ -64,6 +109,7 @@ The TOML configuration is strictly validated. Unknown keys will cause Trail to f
 #### `[general]`
 Controls overall application behavior.
 - `editor` (String): Command used to open files. Must not be empty. (Default: `"vi"`)
+- `shell` (String): Shell that interprets `!<command>` and `:git`, written as a program plus the flags that make it read a command string — e.g. `"pwsh -NoProfile -Command"`. Empty means the platform default: `cmd.exe /C` on Windows, `sh -c` elsewhere. Rejected if it leaves a quote unterminated or names an empty program. (Default: `""`)
 - `text_sync_threshold_kb` (Positive Integer): Maximum file size in KiB to preview synchronously on the UI thread. Larger files skip synchronous preview. Must be > 0. (Default: `256`)
 - `git_status_enabled` (Boolean): Enable or disable background git status workers. (Default: `true`)
 - `fs_watch_debounce_ms` (Non-negative Integer): Debounce delay for filesystem watching in milliseconds. (Default: `200`)
@@ -271,6 +317,7 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 
 **General Properties (Aliases supported):**
 - `:set editor nvim` (or `:set general.editor nvim`)
+- `:set shell pwsh -NoProfile -Command` (everything after the key is the value, so the flags come along; applies to the next `!` command)
 - `:set text_sync_threshold_kb 512`
 - `:set git_status_enabled false` (Accepts `true`, `yes`, `on`, `1` / `false`, `no`, `off`, `0`)
 - `:set fs_watch_debounce_ms 500`

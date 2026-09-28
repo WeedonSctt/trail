@@ -1,4 +1,7 @@
-//! Action system: the `Action` enum and `apply(action, state)`.\n//!\n//! Every user-initiated mutation flows through an `Action` value, keeping\n//! the state machine testable independently of input handling.
+//! Action system: the `Action` enum and `apply(action, state)`.
+//!
+//! Every user-initiated mutation flows through an `Action` value, keeping
+//! the state machine testable independently of input handling.
 
 pub mod clipboard;
 pub mod fs_ops;
@@ -669,13 +672,8 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
         }
 
         ParsedCommand::Git(subcmd) => {
-            #[cfg(unix)]
-            let argv = vec!["sh".to_owned(), "-c".to_owned(), format!("git {subcmd}")];
-            #[cfg(windows)]
-            let argv = vec!["cmd".to_owned(), "/C".to_owned(), format!("git {subcmd}")];
-
             state.pending_external = Some(Action::RunExternal {
-                argv,
+                argv: shell_exec::shell_argv(&state.config.general.shell, &format!("git {subcmd}")),
                 cwd: state.cwd.clone(),
             });
             state.dirty = true;
@@ -706,20 +704,16 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
 
         ParsedCommand::Shell(cmd_str) => {
             // Phase 6: run via shell_exec::run_external through the event loop.
-            // Route through the OS shell interpreter so that builtins, pipelines,
+            // Route through a shell interpreter so that builtins, pipelines,
             // quoted arguments, and variable expansions all work correctly.
             // Direct argv-split would fail for any non-trivial shell command.
-            #[cfg(windows)]
-            let argv: Vec<String> = vec!["cmd.exe".to_owned(), "/C".to_owned(), cmd_str.clone()];
-            #[cfg(not(windows))]
-            let argv: Vec<String> = vec!["sh".to_owned(), "-c".to_owned(), cmd_str.clone()];
-
+            // Which interpreter is `[general] shell`'s call, not ours.
             if cmd_str.trim().is_empty() {
                 state.error_message = Some("!: empty command".to_owned());
                 state.dirty = true;
             } else {
                 state.pending_external = Some(Action::RunExternal {
-                    argv,
+                    argv: shell_exec::shell_argv(&state.config.general.shell, &cmd_str),
                     cwd: state.cwd.clone(),
                 });
                 state.dirty = true;

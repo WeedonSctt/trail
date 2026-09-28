@@ -1043,3 +1043,69 @@ fn preview_scroll_actions_reach_the_state() {
     apply(Action::PreviewScrollTop, &mut state).unwrap();
     assert_eq!(state.preview.scroll, 0);
 }
+
+// ── `[general] shell` reaches the commands that need an interpreter ───────────
+
+/// Runs `buffer` as Command Mode would and returns the argv it queued.
+fn queued_argv(state: &mut AppState, buffer: &str) -> Vec<String> {
+    let is_shell = buffer.starts_with('!');
+    let body = buffer.strip_prefix('!').unwrap_or(buffer);
+    let parsed = trail::input::command_parser::parse(body, is_shell).unwrap();
+    trail::actions::apply(trail::actions::Action::ExecuteCommand(parsed), state).unwrap();
+    match state.pending_external.take() {
+        Some(trail::actions::Action::RunExternal { argv, .. }) => argv,
+        other => panic!("expected a queued RunExternal, got {other:?}"),
+    }
+}
+
+#[test]
+fn bang_commands_run_through_the_configured_shell() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.general.shell = "pwsh -NoProfile -Command".to_owned();
+
+    let argv = queued_argv(&mut state, "!./gradlew runClient");
+    assert_eq!(
+        argv,
+        vec!["pwsh", "-NoProfile", "-Command", "./gradlew runClient"],
+        "the configured shell must replace the platform default"
+    );
+}
+
+#[test]
+fn git_commands_run_through_the_configured_shell_too() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.general.shell = "bash -c".to_owned();
+
+    let argv = queued_argv(&mut state, "git status --short");
+    assert_eq!(argv, vec!["bash", "-c", "git status --short"]);
+}
+
+#[test]
+fn a_blank_shell_keeps_the_platform_default() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // A fresh AppState carries the shipped default, which is blank.
+    assert_eq!(state.config.general.shell, "");
+
+    let argv = queued_argv(&mut state, "!echo hi");
+    let expected: Vec<String> = trail::actions::shell_exec::DEFAULT_SHELL_ARGV
+        .iter()
+        .map(|arg| (*arg).to_owned())
+        .chain(std::iter::once("echo hi".to_owned()))
+        .collect();
+    assert_eq!(argv, expected);
+}
+
+#[test]
+fn the_command_reaches_the_shell_unsplit() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.general.shell = "sh -c".to_owned();
+
+    // Pipes, quotes and `&&` are the shell's to parse, not Trail's.
+    let argv = queued_argv(&mut state, "!ls -la | grep \"a file\" && echo done");
+    assert_eq!(argv.len(), 3);
+    assert_eq!(argv[2], "ls -la | grep \"a file\" && echo done");
+}

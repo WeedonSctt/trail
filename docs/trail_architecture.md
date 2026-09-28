@@ -86,6 +86,15 @@ Key properties:
 
 Same mechanism serves "Open in configured editor" and Command Mode's "Execute shell command."
 
+The two differ in how the argv is built. The editor is spawned directly — `[general] editor`
+becomes `argv[0]` and the file path follows. `!<command>` and `:git` instead prepend an
+interpreter, because the command string has to keep its pipelines, quoting and builtins:
+`shell_exec::shell_argv` turns `[general] shell` into that prefix and appends the command
+as one final argument. A blank `shell` selects `shell_exec::DEFAULT_SHELL_ARGV`
+(`cmd.exe /C` on Windows, `sh -c` elsewhere), which is what makes the key additive rather
+than a behaviour change. `open_with_os` stays outside both paths: it invokes the
+platform's own handler and ignores the configured shell.
+
 ### Session exit (shell integration)
 
 A subprocess cannot change its parent shell's working directory. Trail's "shell continues in the directory currently displayed" behavior requires a shell-side wrapper function:

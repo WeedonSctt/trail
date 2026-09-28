@@ -27,6 +27,14 @@ pub enum SetConfigError {
     },
 }
 
+/// Explanation attached to a rejected `[general] shell` value.
+///
+/// Shared by `validate` and `set_value` so a bad spec reads the same whether it
+/// came from the config file at startup or from `:set` at runtime.
+const SHELL_SPEC_REASON: &str =
+    "must be a program optionally followed by flags, e.g. \"pwsh -NoProfile -Command\"; \
+     quote a path containing spaces";
+
 /// Top-level Trail configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +61,17 @@ impl TrailConfig {
     pub fn validate(&self) -> Result<(), SetConfigError> {
         if self.general.editor.trim().is_empty() {
             return Err(invalid_value("general.editor", "", "must not be empty"));
+        }
+        // Blank is the documented "use the platform default" sentinel, so only
+        // a spec the user actually wrote is held to being spawnable.
+        if !self.general.shell.trim().is_empty()
+            && crate::actions::shell_exec::split_shell_spec(&self.general.shell).is_none()
+        {
+            return Err(invalid_value(
+                "general.shell",
+                &self.general.shell,
+                SHELL_SPEC_REASON,
+            ));
         }
         if self.general.text_sync_threshold_kb == 0 {
             return Err(invalid_value(
@@ -119,6 +138,15 @@ impl TrailConfig {
                     return Err(invalid_value(key, value, "must not be empty"));
                 }
                 self.general.editor = editor.to_owned();
+            }
+            "general.shell" | "shell" => {
+                // An explicit empty value cannot arrive here — the command
+                // parser rejects `:set shell` with no value — so any spec that
+                // reaches this point is one the user meant, and must be usable.
+                if crate::actions::shell_exec::split_shell_spec(value).is_none() {
+                    return Err(invalid_value(key, value, SHELL_SPEC_REASON));
+                }
+                self.general.shell = value.trim().to_owned();
             }
             "general.text_sync_threshold_kb" | "text_sync_threshold_kb" => {
                 self.general.text_sync_threshold_kb = parse_positive_usize(key, value)?;
@@ -199,6 +227,14 @@ impl TrailConfig {
 pub struct GeneralConfig {
     /// Editor command used when opening a file.
     pub editor: String,
+    /// Shell that runs `!<command>` and `:git`, as a program plus the flags
+    /// that make it read a command string — e.g. `pwsh -NoProfile -Command`.
+    ///
+    /// Blank means "use the platform default", which is
+    /// [`crate::actions::shell_exec::DEFAULT_SHELL_ARGV`]. Parsed by
+    /// [`crate::actions::shell_exec::split_shell_spec`]; this is not itself a
+    /// shell command, so it gets no expansion or pipelines.
+    pub shell: String,
     /// Maximum file size, in KiB, previewed synchronously on the UI thread.
     pub text_sync_threshold_kb: usize,
     /// Whether git status workers should run.
@@ -584,6 +620,54 @@ mod tests {
         assert_eq!(
             config.keymap.navigation.get("move_down"),
             Some(&"n".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_shipped_shell_default_is_blank_and_means_platform_default() {
+        let config = crate::config::load(None).unwrap();
+        assert_eq!(config.general.shell, "");
+        // Blank must survive validation — it is the sentinel, not a mistake.
+        config.validate().expect("a blank shell must be accepted");
+    }
+
+    #[test]
+    fn set_value_accepts_a_shell_with_flags() {
+        let mut config = crate::config::load(None).unwrap();
+        config
+            .set_value("general.shell", "pwsh -NoProfile -Command")
+            .unwrap();
+        assert_eq!(config.general.shell, "pwsh -NoProfile -Command");
+        // The short alias reaches the same field.
+        config.set_value("shell", "bash -c").unwrap();
+        assert_eq!(config.general.shell, "bash -c");
+        config.validate().expect("a set shell must still validate");
+    }
+
+    #[test]
+    fn set_value_rejects_an_unspawnable_shell_and_keeps_the_old_one() {
+        let mut config = crate::config::load(None).unwrap();
+        config.set_value("shell", "bash -c").unwrap();
+
+        for rejected in ["\"pwsh -Command", "\"\""] {
+            let err = config.set_value("shell", rejected).unwrap_err();
+            assert!(
+                matches!(err, SetConfigError::InvalidValue { .. }),
+                "{rejected:?} should be an invalid value, got: {err}"
+            );
+        }
+        // A rejected value must not have been applied.
+        assert_eq!(config.general.shell, "bash -c");
+    }
+
+    #[test]
+    fn validate_rejects_a_shell_with_an_unterminated_quote() {
+        let mut config = crate::config::load(None).unwrap();
+        config.general.shell = "\"pwsh -Command".to_owned();
+        let err = config.validate().unwrap_err();
+        assert!(
+            format!("{err}").contains("general.shell"),
+            "the error must name the key, got: {err}"
         );
     }
 
