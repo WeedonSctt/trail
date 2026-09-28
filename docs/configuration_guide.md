@@ -112,6 +112,7 @@ Controls overall application behavior.
 - `shell` (String): Shell that interprets `!<command>` and `:git`, written as a program plus the flags that make it read a command string — e.g. `"pwsh -NoProfile -Command"`. Empty means the platform default: `cmd.exe /C` on Windows, `sh -c` elsewhere. Rejected if it leaves a quote unterminated or names an empty program. (Default: `""`)
 - `shell_pause` (String): When to wait for Enter after a `!<command>` or `:git` finishes, before Trail takes the screen back — `"always"`, `"on_error"` or `"never"`. A command prints on the normal screen, which Trail covers again as soon as the command exits, so without a pause the output of `!ls` is erased in the same breath it was written. `"on_error"` holds the screen only when the command failed (including when it could not be started at all). Opening a file in the editor never pauses, whatever this says: an editor owns the screen while it runs and leaves nothing behind to read. (Default: `"always"`)
 - `text_sync_threshold_kb` (Positive Integer): Maximum file size in KiB to preview synchronously on the UI thread. Larger files skip synchronous preview. Must be > 0. (Default: `256`)
+- `delete_mode` (String): Where `dd` sends the selected entry — `"trash"` or `"permanent"`. `"trash"` hands it to the platform's recycle bin, so a mistake can be undone from the desktop without Trail's help; this matters most because `dd` on a directory takes everything under it. A path the recycle bin will not take (some network shares and removable volumes) is reported as an error rather than deleted anyway. `"permanent"` unlinks it, recovering nothing. The confirmation prompt says which one is about to happen. (Default: `"trash"`)
 - `git_status_enabled` (Boolean): Enable or disable background git status workers. (Default: `true`)
 - `fs_watch_debounce_ms` (Non-negative Integer): Debounce delay for filesystem watching in milliseconds. (Default: `200`)
 
@@ -320,6 +321,7 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 - `:set editor nvim` (or `:set general.editor nvim`)
 - `:set shell pwsh -NoProfile -Command` (everything after the key is the value, so the flags come along; applies to the next `!` command)
 - `:set shell_pause on_error` (applies to the next `!` command)
+- `:set delete_mode permanent` (applies to the next `dd`)
 - `:set text_sync_threshold_kb 512`
 - `:set git_status_enabled false` (Accepts `true`, `yes`, `on`, `1` / `false`, `no`, `off`, `0`)
 - `:set fs_watch_debounce_ms 500`

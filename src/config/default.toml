@@ -31,6 +31,17 @@ shell = ""
 # an editor owns the screen while it runs and leaves nothing behind to read.
 shell_pause = "always"
 text_sync_threshold_kb = 256
+# Where `dd` sends an entry: trash | permanent.
+#
+# `trash` hands it to the platform's recycle bin, so a mistake is recoverable by
+# the user without Trail's help -- and `dd` on a directory takes everything under
+# it, which is exactly the mistake worth being able to undo.  The trade-offs are
+# that deleting no longer frees the space until the bin is emptied, and that a
+# path the recycle bin refuses (a network share, a removable volume without one)
+# is reported as an error rather than silently deleted anyway.  Use `permanent`
+# for the old behaviour, and read the confirmation prompt: it says which one is
+# about to happen.
+delete_mode = "trash"
 git_status_enabled = true
 fs_watch_debounce_ms = 200
 

@@ -11,6 +11,36 @@ use thiserror::Error;
 
 // ── Error type ────────────────────────────────────────────────────────────────
 
+/// Where a deleted entry goes.
+///
+/// `dd` used to be `remove_dir_all` after a single `y`, which on a directory is
+/// as irreversible as it gets. The recycle bin is the platform's own answer to
+/// that, and it already solves the four problems a hand-rolled trash folder
+/// would have to: name collisions, moves across devices, unbounded growth, and
+/// when to purge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteMode {
+    /// Hand the entry to the platform's recycle bin, from which the user can
+    /// restore it. The default.
+    Trash,
+    /// Unlink it. Nothing to restore.
+    Permanent,
+}
+
+impl DeleteMode {
+    /// Parses a `[general] delete_mode` value.
+    ///
+    /// Returns `None` for an unrecognised name so the config layer can report it
+    /// with the key that carried it.
+    pub fn parse(value: &str) -> Option<DeleteMode> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "trash" | "recycle" => Some(DeleteMode::Trash),
+            "permanent" | "delete" => Some(DeleteMode::Permanent),
+            _ => None,
+        }
+    }
+}
+
 /// Errors from filesystem mutation operations.
 #[derive(Debug, Error)]
 pub enum FsError {
@@ -29,6 +59,18 @@ pub enum FsError {
         context: String,
         #[source]
         source: std::io::Error,
+    },
+    /// The platform refused to move the entry to its recycle bin.
+    ///
+    /// Reported rather than silently falling back to an unlink: a user who asked
+    /// for a recoverable delete must not get an unrecoverable one because the
+    /// recycle bin was unavailable.
+    #[error("could not move {path} to the recycle bin: {source}")]
+    Trash {
+        /// The entry that was to be trashed.
+        path: PathBuf,
+        #[source]
+        source: trash::Error,
     },
 }
 
@@ -181,28 +223,40 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), FsError> {
 
 // ── Delete ────────────────────────────────────────────────────────────────────
 
-/// Deletes `target` — file or directory (recursively).
+/// Deletes `target` — file or directory (recursively) — the way `mode` says.
 ///
-/// This is a destructive, irreversible operation. The caller is responsible
-/// for showing the confirmation prompt before invoking this function; the
-/// confirmation flow lives in `actions/mod.rs` and `app/state.rs`.
+/// [`DeleteMode::Trash`] is recoverable by the user through their desktop's
+/// recycle bin; [`DeleteMode::Permanent`] is not recoverable at all, and on a
+/// directory it takes everything under it. Either way the caller is responsible
+/// for the confirmation prompt first; that flow lives in `actions/mod.rs` and
+/// `ui/status_bar.rs`, and the prompt says which of the two is about to happen.
 ///
 /// # Errors
 ///
 /// Returns [`FsError::SourceNotFound`] if `target` does not exist.
+/// Returns [`FsError::Trash`] if the recycle bin refused the entry — never
+/// falling back to an unlink, since that would turn a recoverable delete the
+/// user asked for into one that is not.
 /// Returns [`FsError::Io`] for other filesystem errors.
-pub fn delete(target: &Path) -> Result<(), FsError> {
+pub fn delete(target: &Path, mode: DeleteMode) -> Result<(), FsError> {
     if !target.exists() {
         return Err(FsError::SourceNotFound(target.to_owned()));
     }
-    if target.is_dir() {
-        fs::remove_dir_all(target)
-            .map_err(|e| io_err(format!("delete dir {}", target.display()), e))?;
-    } else {
-        fs::remove_file(target)
-            .map_err(|e| io_err(format!("delete file {}", target.display()), e))?;
+    match mode {
+        DeleteMode::Trash => trash::delete(target).map_err(|e| FsError::Trash {
+            path: target.to_owned(),
+            source: e,
+        }),
+        DeleteMode::Permanent => {
+            if target.is_dir() {
+                fs::remove_dir_all(target)
+                    .map_err(|e| io_err(format!("delete dir {}", target.display()), e))
+            } else {
+                fs::remove_file(target)
+                    .map_err(|e| io_err(format!("delete file {}", target.display()), e))
+            }
+        }
     }
-    Ok(())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -369,7 +423,7 @@ mod tests {
         let dir = tmp();
         let f = dir.path().join("to_delete.txt");
         fs::write(&f, b"").unwrap();
-        delete(&f).unwrap();
+        delete(&f, DeleteMode::Permanent).unwrap();
         assert!(!f.exists());
     }
 
@@ -379,14 +433,31 @@ mod tests {
         let d = dir.path().join("to_delete");
         fs::create_dir(&d).unwrap();
         fs::write(d.join("child.txt"), b"").unwrap();
-        delete(&d).unwrap();
+        delete(&d, DeleteMode::Permanent).unwrap();
         assert!(!d.exists());
     }
 
     #[test]
     fn delete_fails_if_missing() {
         let dir = tmp();
-        let err = delete(&dir.path().join("nope")).unwrap_err();
+        // Checked before either mode is consulted, so one case covers both.
+        let err = delete(&dir.path().join("nope"), DeleteMode::Trash).unwrap_err();
         assert!(matches!(err, FsError::SourceNotFound(_)));
+    }
+
+    /// The recycle bin itself is not exercised here: it is per-user desktop
+    /// state, and a test suite that fills someone's bin with fixtures — or that
+    /// depends on the machine having one — is exactly the ambient-state
+    /// dependency the coding standard rules out. What is testable is that the
+    /// config can only ask for one of the two behaviours.
+    #[test]
+    fn delete_modes_parse_from_what_the_config_can_say() {
+        assert_eq!(DeleteMode::parse("trash"), Some(DeleteMode::Trash));
+        assert_eq!(DeleteMode::parse(" TRASH "), Some(DeleteMode::Trash));
+        assert_eq!(DeleteMode::parse("recycle"), Some(DeleteMode::Trash));
+        assert_eq!(DeleteMode::parse("permanent"), Some(DeleteMode::Permanent));
+        assert_eq!(DeleteMode::parse("delete"), Some(DeleteMode::Permanent));
+        assert_eq!(DeleteMode::parse("bin"), None);
+        assert_eq!(DeleteMode::parse(""), None);
     }
 }

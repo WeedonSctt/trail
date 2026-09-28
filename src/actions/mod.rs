@@ -489,9 +489,20 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             }
             state.pending_delete = false;
             if let Some(entry) = state.selected_entry().cloned() {
-                match fs_ops::delete(&entry.path) {
+                let mode = configured_delete_mode(state);
+                match fs_ops::delete(&entry.path, mode) {
                     Ok(()) => {
-                        state.clear_notice();
+                        // Say where it went: with a recycle bin in play, "gone"
+                        // and "recoverable" are different outcomes and the user
+                        // is entitled to know which one they got.
+                        state.notify(match mode {
+                            fs_ops::DeleteMode::Trash => {
+                                format!("moved to the recycle bin: {}", entry.file_name)
+                            }
+                            fs_ops::DeleteMode::Permanent => {
+                                format!("deleted: {}", entry.file_name)
+                            }
+                        });
                         // Refresh to reflect the deletion.
                         state.refresh()?;
                     }
@@ -585,6 +596,16 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
     }
     Ok(())
+}
+
+/// Where `dd` sends an entry, from `[general] delete_mode`.
+///
+/// An unparseable value cannot normally reach here -- it is rejected at load and
+/// by `:set` -- so the fallback is the recoverable option: a config Trail cannot
+/// read must not be the reason a file cannot be got back.
+fn configured_delete_mode(state: &AppState) -> fs_ops::DeleteMode {
+    fs_ops::DeleteMode::parse(&state.config.general.delete_mode)
+        .unwrap_or(fs_ops::DeleteMode::Trash)
 }
 
 /// The pause policy for a command whose output the user is expecting to read.

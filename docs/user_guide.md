@@ -40,7 +40,11 @@ to do nothing.
 - `yr`: Copy path relative to the directory Trail was launched from
 - `yn`: Copy filename to clipboard
 - `yc`: Copy content to clipboard — file text, or directory listing
-- `dd`: Delete the selected item (prompts for confirmation: `y`/`Enter` to confirm, `n`/`Esc` to cancel)
+- `dd`: Delete the selected item (prompts for confirmation: `y`/`Enter` to confirm, `n`/`Esc` to cancel).
+  It goes to your recycle bin, so it can be restored from there — the prompt reads
+  `Recycle 'name'?`. Set `[general] delete_mode = "permanent"` to unlink it instead, after
+  which the prompt reads `Delete 'name'?` and nothing can be recovered. Either way, on a
+  directory this takes everything inside it.
 - `o`: Open the selected item with the OS default application
 
 ### Preview Pane
