@@ -70,6 +70,7 @@ impl PreviewProvider for TextProvider {
             ctx.generation,
             ctx.worker_tx.clone(),
             ctx.max_preview_lines,
+            ctx.text_sync_threshold_bytes,
         );
         PreviewOutcome::Deferred
     }
