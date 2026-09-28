@@ -380,10 +380,14 @@ pub struct AppState {
     pub show_hidden: bool,
     /// Set `true` on any state mutation; cleared after each render.
     pub dirty: bool,
-    /// The selection index to restore when re-entering a known directory.
+    /// The entry to re-select when returning to a directory visited before.
     ///
-    /// Key: canonical absolute path; Value: last selected index.
-    pub selection_memory: std::collections::HashMap<PathBuf, usize>,
+    /// Key: the directory's absolute path; value: the absolute path of the entry
+    /// that was selected in it. A **path**, not an index: an index names
+    /// whichever file happens to occupy that row now, so a directory whose
+    /// contents changed while the user was away would come back with the
+    /// selection on something else.
+    pub selection_memory: std::collections::HashMap<PathBuf, PathBuf>,
 
     // ── Phase 3 fields ────────────────────────────────────────────────────────
     /// `true` while awaiting the user's confirmation of a `dd` delete.
@@ -657,13 +661,58 @@ impl AppState {
 
         self.entries = entries;
 
-        // Restore the previously remembered selection, clamping to valid range.
-        let remembered = self.selection_memory.get(path).copied().unwrap_or(0);
-        self.selected = remembered.min(self.visible_count().saturating_sub(1));
+        // Re-select the entry this directory was left on, by path, so a listing
+        // that changed in the meantime does not hand the selection to a
+        // different file. Falls back to the top when that entry is gone.
+        let remembered = self.selection_memory.get(path).cloned();
+        self.restore_selection(remembered.as_deref(), 0);
 
         self.update_status();
         self.dirty = true;
         Ok(())
+    }
+
+    /// Returns the row `path` occupies in the list the user is looking at, or
+    /// `None` when it is not in it.
+    ///
+    /// Counted the same way `selected` is: against the filtered list in Search
+    /// Mode and against the visible listing otherwise, so the result can be
+    /// assigned to `selected` directly.
+    fn index_of_path(&self, path: &Path) -> Option<usize> {
+        if self.filter.is_some() {
+            self.filtered_entries().position(|(_, e)| e.path == path)
+        } else {
+            self.visible_entries().position(|e| e.path == path)
+        }
+    }
+
+    /// Puts the selection back on `anchor`, or on `fallback` when that entry is
+    /// no longer in the list.
+    ///
+    /// The selection is an index, so anything that changes the length or the
+    /// order of the list — revealing hidden files, a re-read after a filesystem
+    /// change, returning to a directory — moves it onto a different entry unless
+    /// the entry it was on is looked up again by path. Both arguments are
+    /// clamped, and an empty list selects row zero.
+    fn restore_selection(&mut self, anchor: Option<&Path>, fallback: usize) {
+        let count = self.filtered_count();
+        if count == 0 {
+            self.selected = 0;
+            return;
+        }
+        let found = anchor.and_then(|path| self.index_of_path(path));
+        self.selected = found.unwrap_or_else(|| fallback.min(count - 1));
+    }
+
+    /// Records which entry is selected in `cwd`, for [`AppState::load_dir`] to
+    /// restore the next time this directory is listed.
+    ///
+    /// A directory with nothing in it records nothing, leaving any earlier
+    /// memory of it alone.
+    fn remember_selection(&mut self) {
+        if let Some(path) = self.selected_entry().map(|e| e.path.clone()) {
+            self.selection_memory.insert(self.cwd.clone(), path);
+        }
     }
 
     /// Returns the number of entries that are visible given `show_hidden`.
@@ -714,8 +763,7 @@ impl AppState {
         let path = crate::pathfmt::simplified(&path);
 
         // Remember where we were in the old directory.
-        self.selection_memory
-            .insert(self.cwd.clone(), self.selected);
+        self.remember_selection();
         self.history.push(self.cwd.clone());
         self.cwd = path.clone();
 
@@ -738,8 +786,7 @@ impl AppState {
     /// Propagates any `StateError` from `load_dir`.
     pub fn go_parent(&mut self) -> Result<(), StateError> {
         if let Some(parent) = self.cwd.parent().map(|p| p.to_owned()) {
-            self.selection_memory
-                .insert(self.cwd.clone(), self.selected);
+            self.remember_selection();
             self.history.push(self.cwd.clone());
             self.cwd = parent;
             self.load_dir(&self.cwd.clone())?;
@@ -754,8 +801,7 @@ impl AppState {
     /// Propagates any `StateError` from `load_dir`.
     pub fn history_back(&mut self) -> Result<(), StateError> {
         if let Some(prev) = self.history.back(self.cwd.clone()) {
-            self.selection_memory
-                .insert(self.cwd.clone(), self.selected);
+            self.remember_selection();
             self.cwd = prev;
             self.load_dir(&self.cwd.clone())?;
         }
@@ -769,8 +815,7 @@ impl AppState {
     /// Propagates any `StateError` from `load_dir`.
     pub fn history_forward(&mut self) -> Result<(), StateError> {
         if let Some(next) = self.history.forward(self.cwd.clone()) {
-            self.selection_memory
-                .insert(self.cwd.clone(), self.selected);
+            self.remember_selection();
             self.cwd = next;
             self.load_dir(&self.cwd.clone())?;
         }
@@ -873,7 +918,7 @@ impl AppState {
         }
     }
 
-    /// Toggles display of hidden files and reloads the directory listing.
+    /// Toggles display of hidden files, keeping the selection on the same entry.
     ///
     /// When a filter is active, re-applies it so hidden-file visibility is
     /// reflected correctly in the match list.
@@ -882,20 +927,18 @@ impl AppState {
     ///
     /// Propagates any `StateError` from `load_dir`.
     pub fn toggle_hidden(&mut self) -> Result<(), StateError> {
+        // Hidden entries sort in among the visible ones, so revealing them
+        // shifts every row below the first one — holding the index still would
+        // hand the selection to a different file, which is what it used to do.
+        let anchor = self.selected_entry().map(|e| e.path.clone());
+
         self.show_hidden = !self.show_hidden;
         // Re-apply the filter if one is active so the match set is correct.
         if let Some(f) = self.filter.take() {
             let q = f.query.clone();
             self.apply_filter(q);
-        } else {
-            // Clamp selection to the new visible range.
-            let count = self.visible_count();
-            if count == 0 {
-                self.selected = 0;
-            } else {
-                self.selected = self.selected.min(count - 1);
-            }
         }
+        self.restore_selection(anchor.as_deref(), self.selected);
         self.dirty = true;
         Ok(())
     }
@@ -903,19 +946,22 @@ impl AppState {
     /// Reloads the current directory listing in place (e.g. after an external
     /// change or a self-initiated filesystem mutation).
     ///
-    /// Unlike `enter_dir`, this preserves the current `selected` index (clamped
-    /// to the new listing length) so that `R` does not jump the cursor to the
-    /// top of the list.
+    /// Unlike `enter_dir`, this keeps the selection on the entry the user was on
+    /// so that `R` — or a filesystem-watch refresh — does not move the cursor.
+    /// Falls back to the same row when that entry is gone, which is what a
+    /// delete of the selected file wants.
     ///
     /// # Errors
     ///
     /// Propagates any `StateError` from `load_dir`.
     pub fn refresh(&mut self) -> Result<(), StateError> {
+        // By path, not by index: a file created or deleted above the selection
+        // shifts every row below it, and a refresh is usually something the
+        // filesystem asked for rather than something the user did.
+        let anchor = self.selected_entry().map(|e| e.path.clone());
         let saved = self.selected;
         self.load_dir(&self.cwd.clone())?;
-        // Restore the selection the user had, clamped to the new count.
-        let count = self.visible_count();
-        self.selected = if count == 0 { 0 } else { saved.min(count - 1) };
+        self.restore_selection(anchor.as_deref(), saved);
         self.dirty = true;
         Ok(())
     }
@@ -1254,6 +1300,75 @@ mod tests {
         state.dirty = false; // simulate post-render clear
         state.move_down();
         assert!(state.dirty);
+    }
+
+    /// The bug this guards: the selection was an index that was merely clamped,
+    /// so revealing hidden files moved it onto whichever entry had taken that
+    /// row. In this fixture `.hidden_file` sorts directly before `a_file.txt`,
+    /// so the selected row is exactly the one that shifts.
+    #[test]
+    fn toggling_hidden_keeps_the_selection_on_the_same_entry() {
+        let dir = make_test_dir();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+        state.jump_bottom(); // a_file.txt — the last visible entry
+        let anchor = state.selected_entry().map(|e| e.path.clone()).unwrap();
+        assert!(
+            anchor.ends_with("a_file.txt"),
+            "fixture changed: {anchor:?}"
+        );
+
+        state.toggle_hidden().unwrap();
+        assert_eq!(
+            state.selected_entry().map(|e| e.path.clone()),
+            Some(anchor.clone()),
+            "revealing hidden files must not move the selection"
+        );
+        assert_eq!(
+            state.selected, 3,
+            "the row it sits on has to have moved, or the test proves nothing"
+        );
+
+        state.toggle_hidden().unwrap();
+        assert_eq!(
+            state.selected_entry().map(|e| e.path.clone()),
+            Some(anchor),
+            "hiding them again must put it back"
+        );
+    }
+
+    /// A refresh is usually something the filesystem asked for rather than
+    /// something the user did, so it must not move the cursor under them.
+    #[test]
+    fn a_refresh_keeps_the_selection_when_an_entry_appears_above_it() {
+        let dir = make_test_dir();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+        state.jump_bottom();
+        let anchor = state.selected_entry().map(|e| e.path.clone()).unwrap();
+
+        // `0` sorts before `a`, so this lands above the selection.
+        fs::write(dir.path().join("0_first.txt"), b"").unwrap();
+        state.refresh().unwrap();
+
+        assert_eq!(state.selected_entry().map(|e| e.path.clone()), Some(anchor));
+    }
+
+    /// Returning to a directory restores the entry, not the row number — the
+    /// listing may have changed while the user was away.
+    #[test]
+    fn returning_to_a_directory_reselects_the_same_entry() {
+        let dir = make_test_dir();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+        state.jump_bottom();
+        let anchor = state.selected_entry().map(|e| e.path.clone()).unwrap();
+
+        // Descend from `cwd`, which is canonicalized, so the parent Trail
+        // returns to is the same path it recorded the selection under.
+        let child = state.cwd.join("alpha_dir");
+        state.enter_dir(child).unwrap();
+        fs::write(dir.path().join("0_first.txt"), b"").unwrap();
+        state.go_parent().unwrap();
+
+        assert_eq!(state.selected_entry().map(|e| e.path.clone()), Some(anchor));
     }
 
     /// The bug this guards: an outcome and a failure shared one field, so a
