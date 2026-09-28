@@ -7,6 +7,8 @@ pub mod clipboard;
 pub mod fs_ops;
 pub mod shell_exec;
 
+use std::path::{Path, PathBuf};
+
 use crate::app::state::{AppState, StateError};
 use crate::input::command_parser::ParsedCommand;
 
@@ -598,6 +600,74 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
     Ok(())
 }
 
+/// Runs `op` over every entry in `cwd` matching `pattern`, reporting the count.
+///
+/// `dest` must be an existing directory: a pattern names several files, and
+/// several files cannot be moved onto one path. Checking it first is what stops
+/// `:mv *.md notes.md` from copying each match over the last.
+///
+/// A failure part-way through does not undo what already succeeded -- there is no
+/// transaction to roll back to -- so the report says how many of how many were
+/// done and why the run stopped.
+///
+/// # Errors
+///
+/// Returns [`StateError`] only if the listing refresh afterwards fails; the
+/// per-entry failures are reported through the notice channel.
+fn apply_to_matches(
+    state: &mut AppState,
+    pattern: &str,
+    dest: &str,
+    verb: &str,
+    op: fn(&Path, &str, &Path) -> Result<PathBuf, fs_ops::FsError>,
+) -> Result<(), StateError> {
+    let cwd = state.cwd.clone();
+
+    let matches = match fs_ops::matching_entries(&cwd, pattern) {
+        Ok(matches) => matches,
+        Err(e) => {
+            state.set_error(format!("{verb}: {e}"));
+            return Ok(());
+        }
+    };
+    if matches.is_empty() {
+        state.set_error(format!("{verb}: nothing matches '{pattern}'"));
+        return Ok(());
+    }
+
+    let dest_path = if Path::new(dest).is_absolute() {
+        PathBuf::from(dest)
+    } else {
+        cwd.join(dest)
+    };
+    if !dest_path.is_dir() {
+        state.set_error(format!(
+            "{verb}: '{dest}' is not a directory, and '{pattern}' matches {} entries",
+            matches.len()
+        ));
+        return Ok(());
+    }
+
+    let total = matches.len();
+    let mut done = 0usize;
+    let mut failure = None;
+    for source in matches {
+        match op(&source, dest, &cwd) {
+            Ok(_) => done += 1,
+            Err(e) => {
+                failure = Some(e);
+                break;
+            }
+        }
+    }
+
+    match failure {
+        None => state.notify(format!("{verb}: {done} entries → {dest}")),
+        Some(e) => state.set_error(format!("{verb}: {done} of {total} done, then {e}")),
+    }
+    state.refresh()
+}
+
 /// Where `dd` sends an entry, from `[general] delete_mode`.
 ///
 /// An unparseable value cannot normally reach here -- it is rejected at load and
@@ -726,6 +796,14 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                     }
                 }
             }
+        }
+
+        ParsedCommand::MvMatching { pattern, dest } => {
+            apply_to_matches(state, &pattern, &dest, "mv", fs_ops::mv)?;
+        }
+
+        ParsedCommand::CpMatching { pattern, dest } => {
+            apply_to_matches(state, &pattern, &dest, "cp", fs_ops::cp)?;
         }
 
         ParsedCommand::Git(subcmd) => {

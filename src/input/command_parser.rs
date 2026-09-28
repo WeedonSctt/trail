@@ -38,6 +38,21 @@ pub enum ParsedCommand {
     Mv(String),
     /// Copy the selected entry to `dest` (relative or absolute path).
     Cp(String),
+    /// Move every entry of `cwd` matching `pattern` into the directory `dest`.
+    MvMatching {
+        /// A name with `*` or `?` in it, matched against the current directory.
+        pattern: String,
+        /// Destination, which has to be an existing directory: several files
+        /// cannot be moved onto one path.
+        dest: String,
+    },
+    /// Copy every entry of `cwd` matching `pattern` into the directory `dest`.
+    CpMatching {
+        /// A name with `*` or `?` in it, matched against the current directory.
+        pattern: String,
+        /// Destination, which has to be an existing directory.
+        dest: String,
+    },
     /// Run a git subcommand string (e.g. `"init"`, `"status --short"`).
     /// The git worker will be wired in Phase 4; syntactically accepted now.
     Git(String),
@@ -152,14 +167,20 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             if rest.is_empty() {
                 return Err(ParseError::MissingArgument("mv".to_owned()));
             }
-            Ok(ParsedCommand::Mv(rest.to_owned()))
+            match split_pattern_and_dest("mv", rest)? {
+                Some((pattern, dest)) => Ok(ParsedCommand::MvMatching { pattern, dest }),
+                None => Ok(ParsedCommand::Mv(rest.to_owned())),
+            }
         }
 
         "cp" => {
             if rest.is_empty() {
                 return Err(ParseError::MissingArgument("cp".to_owned()));
             }
-            Ok(ParsedCommand::Cp(rest.to_owned()))
+            match split_pattern_and_dest("cp", rest)? {
+                Some((pattern, dest)) => Ok(ParsedCommand::CpMatching { pattern, dest }),
+                None => Ok(ParsedCommand::Cp(rest.to_owned())),
+            }
         }
 
         "git" => {
@@ -236,6 +257,37 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
 
         other => Err(ParseError::UnknownVerb(other.to_owned())),
     }
+}
+
+/// Splits the argument of `:mv`/`:cp` into a wildcard pattern and a destination,
+/// or `None` when it is an ordinary one-argument destination.
+///
+/// The first whitespace-separated token decides: a `*` or a `?` in it means the
+/// user is naming several files, and everything after it is the destination.
+/// Nothing else is treated as two arguments, which is what keeps a destination
+/// containing a space (`:mv my folder`) working exactly as before -- `*` and `?`
+/// cannot appear in a Windows filename at all.
+///
+/// # Errors
+///
+/// Returns [`ParseError::MissingArgument`] for a pattern with no destination
+/// after it: there is no sensible default, and guessing `cwd` would move files
+/// onto themselves.
+fn split_pattern_and_dest(verb: &str, rest: &str) -> Result<Option<(String, String)>, ParseError> {
+    let (first, remainder) = match rest.split_once(char::is_whitespace) {
+        Some((first, remainder)) => (first, remainder.trim()),
+        None => (rest, ""),
+    };
+
+    if !crate::actions::fs_ops::is_pattern(first) {
+        return Ok(None);
+    }
+    if remainder.is_empty() {
+        return Err(ParseError::MissingArgument(format!(
+            "{verb} {first} needs a destination directory"
+        )));
+    }
+    Ok(Some((first.to_owned(), remainder.to_owned())))
 }
 
 // ── Completion ────────────────────────────────────────────────────────────────

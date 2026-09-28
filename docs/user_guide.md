@@ -114,6 +114,12 @@ Command mode allows you to execute powerful filesystem operations and shell comm
 - `:rename <new_name>` (or `:ren`): Rename the currently selected item
 - `:mv <dest>`: Move the selected item to a new destination (relative or absolute)
 - `:cp <dest>`: Copy the selected item to a new destination
+- `:mv <pattern> <dir>` / `:cp <pattern> <dir>`: Move or copy every entry in the current
+  directory whose name matches `pattern` into `dir`, e.g. `:mv *.md notes`. `*` stands for
+  any run of characters and `?` for exactly one; a wildcard in the first word is what tells
+  Trail you mean several files, so a destination containing a space still works as before.
+  The destination has to be an existing directory, hidden entries are skipped unless the
+  pattern itself starts with a dot, and the status bar reports how many were moved
 - `:git <subcommand>`: Run a git subcommand (e.g., `:git status --short`)
 - `:set <key> <value>`: Set a runtime configuration value
 - `:bookmark <name>` (or `:bm`): Bookmark the current directory (defaults to directory base name if no name provided)

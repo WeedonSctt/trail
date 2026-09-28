@@ -694,3 +694,135 @@ fn a_yank_posts_a_summarized_notice() {
         );
     }
 }
+
+// ── Wildcards in :mv / :cp ────────────────────────────────────────────────────
+
+/// The reported gap: `:mv *.md docs/` resolved a destination literally named
+/// `*.md docs/`. A wildcard in the first token now means "several files, then a
+/// destination".
+#[test]
+fn mv_with_a_wildcard_parses_as_a_pattern_and_a_destination() {
+    assert_eq!(
+        parse("mv *.md notes", false).unwrap(),
+        ParsedCommand::MvMatching {
+            pattern: "*.md".to_owned(),
+            dest: "notes".to_owned(),
+        }
+    );
+    assert_eq!(
+        parse("cp note?.txt ../backup", false).unwrap(),
+        ParsedCommand::CpMatching {
+            pattern: "note?.txt".to_owned(),
+            dest: "../backup".to_owned(),
+        }
+    );
+}
+
+/// The one-argument form has to keep working, including for a destination with a
+/// space in it — that is what makes the wildcard the only signal.
+#[test]
+fn mv_without_a_wildcard_is_still_one_destination() {
+    assert_eq!(
+        parse("mv ../sibling", false).unwrap(),
+        ParsedCommand::Mv("../sibling".to_owned())
+    );
+    assert_eq!(
+        parse("mv my folder", false).unwrap(),
+        ParsedCommand::Mv("my folder".to_owned())
+    );
+}
+
+#[test]
+fn a_pattern_without_a_destination_is_an_error() {
+    let err = parse("mv *.md", false).unwrap_err();
+    assert!(matches!(err, ParseError::MissingArgument(_)));
+    assert!(
+        err.to_string().contains("destination"),
+        "the message should say what is missing; got: {err}"
+    );
+}
+
+#[test]
+fn mv_with_a_wildcard_moves_every_match_into_the_destination() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("one.md"), b"1").unwrap();
+    fs::write(dir.path().join("two.md"), b"2").unwrap();
+    fs::write(dir.path().join("keep.txt"), b"k").unwrap();
+    fs::create_dir(dir.path().join("notes")).unwrap();
+
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    trail::actions::apply(
+        trail::actions::Action::ExecuteCommand(ParsedCommand::MvMatching {
+            pattern: "*.md".to_owned(),
+            dest: "notes".to_owned(),
+        }),
+        &mut state,
+    )
+    .unwrap();
+
+    assert!(
+        state.error_text().is_none(),
+        "the move should succeed; got {:?}",
+        state.error_text()
+    );
+    assert!(dir.path().join("notes/one.md").exists());
+    assert!(dir.path().join("notes/two.md").exists());
+    assert!(
+        dir.path().join("keep.txt").exists(),
+        "a non-matching file must be left alone"
+    );
+    let notice = state.notice.as_ref().expect("the count should be reported");
+    assert!(
+        notice.text.contains('2'),
+        "the notice should say how many moved; got: {}",
+        notice.text
+    );
+}
+
+/// Several files cannot be moved onto one path, so a destination that is not a
+/// directory is refused before anything is touched.
+#[test]
+fn a_pattern_needs_a_directory_to_move_into() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("one.md"), b"1").unwrap();
+    fs::write(dir.path().join("two.md"), b"2").unwrap();
+
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    trail::actions::apply(
+        trail::actions::Action::ExecuteCommand(ParsedCommand::MvMatching {
+            pattern: "*.md".to_owned(),
+            dest: "collected.md".to_owned(),
+        }),
+        &mut state,
+    )
+    .unwrap();
+
+    let err = state.error_text().expect("this must be refused");
+    assert!(
+        err.contains("not a directory"),
+        "the error should say why; got: {err}"
+    );
+    assert!(
+        dir.path().join("one.md").exists() && dir.path().join("two.md").exists(),
+        "nothing may have moved"
+    );
+}
+
+#[test]
+fn a_pattern_that_matches_nothing_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("notes")).unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(
+        trail::actions::Action::ExecuteCommand(ParsedCommand::MvMatching {
+            pattern: "*.md".to_owned(),
+            dest: "notes".to_owned(),
+        }),
+        &mut state,
+    )
+    .unwrap();
+
+    let err = state.error_text().expect("an empty match is an error");
+    assert!(err.contains("nothing matches"), "got: {err}");
+}

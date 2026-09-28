@@ -296,6 +296,8 @@ Press `:` for operations that take arguments.
 | `:rename <new-name>` / `:ren` | Rename the selected entry |
 | `:mv <dest>` | Move the selection (relative or absolute destination) |
 | `:cp <dest>` | Copy the selection |
+| `:mv <pattern> <dir>` | Move everything matching `*`/`?` into a directory, e.g. `:mv *.md notes` |
+| `:cp <pattern> <dir>` | Copy everything matching `*`/`?` into a directory |
 | `:git <subcommand>` | Run a git subcommand, e.g. `:git status --short` |
 | `:set <key> <value>` | Change a setting at runtime — see [Configuration](#configuration) |
 | `:bookmark [name]` / `:bm` | Bookmark the current directory (defaults to its base name) |
