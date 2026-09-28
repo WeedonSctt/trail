@@ -548,23 +548,41 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::CloseTab => {
-            // close_tab returns false when only one tab remains; ignore.
-            let _ = state.close_tab()?;
+            if !state.close_tab()? {
+                state.notify(LAST_TAB_HINT);
+            }
             state.dirty = true;
         }
 
         Action::SwitchTabNext => {
-            state.switch_tab_next()?;
+            if state.tab_manager.is_single() {
+                state.notify(SINGLE_TAB_HINT);
+            } else {
+                state.switch_tab_next()?;
+            }
             state.dirty = true;
         }
 
         Action::SwitchTabPrev => {
-            state.switch_tab_prev()?;
+            if state.tab_manager.is_single() {
+                state.notify(SINGLE_TAB_HINT);
+            } else {
+                state.switch_tab_prev()?;
+            }
             state.dirty = true;
         }
     }
     Ok(())
 }
+
+/// Shown when a tab switch is asked for and there is nothing to switch to.
+///
+/// Switching used to be a silent no-op here, which is indistinguishable from a
+/// binding that is not working — and was reported as exactly that.
+const SINGLE_TAB_HINT: &str = "only one tab open — Ctrl-t opens another";
+
+/// Shown when the last remaining tab is asked to close.
+const LAST_TAB_HINT: &str = "the last tab stays open — q quits Trail";
 
 /// Records the outcome of a yank operation in `state`.
 ///

@@ -31,6 +31,10 @@ Trail supports multiple tabs for multitasking.
 - `Tab`: Switch to the next tab
 - `Shift-Tab`: Switch to the previous tab
 
+Once a second tab is open, the status bar shows which one has focus — `[2/3]`, just left of
+the path. With a single tab there is no indicator, and `Tab` says so rather than appearing
+to do nothing.
+
 ### File Operations
 - `ya`: Copy absolute path of the selected item to clipboard
 - `yr`: Copy path relative to the directory Trail was launched from
