@@ -67,16 +67,18 @@ pub fn spawn_highlight(
     generation: u64,
     tx: mpsc::Sender<WorkerMsg>,
     max_lines: usize,
+    max_bytes: usize,
 ) {
     tokio::spawn(async move {
         let path_for_msg = path.clone();
-        let outcome = tokio::task::spawn_blocking(move || preview_file_sync(&path, max_lines))
-            .await
-            .unwrap_or(Outcome {
-                content: plain_text_fallback_empty(),
-                truncated: false,
-                is_text: None,
-            });
+        let outcome =
+            tokio::task::spawn_blocking(move || preview_file_sync(&path, max_lines, max_bytes))
+                .await
+                .unwrap_or(Outcome {
+                    content: plain_text_fallback_empty(),
+                    truncated: false,
+                    is_text: None,
+                });
 
         let msg = WorkerMsg::Preview {
             generation,
@@ -109,7 +111,7 @@ struct Outcome {
 /// directory was listed. A binary file gets the same metadata preview the
 /// synchronous [`crate::preview::binary`] provider would have produced, and the
 /// answer travels back so the next preview of that entry needs no worker at all.
-fn preview_file_sync(path: &std::path::Path, max_lines: usize) -> Outcome {
+fn preview_file_sync(path: &std::path::Path, max_lines: usize, max_bytes: usize) -> Outcome {
     if !crate::preview::text::is_text_file(path) {
         return Outcome {
             content: crate::preview::binary::build_binary_preview(path, None),
@@ -118,7 +120,7 @@ fn preview_file_sync(path: &std::path::Path, max_lines: usize) -> Outcome {
         };
     }
 
-    let (content, truncated) = highlight_file_sync(path, max_lines);
+    let (content, truncated) = highlight_file_sync(path, max_lines, max_bytes);
     Outcome {
         content,
         truncated,
@@ -132,7 +134,11 @@ fn preview_file_sync(path: &std::path::Path, max_lines: usize) -> Outcome {
 /// Returns `PreviewContent::Highlighted` on success, or `PreviewContent::Text`
 /// if syntect cannot find a matching syntax, paired with whether the file has
 /// more lines than `max_lines`.
-fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewContent, bool) {
+fn highlight_file_sync(
+    path: &std::path::Path,
+    max_lines: usize,
+    max_bytes: usize,
+) -> (PreviewContent, bool) {
     let ss = syntax_set();
     let ts = theme_set();
 
@@ -146,15 +152,20 @@ fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewCont
 
     let mut highlighter = match HighlightFile::new(path, ss, theme) {
         Ok(h) => h,
-        Err(_) => return plain_text_fallback(path, max_lines),
+        Err(_) => return plain_text_fallback(path, max_lines, max_bytes),
     };
 
     let mut lines: Vec<HighlightedLine> = Vec::new();
     let mut truncated = false;
+    let mut bytes_read = 0usize;
 
     loop {
-        if lines.len() >= max_lines {
-            // Hitting the cap only truncates the preview if the file actually
+        // Two ceilings, because either one alone leaves a hole: `max_lines`
+        // bounds an ordinary file, and `max_bytes` bounds one whose lines are
+        // enormous -- minified JavaScript, a single-line JSON blob -- which would
+        // otherwise be loaded whole however few lines it has.
+        if lines.len() >= max_lines || bytes_read >= max_bytes {
+            // Hitting a cap only truncates the preview if the file actually
             // continues, so probe for one more line rather than assuming.
             let mut probe = String::new();
             truncated = matches!(highlighter.reader.read_line(&mut probe), Ok(n) if n > 0);
@@ -164,7 +175,7 @@ fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewCont
         match highlighter.reader.read_line(&mut line_buf) {
             Ok(0) => break,
             Err(_) => break,
-            _ => {}
+            Ok(n) => bytes_read += n,
         }
         // Strip the trailing newline that syntect expects to have present but
         // that we don't want to show, then make the line safe to draw before
@@ -217,12 +228,16 @@ fn convert_color(c: syntect::highlighting::Color) -> Option<ratatui::style::Colo
 ///
 /// Two limits can cut this path: `max_lines`, and the byte ceiling that keeps a
 /// single read bounded. Either one means the preview is truncated.
-fn plain_text_fallback(path: &std::path::Path, max_lines: usize) -> (PreviewContent, bool) {
+fn plain_text_fallback(
+    path: &std::path::Path,
+    max_lines: usize,
+    max_bytes: usize,
+) -> (PreviewContent, bool) {
     use std::io::Read;
     let Ok(f) = std::fs::File::open(path) else {
         return (PreviewContent::Empty, false);
     };
-    let limit = crate::preview::text::TEXT_PREVIEW_MAX_BYTES as u64;
+    let limit = max_bytes as u64;
     let mut buf = Vec::new();
     // Read one byte past the ceiling: that extra byte is how we tell a file that
     // ends exactly on the limit from one that continues past it.
@@ -250,24 +265,66 @@ fn plain_text_fallback_empty() -> PreviewContent {
     PreviewContent::Empty
 }
 
-// ── Synchronous highlighting for small files ───────────────────────────────────
+// ── Synchronous highlighting, for callers already off the UI thread ────────────
 
 /// Highlights the content of `path` synchronously, returning the content and
-/// whether the file continues past `max_lines`.
+/// whether the file continues past either ceiling.
 ///
 /// Intended for tests and for callers that already run off the UI thread; the
 /// application path uses [`spawn_highlight`], which never blocks the event loop.
+/// The byte ceiling is [`crate::preview::text::TEXT_PREVIEW_MAX_BYTES`], the same
+/// default `[general] text_sync_threshold_kb` carries.
 ///
 /// Falls back to `PreviewContent::Text` when no matching syntax is found.
 #[allow(dead_code)]
 pub fn highlight_text_sync(path: &std::path::Path, max_lines: usize) -> (PreviewContent, bool) {
-    highlight_file_sync(path, max_lines)
+    highlight_file_sync(
+        path,
+        max_lines,
+        crate::preview::text::TEXT_PREVIEW_MAX_BYTES,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
+
+    /// `max_lines` alone leaves a hole: a file of a few enormous lines -- minified
+    /// JavaScript, a one-line JSON blob -- is under the line cap and would be
+    /// loaded whole. `[general] text_sync_threshold_kb` is the byte ceiling that
+    /// closes it, and the preview has to report itself truncated when it bites.
+    #[test]
+    fn the_byte_ceiling_bounds_a_file_with_enormous_lines() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        for _ in 0..4 {
+            writeln!(f, "{}", "x".repeat(1000)).unwrap();
+        }
+        f.flush().unwrap();
+
+        // Four lines, well under the line cap, but past a 2 KB ceiling.
+        let (content, truncated) = highlight_file_sync(f.path(), 2000, 2048);
+        assert!(truncated, "the ceiling must be reported as truncation");
+        let loaded = match content {
+            PreviewContent::Highlighted(lines) => lines.len(),
+            PreviewContent::Text(lines) => lines.len(),
+            other => panic!("expected text content, got {other:?}"),
+        };
+        assert!(
+            loaded < 4,
+            "the ceiling must stop the load short; got {loaded} lines"
+        );
+    }
+
+    #[test]
+    fn a_file_inside_both_ceilings_is_not_truncated() {
+        let mut f = tempfile::NamedTempFile::new().unwrap();
+        writeln!(f, "fn main() {{}}").unwrap();
+        f.flush().unwrap();
+
+        let (_, truncated) = highlight_file_sync(f.path(), 2000, 256 * 1024);
+        assert!(!truncated);
+    }
     use tempfile::NamedTempFile;
 
     #[test]

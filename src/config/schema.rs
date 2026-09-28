@@ -275,7 +275,12 @@ pub struct GeneralConfig {
     ///
     /// Parsed by [`crate::actions::shell_exec::ShellPause::parse`].
     pub shell_pause: String,
-    /// Maximum file size, in KiB, previewed synchronously on the UI thread.
+    /// How much of a file, in KiB, a preview reads before stopping short.
+    ///
+    /// Named for what it used to decide — which files were highlighted on the UI
+    /// thread, which none are now. Renaming it would break every config that sets
+    /// it for no behavioural gain, so it keeps the name and has a documented
+    /// meaning instead.
     pub text_sync_threshold_kb: usize,
     /// Where `dd` sends the selected entry: `trash` or `permanent`.
     ///

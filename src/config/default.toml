@@ -30,6 +30,14 @@ shell = ""
 # in the log.  Opening a file in the editor never pauses whatever this says --
 # an editor owns the screen while it runs and leaves nothing behind to read.
 shell_pause = "always"
+# How much of a file the preview reads, in KiB.  Together with
+# `[preview] max_lines` this bounds one preview: max_lines stops an ordinary
+# file, this stops one whose lines are enormous -- minified JavaScript, a
+# one-line JSON blob -- which would otherwise be loaded whole however few lines
+# it has.  Either ceiling marks the pane's footer with a `+`.  Raising it lets
+# you scroll further into such a file, at proportionally more worker time and
+# memory per preview.  The name is historical: it once chose which files were
+# highlighted on the UI thread, which none are now.
 text_sync_threshold_kb = 256
 # Where `dd` sends an entry: trash | permanent.
 #
