@@ -126,6 +126,10 @@ usual reason to is that `cmd.exe` rejects a leading `./`: `!./gradlew runClient`
 work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work too.
 
 ### Command Mode Features
+- **Editing**: The command line takes the whole status bar and shows the cursor where your
+  next keystroke will land. `←`/`→` move it, `Home`/`End` jump to either end, `Backspace`
+  and `Delete` remove either side of it. A command longer than the terminal scrolls to keep
+  the cursor in view.
 - **History**: Use `↑` and `↓` arrows to scroll through previously executed commands.
 - **Auto-completion**: Press `Tab` to cycle through command completions. Command verbs (e.g. `mkdir`, `mv`) and file paths (for `mv` and `cp` destinations) are auto-completed. A destination that is a whole route is completed against the directory that route names, not against the current directory, so `Tab` walks into `nested/`, `../dst/` or an absolute path you pasted in. Directory candidates come back with a trailing separator, so you can keep pressing `Tab` to descend.
 

@@ -313,3 +313,101 @@ async fn truncated_preview_is_marked_in_the_footer() {
         "a truncated preview must carry the '+' marker:\n{rendered}"
     );
 }
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+
+/// Renders `state` and returns both the buffer text and where the cursor ended
+/// up, which is the only way to observe that Command Mode asked for one.
+async fn render_with_cursor(
+    state: &mut AppState,
+    width: u16,
+    height: u16,
+) -> (String, Option<(u16, u16)>) {
+    let backend = TestBackend::new(width, height);
+    let mut terminal = Terminal::new(backend).expect("TestBackend terminal");
+    trail::ui::render(&mut terminal, state).expect("render failed");
+
+    let cursor = terminal.get_cursor_position().ok().map(|p| (p.x, p.y));
+    let buf = terminal.backend().buffer().clone();
+    let mut out = String::new();
+    for y in 0..height {
+        for x in 0..width {
+            out.push_str(buf.cell((x, y)).map(|c| c.symbol()).unwrap_or(" "));
+        }
+        out.push('\n');
+    }
+    (out, cursor)
+}
+
+/// The bug this guards: Command Mode tracked an insertion point that nothing
+/// drew, so editing anywhere but the end of the line was blind.
+#[tokio::test]
+async fn command_mode_puts_the_cursor_at_the_insertion_point() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.mode = trail::app::mode::Mode::Command {
+        buffer: "mkdir notes".to_owned(),
+        cursor: 5, // just after "mkdir"
+        history_index: None,
+    };
+
+    let (rendered, cursor) = render_with_cursor(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains(":mkdir notes"),
+        "the command line must show the prompt and the buffer:\n{rendered}"
+    );
+    // Column 0 is the ':' prompt, so byte 5 of the buffer is column 6, on the
+    // last row of the frame.
+    assert_eq!(cursor, Some((6, 23)));
+}
+
+/// A command longer than the terminal has to scroll, not disappear: the tail is
+/// what the user is typing.
+#[tokio::test]
+async fn a_long_command_scrolls_to_keep_the_end_visible() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let long = format!("mv {}", "d".repeat(60));
+    state.mode = trail::app::mode::Mode::Command {
+        cursor: long.len(),
+        buffer: long,
+        history_index: None,
+    };
+
+    let (rendered, cursor) = render_with_cursor(&mut state, 40, 24).await;
+
+    assert!(
+        rendered.contains(&"d".repeat(38)),
+        "the end of the command must be on screen:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(":mv"),
+        "the start has scrolled off, so the prompt is gone too:\n{rendered}"
+    );
+    assert_eq!(cursor, Some((39, 23)), "the cursor sits in the last column");
+}
+
+/// A message gets the counters' room as well, and says so when it still does
+/// not fit — a silently cut error reads as an error about half a path.
+#[tokio::test]
+async fn a_long_error_is_elided_rather_than_cut() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.set_error("mv → destination already exists and cannot be overwritten here");
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("Error: mv → destination already exists"),
+        "the message must have the room the counters were using:\n{rendered}"
+    );
+    assert!(
+        rendered.contains('…'),
+        "what does not fit must be marked as dropped:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("items"),
+        "the counters stand aside for a transient message:\n{rendered}"
+    );
+}
