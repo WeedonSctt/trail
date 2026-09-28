@@ -16,6 +16,7 @@ use ratatui::Terminal;
 use std::io;
 
 use crate::app::state::AppState;
+use crate::preview::provider::PreviewContent;
 
 /// Draws all three panels into the terminal frame.
 ///
@@ -33,22 +34,24 @@ use crate::app::state::AppState;
 /// Takes `state` mutably because an image preview owns encoder state that
 /// `ratatui-image` re-encodes whenever the preview pane changes size.
 pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> io::Result<()> {
-    // Physically clear the screen and reset ratatui's previous buffer before
-    // every draw. This prevents ghost content from lingering on the physical
-    // terminal when content shrinks between frames (e.g. navigating from a
-    // large file preview to a short binary metadata preview).
+    // An inline image is drawn by the *terminal*, not by ratatui: the protocol
+    // sequence places a picture that the cell diff knows nothing about and
+    // therefore cannot erase. Clearing when the previous frame drew one and this
+    // one does not is what keeps a placement from sitting under the next
+    // preview.
     //
-    // The buffer-diff approach (frame.render_widget(Clear, …)) is insufficient
-    // here: it fills ratatui's internal buffer with blanks, but the diff only
-    // emits "blank" escape sequences for cells whose previous-buffer state was
-    // non-blank. When the physical terminal drifts out of sync with ratatui's
-    // buffer (rapid async transitions, Windows Terminal repaints, etc.), the
-    // diff sees "blank → blank" and emits nothing — leaving ghost content.
-    //
-    // terminal.clear() performs a physical "clear screen" escape AND resets
-    // ratatui's previous buffer to all-default cells, so the subsequent draw()
-    // diffs against a blank baseline and writes every visible cell from scratch.
-    terminal.clear()?;
+    // This used to be an unconditional `terminal.clear()` on every frame — a
+    // physical clear-screen and a full repaint per keystroke, which is what made
+    // navigation flicker. The ghost content it was hiding came from preview text
+    // being written to the terminal unsanitized, so a stray ESC in a "text" file
+    // moved the cursor and painted outside the pane. That is fixed at the source
+    // in `preview::provider::sanitize`, which leaves ratatui's own diff free to
+    // do what it is good at.
+    let drawing_image = matches!(state.preview.content, PreviewContent::Image(_));
+    if state.preview.drew_image && !drawing_image {
+        terminal.clear()?;
+    }
+    state.preview.drew_image = drawing_image;
 
     terminal.draw(|frame| {
         let outer = Layout::default()

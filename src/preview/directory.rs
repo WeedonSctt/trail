@@ -92,8 +92,11 @@ pub fn build_directory_preview(path: &std::path::Path, show_hidden: bool) -> Pre
             Err(_) => continue,
         };
 
+        // Sanitized here rather than at render time: a file name is allowed to
+        // hold control characters on Unix, and a terminal acts on those instead
+        // of drawing them.
         let name = match de.file_name().to_str() {
-            Some(n) => n.to_owned(),
+            Some(n) => crate::preview::provider::sanitize(n),
             None => continue,
         };
 

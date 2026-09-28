@@ -13,7 +13,7 @@ use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use tokio::sync::mpsc;
 
-use crate::preview::provider::{HighlightedLine, PreviewContent, StyledSpan};
+use crate::preview::provider::{sanitize, HighlightedLine, PreviewContent, StyledSpan};
 use crate::workers::WorkerMsg;
 
 /// Default theme used for syntax highlighting.
@@ -102,10 +102,12 @@ fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewCont
             _ => {}
         }
         // Strip the trailing newline that syntect expects to have present but
-        // that we don't want to show.
-        let line_text = line_buf.trim_end_matches(['\n', '\r']);
+        // that we don't want to show, then make the line safe to draw before
+        // anything highlights it — the spans have to describe the text that is
+        // actually rendered.
+        let line_text = sanitize(line_buf.trim_end_matches(['\n', '\r']));
 
-        let regions = match highlighter.highlight_lines.highlight_line(line_text, &ss) {
+        let regions = match highlighter.highlight_lines.highlight_line(&line_text, &ss) {
             Ok(r) => r,
             Err(_) => break,
         };
@@ -170,7 +172,7 @@ fn plain_text_fallback(path: &std::path::Path, max_lines: usize) -> (PreviewCont
         .into_iter()
         .take(max_lines)
         .enumerate()
-        .map(|(i, l)| format!("{:>4}  {}", i + 1, l))
+        .map(|(i, l)| format!("{:>4}  {}", i + 1, sanitize(l)))
         .collect();
     (
         PreviewContent::Text(lines),

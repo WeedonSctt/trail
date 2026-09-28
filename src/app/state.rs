@@ -197,6 +197,13 @@ pub struct PreviewSlot {
     /// `[preview] max_lines`. The renderer marks such a preview so the pane
     /// never silently claims to show a whole file.
     pub truncated: bool,
+    /// Whether the last frame drew an inline image.
+    ///
+    /// Written by the renderer, for the renderer. An inline image is placed by
+    /// the terminal itself rather than by ratatui, so no cell diff can erase it;
+    /// the frame that stops showing one has to clear the screen, and this is how
+    /// it knows. Everything else relies on the ordinary diff.
+    pub drew_image: bool,
 }
 
 /// Number of lines a page scroll leaves on screen for continuity.
