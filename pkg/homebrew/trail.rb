@@ -28,7 +28,7 @@
 class Trail < Formula
   desc "Terminal-first workspace for navigating, inspecting and acting on the filesystem"
   homepage "https://github.com/WeedonSctt/trail"
-  version "1.7.1"
+  version "1.7.2"
   license "MIT"  # Update to match the actual LICENSE file when added.
 
   # ── Platform-specific source archives ─────────────────────────────────────
