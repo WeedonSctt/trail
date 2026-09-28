@@ -444,6 +444,9 @@ fn confirm_delete_removes_file() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("to_delete.txt"), b"").unwrap();
     let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    // Permanent on purpose: the shipped default is the recycle bin, and a test
+    // suite must not fill the machine's bin with its own fixtures.
+    state.config.set_value("delete_mode", "permanent").unwrap();
 
     trail::actions::apply(trail::actions::Action::BeginDelete, &mut state).unwrap();
     trail::actions::apply(trail::actions::Action::ConfirmDelete, &mut state).unwrap();
@@ -455,6 +458,25 @@ fn confirm_delete_removes_file() {
             .any(|e| e.file_name == "to_delete.txt"),
         "to_delete.txt should be gone after ConfirmDelete"
     );
+    let notice = state
+        .notice
+        .as_ref()
+        .expect("a delete should report itself");
+    assert_eq!(notice.level, trail::app::state::NoticeLevel::Info);
+    assert!(
+        notice.text.starts_with("deleted:"),
+        "a permanent delete must not claim to be recoverable; got: {}",
+        notice.text
+    );
+}
+
+/// `dd` goes to the recycle bin unless the config says otherwise, and the
+/// confirmation prompt says which of the two is about to happen — one can be
+/// undone from the desktop and the other cannot.
+#[test]
+fn the_shipped_default_sends_a_delete_to_the_recycle_bin() {
+    let config = trail::config::load(None).unwrap();
+    assert_eq!(config.general.delete_mode, "trash");
 }
 
 #[test]

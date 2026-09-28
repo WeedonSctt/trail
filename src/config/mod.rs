@@ -144,6 +144,7 @@ struct GeneralOverrides {
     shell: Option<String>,
     shell_pause: Option<String>,
     text_sync_threshold_kb: Option<usize>,
+    delete_mode: Option<String>,
     git_status_enabled: Option<bool>,
     fs_watch_debounce_ms: Option<u64>,
 }
@@ -161,6 +162,9 @@ impl GeneralOverrides {
         }
         if let Some(text_sync_threshold_kb) = self.text_sync_threshold_kb {
             general.text_sync_threshold_kb = text_sync_threshold_kb;
+        }
+        if let Some(delete_mode) = self.delete_mode {
+            general.delete_mode = delete_mode;
         }
         if let Some(git_status_enabled) = self.git_status_enabled {
             general.git_status_enabled = git_status_enabled;

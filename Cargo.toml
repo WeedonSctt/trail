@@ -77,6 +77,9 @@ directories = "5"
 # --- Clipboard ---
 arboard = "3"
 
+# --- Delete ---
+trash = "5"        # `dd` goes to the platform recycle bin; nothing in the stack can
+
 # --- Error handling & logging ---
 anyhow = "1"
 thiserror = "1"             # typed errors for library-shaped modules (coding-standard §4)

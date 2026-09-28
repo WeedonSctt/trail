@@ -253,7 +253,7 @@ what was loaded; raise `[preview] max_lines` to load more of it.
 | `yr` | Copy path relative to the launch directory to clipboard |
 | `yn` | Copy filename to clipboard |
 | `yc` | Copy content to clipboard — file text, or directory listing |
-| `dd` | Delete selection — confirm with `y`/`Enter`, cancel with `n`/`Esc` |
+| `dd` | Delete selection to the recycle bin — confirm with `y`/`Enter`, cancel with `n`/`Esc`. `[general] delete_mode = "permanent"` unlinks instead |
 
 **Tabs**
 

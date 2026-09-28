@@ -481,3 +481,25 @@ async fn the_full_path_is_drawn_once_and_the_title_names_the_directory() {
         "the panel title should name the directory:\n{rendered}"
     );
 }
+
+/// The delete prompt names the outcome rather than just the act: with a recycle
+/// bin in play, "Delete" and "Recycle" are different promises.
+#[tokio::test]
+async fn the_delete_prompt_says_where_the_entry_is_going() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.pending_delete = true;
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("Recycle 'alpha_dir'?"),
+        "the default sends it to the recycle bin:\n{rendered}"
+    );
+
+    state.config.set_value("delete_mode", "permanent").unwrap();
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("Delete 'alpha_dir'?"),
+        "a permanent delete must not read as recoverable:\n{rendered}"
+    );
+}

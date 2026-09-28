@@ -41,6 +41,9 @@ const SHELL_SPEC_REASON: &str =
 /// [`SHELL_SPEC_REASON`].
 const SHELL_PAUSE_REASON: &str = "must be always, on_error or never";
 
+/// Explanation attached to a rejected `[general] delete_mode` value.
+const DELETE_MODE_REASON: &str = "must be trash or permanent";
+
 /// Top-level Trail configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +87,13 @@ impl TrailConfig {
                 "general.shell_pause",
                 &self.general.shell_pause,
                 SHELL_PAUSE_REASON,
+            ));
+        }
+        if crate::actions::fs_ops::DeleteMode::parse(&self.general.delete_mode).is_none() {
+            return Err(invalid_value(
+                "general.delete_mode",
+                &self.general.delete_mode,
+                DELETE_MODE_REASON,
             ));
         }
         if self.general.text_sync_threshold_kb == 0 {
@@ -166,6 +176,12 @@ impl TrailConfig {
                     return Err(invalid_value(key, value, SHELL_PAUSE_REASON));
                 }
                 self.general.shell_pause = value.trim().to_ascii_lowercase();
+            }
+            "general.delete_mode" | "delete_mode" => {
+                if crate::actions::fs_ops::DeleteMode::parse(value).is_none() {
+                    return Err(invalid_value(key, value, DELETE_MODE_REASON));
+                }
+                self.general.delete_mode = value.trim().to_ascii_lowercase();
             }
             "general.text_sync_threshold_kb" | "text_sync_threshold_kb" => {
                 self.general.text_sync_threshold_kb = parse_positive_usize(key, value)?;
@@ -261,6 +277,10 @@ pub struct GeneralConfig {
     pub shell_pause: String,
     /// Maximum file size, in KiB, previewed synchronously on the UI thread.
     pub text_sync_threshold_kb: usize,
+    /// Where `dd` sends the selected entry: `trash` or `permanent`.
+    ///
+    /// Parsed by [`crate::actions::fs_ops::DeleteMode::parse`].
+    pub delete_mode: String,
     /// Whether git status workers should run.
     pub git_status_enabled: bool,
     /// Filesystem watcher debounce window in milliseconds.

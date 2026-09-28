@@ -16,6 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::actions::fs_ops::DeleteMode;
 use crate::app::mode::Mode;
 use crate::app::state::{AppState, NoticeLevel};
 use crate::ui::theme;
@@ -141,8 +142,15 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
             .selected_entry()
             .map(|e| e.file_name.as_str())
             .unwrap_or("selected entry");
+        // The prompt names the outcome, not just the act: one of these can be
+        // undone from the desktop's recycle bin and the other cannot, and `dd` on
+        // a directory takes everything under it.
+        let verb = match DeleteMode::parse(&state.config.general.delete_mode) {
+            Some(DeleteMode::Permanent) => "Delete",
+            _ => "Recycle",
+        };
         return Some((
-            format!(" Delete '{name}'? [y/Enter=yes, n/Esc=cancel] "),
+            format!(" {verb} '{name}'? [y/Enter=yes, n/Esc=cancel] "),
             Style::default()
                 .fg(Color::Black)
                 .bg(theme::parse_color(&state.config.theme.error))
