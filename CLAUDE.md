@@ -46,7 +46,11 @@ These five, in this order, are exactly what `.github/workflows/ci.yml` runs. Loc
 
 `cargo run` takes over the terminal (alternate screen) — it is not usable for automated
 verification. Rendering is verified through `tests/render_snapshot_tests.rs`
-(`ratatui::backend::TestBackend` + `insta` snapshots), never by launching the binary.
+(`ratatui::backend::TestBackend`), never by launching the binary. Those tests assert on the
+buffer's *contents* — a substring, a cursor position, a count of occurrences — not against
+golden files: `insta` is a dev-dependency kept for the day a whole-frame snapshot is worth
+the churn, and there are no `.snap` files. Assert the thing that would regress, not the
+frame.
 
 ---
 

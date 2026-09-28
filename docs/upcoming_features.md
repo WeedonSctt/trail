@@ -8,6 +8,11 @@ Source: field notes kept while using Trail, triaged against the code on 2026-09-
 Items already shipped are recorded in [§6](#6-already-resolved) rather than deleted,
 so a note that resurfaces can be checked against what was done about it.
 
+Ten of the twelve were built in the pass that followed this triage; each has a commit of
+its own, and the entries below are kept as the reasoning behind them. What is left is in
+[§5](#5-deferred-and-why): two items that need a decision, and one that needs a terminal
+Trail cannot test itself.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -18,16 +23,16 @@ test itself).
 
 | # | Improvement | Fixes | Status |
 |---|---|---|---|
-| 1 | One notification channel, separate from errors | success reported as an error, sticky `yanked:`, errors missing from the log | planned |
-| 2 | Selection identity by path, not index | toggling hidden files moves the selection | planned |
-| 3 | Responsiveness: stop the per-frame clear and the per-preview rebuilds | the "flash" and the late reaction under load | planned |
-| 4 | Tab completion that actually cycles | only ever the first candidate | planned |
-| 5 | Command line with a cursor and room to read | blind mid-string editing, truncated messages | planned |
-| 6 | Active-tab indicator | no way to tell which tab is focused | planned |
-| 7 | Pause before returning from `!command` | command output wiped on exit | planned |
-| 8 | One path on screen, not two | redundant path top and bottom | planned |
-| 9 | Recycle bin instead of permanent delete | `dd` is irreversible | planned |
-| 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | planned |
+| 1 | One notification channel, separate from errors | success reported as an error, sticky `yanked:`, errors missing from the log | **done** |
+| 2 | Selection identity by path, not index | toggling hidden files moves the selection | **done** |
+| 3 | Responsiveness: stop the per-frame clear and the per-preview rebuilds | the "flash" and the late reaction under load | **done** |
+| 4 | Tab completion that actually cycles | only ever the first candidate | **done** |
+| 5 | Command line with a cursor and room to read | blind mid-string editing, truncated messages | **done** |
+| 6 | Active-tab indicator | no way to tell which tab is focused | **done** |
+| 7 | Pause before returning from `!command` | command output wiped on exit | **done** — `[general] shell_pause` |
+| 8 | One path on screen, not two | redundant path top and bottom | **done** |
+| 9 | Recycle bin instead of permanent delete | `dd` is irreversible | **done** — `[general] delete_mode` |
+| 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | **done** — patterns only; marking entries is still open, §5.3 |
 | 11 | `:set` persistence | `:set` is session-only | deferred — §5 |
 | 12 | Run a command without leaving the view | wanted a second window | deferred — §5 |
 
@@ -84,7 +89,7 @@ Four independent causes, all in code rather than in the terminal:
 watched directory actually changed.
 
 Cause 1 is load-bearing and must go **last**: the per-frame clear is the mitigation for
-the stray-character artifacts (§5.3), so the artifacts need their own fix first.
+the stray-character artifacts (§5.4), so the artifacts need their own fix first.
 Preview text is currently rendered raw — the highlight worker trims only trailing
 `\n`/`\r`, and `content_inspector` calls a file text as long as it has no NULs, so an ESC
 or BEL byte in a "text" file goes straight to the terminal. Sanitizing control characters
@@ -170,10 +175,10 @@ would make globs optional sugar; it is a larger change and is not in this pass.
 
 ## 3. Sequencing
 
-1 and 2 first: both are small, and 1 is a prerequisite for reporting anything else
-sensibly. Then 4, 5, 6, 8 — independent UI work. Then 3, whose last step depends on the
-artifact fix. 7, 9 and 10 each add a config key or a dependency and can land in any order
-after that.
+This was the order used, and it held up: 1 and 2 first, both small, and 1 a prerequisite
+for reporting anything else sensibly. Then 4, 5, 6 and 8 — independent UI work. Then the
+control-character fix, which is what made it safe to drop the per-frame clear, and only
+then the rest of 3. Finally 7, 9 and 10, each of which adds a config key or a dependency.
 
 Every config key added here touches all six places in `CLAUDE.md` §4, and every new
 binding or command touches `keymap.rs`, `docs/user_guide.md` and the `README.md` key
@@ -217,12 +222,21 @@ back. Three ways to get the effect asked for:
 The second is the realistic one, and it needs a decision about a new pane or mode before
 it can be built. §2.7's pause covers the immediate need for interactive commands.
 
-### 5.3 Stray characters on `.png` and `.bbmodel`
+### 5.3 Marking entries for bulk operations
+
+`:mv *.md notes` now covers the common case, but the general feature is a mark set:
+`Space` to mark, marks shown in the listing, and `:mv`/`:cp`/`dd` acting on them. That
+makes globs optional sugar and covers the cases a pattern cannot express — "these four,
+not those two". It needs decisions about the marking key, how marks survive navigation and
+whether a marked delete confirms once or per entry, so it is a feature rather than a fix.
+
+### 5.4 Stray characters on `.png` and `.bbmodel`
 
 Reported as characters appearing outside the preview, cleared by any redraw, reproducing
-on `.png` and `.bbmodel` but not `.jpg`. One cause is provable and is being fixed with
-§2.3: preview text is rendered without stripping control characters. The `.png` half is
-not, because it depends on which terminal was in use — inline-image protocol detection
+on `.png` and `.bbmodel` but not `.jpg`. One cause was provable and is fixed: preview text
+was rendered without stripping control characters, and `preview::provider::sanitize` now
+replaces them. That covers `.bbmodel`, which is text. The `.png` half is not covered,
+because it depends on which terminal was in use — inline-image protocol detection
 floors at Halfblocks in Windows Terminal, which is safe, but resolves to iTerm2 in the
 VS Code terminal, whose base64 payload prints as garbage where it is unsupported. Settling
 it needs the terminal the artifacts were seen in; the image matrix is listed as
