@@ -15,6 +15,10 @@ use tempfile::TempDir;
 use trail::app::mode::Mode;
 use trail::app::state::{AppState, EntryKind};
 
+/// The prefix Windows canonicalization leaves on an absolute path. It must
+/// never reach anything a user reads or pastes.
+const VERBATIM_PREFIX: &str = r"\\?\";
+
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
 /// Creates a predictable temp directory layout:
@@ -280,7 +284,7 @@ fn history_back_then_forward() {
     state.enter_dir(subdir.clone()).unwrap();
 
     state.history_back().unwrap();
-    let expected_root = dir.path().canonicalize().unwrap_or(dir.path().to_owned());
+    let expected_root = trail::pathfmt::canonicalize(dir.path()).unwrap_or(dir.path().to_owned());
     assert_eq!(state.cwd, expected_root);
 
     state.history_forward().unwrap();
@@ -365,7 +369,7 @@ fn go_parent_navigates_up() {
     let dir = make_test_dir();
     let subdir = dir.path().join("alpha_dir");
     let mut state = AppState::new(subdir).unwrap();
-    let expected = dir.path().canonicalize().unwrap_or(dir.path().to_owned());
+    let expected = trail::pathfmt::canonicalize(dir.path()).unwrap_or(dir.path().to_owned());
     state.go_parent().unwrap();
     assert_eq!(state.cwd, expected);
 }
@@ -1042,6 +1046,72 @@ fn preview_scroll_actions_reach_the_state() {
 
     apply(Action::PreviewScrollTop, &mut state).unwrap();
     assert_eq!(state.preview.scroll, 0);
+}
+
+// ── Path rendering ────────────────────────────────────────────────────────────
+
+/// Regression: `cwd` is canonicalized at startup, and on Windows that hands
+/// back the extended-length form. The status bar and the nav panel title both
+/// read from here, so the prefix was showing above every listing.
+#[test]
+fn cwd_display_never_shows_an_extended_length_prefix() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    assert!(
+        !state.status.cwd_display.contains(VERBATIM_PREFIX),
+        "startup cwd leaked a verbatim prefix: {}",
+        state.status.cwd_display
+    );
+
+    // And it must stay gone after navigating, since `cwd` is rebuilt there.
+    state.enter_dir(dir.path().join("alpha_dir")).unwrap();
+    assert!(
+        !state.status.cwd_display.contains(VERBATIM_PREFIX),
+        "cwd leaked a verbatim prefix after navigating: {}",
+        state.status.cwd_display
+    );
+    assert!(state.status.cwd_display.ends_with("alpha_dir"));
+}
+
+/// Entries are listed out of `cwd`, so they inherit its spelling — which is
+/// what `ya` yanks and what every error message quotes.
+#[test]
+fn entry_paths_never_carry_an_extended_length_prefix() {
+    let dir = make_test_dir();
+    let state = AppState::new(dir.path().to_owned()).unwrap();
+    for entry in &state.entries {
+        assert!(
+            !entry.path.to_string_lossy().contains(VERBATIM_PREFIX),
+            "entry leaked a verbatim prefix: {}",
+            entry.path.display()
+        );
+        assert!(entry.path.exists(), "entry must still resolve");
+    }
+}
+
+/// Regression: `:jump` hands `enter_dir` a path straight out of the bookmark
+/// store, and a store written by an earlier build holds the verbatim form. If
+/// `enter_dir` took it as given, one jump would put the prefix back into `cwd`
+/// and from there into every entry path and yank.
+#[test]
+fn entering_a_verbatim_path_normalizes_it() {
+    let dir = make_test_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    let target = dir.path().join("alpha_dir");
+    // How a pre-fix build would have stored it.
+    let as_stored = std::fs::canonicalize(&target).unwrap();
+    state.enter_dir(as_stored).unwrap();
+
+    assert!(
+        !state.cwd.to_string_lossy().contains(VERBATIM_PREFIX),
+        "cwd kept a verbatim prefix handed in from outside: {}",
+        state.cwd.display()
+    );
+    assert!(state.cwd.ends_with("alpha_dir"));
+    for entry in &state.entries {
+        assert!(!entry.path.to_string_lossy().contains(VERBATIM_PREFIX));
+    }
 }
 
 // ── `[general] shell` reaches the commands that need an interpreter ───────────

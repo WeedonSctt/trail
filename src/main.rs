@@ -14,6 +14,7 @@ mod app;
 mod cli;
 mod config;
 mod input;
+mod pathfmt;
 mod paths;
 mod plugin;
 mod preview;

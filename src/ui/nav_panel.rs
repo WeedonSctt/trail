@@ -13,6 +13,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
 use ratatui::Frame;
 
 use crate::app::state::{AppState, EntryKind, GitFileStatus};
+use crate::pathfmt;
 use crate::ui::theme;
 
 /// Draws the navigation panel into `area`.
@@ -33,7 +34,7 @@ use crate::ui::theme;
 /// - `R` (cyan) — renamed
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let styles = theme::resolve(&state.config.theme);
-    let title = format!(" {} ", state.cwd.display());
+    let title = format!(" {} ", pathfmt::display(&state.cwd));
 
     let items: Vec<ListItem> = state
         .filtered_entries()

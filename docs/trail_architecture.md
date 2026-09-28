@@ -50,6 +50,18 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Status bar | Pure reflection of current state — path, mode, filter, branch, entry count |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
 | Command mode parser | History, completion, validation for parameterized actions (rename, create, shell exec) |
+| Path formatter | Single place that decides how a path is spelled for a person versus for the OS (`src/pathfmt.rs`) |
+
+### Path rendering
+
+`std::fs::canonicalize` returns absolute Windows paths in extended-length form — `\\?\C:\Users\me`, not `C:\Users\me`. Trail canonicalizes `cwd` at startup, so every path derived from it (entry paths, the nav panel title, the status bar, `ya`, the `--cwd-file` handoff, `trail --paths`) inherits that spelling unless something removes it.
+
+`src/pathfmt.rs` is the one place that does, and it draws a line the call sites used to blur:
+
+- **`display`** renders for a human and always drops the prefix. The result is text and is never reopened, so it cannot break a path.
+- **`simplified`** rewrites a path Trail keeps using, and drops the prefix only when the plain spelling names the same file. Paths past `MAX_PATH`, reserved DOS device names, and components Win32 would reinterpret keep the prefix and stay correct. It is the identity off Windows, where a backslash is an ordinary character in a file name.
+
+`AppState::cwd` holds the `simplified` form, so the prefix is gone before it can spread rather than being stripped again at each display site.
 
 ### Program logic — main loop
 

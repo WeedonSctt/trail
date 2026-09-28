@@ -218,10 +218,10 @@ fn entry(path: &std::path::Path) -> String {
 /// `canonicalize` returns Windows paths in extended-length form (`\\?\C:\…`),
 /// which is correct, accepted by the API, and unreadable in a report — and
 /// would be pasted straight into a shell by anyone following the uninstall
-/// docs. The prefix is display-only, so dropping it loses nothing.
+/// docs. See [`crate::pathfmt`] for why dropping the prefix is safe here and
+/// conditional everywhere the path goes back to the filesystem.
 fn display_path(path: &std::path::Path) -> String {
-    let text = path.display().to_string();
-    text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
+    crate::pathfmt::display(path)
 }
 
 #[cfg(test)]
