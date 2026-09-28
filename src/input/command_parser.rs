@@ -620,6 +620,9 @@ pub fn feed_with_plugins(
             if *cursor > 0 {
                 *cursor = prev_char_boundary(buffer, *cursor);
             }
+            // Moving the cursor abandons the completion cycle: the next `Tab`
+            // should complete where the cursor is now, not where it started.
+            tab_state.reset();
             FeedResult::Updated
         }
 
@@ -627,6 +630,7 @@ pub fn feed_with_plugins(
             if *cursor < buffer.len() {
                 *cursor = next_char_boundary(buffer, *cursor);
             }
+            tab_state.reset();
             FeedResult::Updated
         }
 
@@ -675,14 +679,19 @@ pub fn feed_with_plugins(
         }
 
         KeyCode::Tab => {
-            let candidates = completions_with_plugins(buffer, cwd, is_shell, plugin_actions);
+            // Candidates come from the text that opened the cycle, not from the
+            // buffer — the previous `Tab` has already overwritten that with a
+            // candidate, and completing a completion is how the cycle used to
+            // get stuck on its first answer.
+            let prefix = tab_state.cycle_prefix(buffer);
+            let candidates = completions_with_plugins(&prefix, cwd, is_shell, plugin_actions);
             if candidates.is_empty() {
                 return FeedResult::Updated;
             }
             // Cycle to the next candidate.
             let idx = tab_state.advance(candidates.len());
-            // Apply the completion: replace the current token with the candidate.
-            apply_completion(buffer, cursor, &candidates[idx], is_shell);
+            // Apply the completion: replace the completed token with the candidate.
+            apply_completion(buffer, cursor, &prefix, &candidates[idx], is_shell);
             FeedResult::Completion {
                 candidates,
                 index: idx,
@@ -691,11 +700,13 @@ pub fn feed_with_plugins(
 
         KeyCode::Home => {
             *cursor = 0;
+            tab_state.reset();
             FeedResult::Updated
         }
 
         KeyCode::End => {
             *cursor = buffer.len();
+            tab_state.reset();
             FeedResult::Updated
         }
 
@@ -719,17 +730,40 @@ pub fn feed_with_plugins(
 pub struct TabState {
     /// Current position in the candidate list (cycling).
     index: Option<usize>,
+    /// The buffer text the cycle is completing, captured on the first `Tab`.
+    ///
+    /// Applying a completion overwrites the buffer, so the text the user
+    /// actually typed is gone by the second `Tab`. Without it, candidates were
+    /// recomputed from the completed buffer: `:m` + `Tab` gives `mkdir `, which
+    /// contains a space, so the next `Tab` took the path-completion branch,
+    /// found `mkdir` is not `mv`/`cp`, and returned nothing — `mv` could never
+    /// be reached.
+    prefix: Option<String>,
 }
 
 impl TabState {
     /// Creates a new, idle `TabState`.
     pub fn new() -> Self {
-        TabState { index: None }
+        TabState {
+            index: None,
+            prefix: None,
+        }
     }
 
     /// Resets the completion cycle (called on any non-Tab keystroke).
     pub fn reset(&mut self) {
         self.index = None;
+        self.prefix = None;
+    }
+
+    /// Returns the text this cycle completes, starting a cycle at `buffer` when
+    /// none is running.
+    ///
+    /// Every `Tab` in the same cycle therefore sees the same candidate list, in
+    /// the same order, which is what makes [`TabState::advance`] step through it
+    /// rather than re-deciding it.
+    pub fn cycle_prefix(&mut self, buffer: &str) -> String {
+        self.prefix.get_or_insert_with(|| buffer.to_owned()).clone()
     }
 
     /// Advances to the next completion and returns the new index.
@@ -745,27 +779,29 @@ impl TabState {
     }
 }
 
-/// Applies a completion candidate to the command buffer.
+/// Rewrites `buffer` as `prefix` with its last token replaced by `candidate`.
 ///
-/// For verb completion (no space in buffer): replaces the whole buffer.
-/// For path completion (space present): replaces only the last token.
-fn apply_completion(buffer: &mut String, cursor: &mut usize, candidate: &str, is_shell: bool) {
+/// `prefix` is what the user typed before the cycle started, not the current
+/// buffer: the buffer already holds the previous candidate, and replacing that
+/// one's last token would compound completions instead of offering the next.
+///
+/// For verb completion (no space in `prefix`) the candidate is the whole line.
+/// For path completion everything up to the last space is kept.
+fn apply_completion(
+    buffer: &mut String,
+    cursor: &mut usize,
+    prefix: &str,
+    candidate: &str,
+    is_shell: bool,
+) {
     if is_shell {
         return; // Shell completions not handled here.
     }
-    if !buffer.contains(' ') {
-        // Verb completion — replace entire buffer.
-        *buffer = candidate.to_owned();
-        *cursor = buffer.len();
-    } else {
-        // Path completion — replace the last space-delimited token.
-        if let Some(last_space) = buffer.rfind(' ') {
-            let prefix_end = last_space + 1;
-            buffer.truncate(prefix_end);
-            buffer.push_str(candidate);
-            *cursor = buffer.len();
-        }
-    }
+    *buffer = match prefix.rfind(' ') {
+        Some(last_space) => format!("{}{candidate}", &prefix[..=last_space]),
+        None => candidate.to_owned(),
+    };
+    *cursor = buffer.len();
 }
 
 // ── UTF-8 cursor helpers ─────────────────────────────────────────────────────
@@ -1053,6 +1089,110 @@ mod tests {
         let h2 = CommandHistory::with_path(path);
         assert_eq!(h2.len(), 2);
         assert_eq!(h2.prev(0), Some("touch bar"));
+    }
+
+    // ── feed (tab completion) ──────────────────────────────────────────────────
+
+    /// Presses `Tab` `times` times against `buffer` and returns what the buffer
+    /// became, driving the same `TabState` throughout as a real session does.
+    fn tab_cycle(buffer: &str, cwd: &Path, times: usize) -> Vec<String> {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let mut buf = buffer.to_owned();
+        let mut cursor = buf.len();
+        let mut hist_idx = None;
+        let mut tab = TabState::new();
+        let h = CommandHistory::new();
+        let key = KeyEvent {
+            code: KeyCode::Tab,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        (0..times)
+            .map(|_| {
+                feed(
+                    key,
+                    &mut buf,
+                    &mut cursor,
+                    &mut hist_idx,
+                    &mut tab,
+                    &h,
+                    cwd,
+                    false,
+                );
+                buf.clone()
+            })
+            .collect()
+    }
+
+    /// The bug this guards: applying a completion overwrote the buffer, and the
+    /// next `Tab` recomputed candidates from *that*. `:m` completed to `mkdir `,
+    /// which contains a space, so the second `Tab` looked for path completions
+    /// for a verb that takes none and found nothing — `mv` was unreachable.
+    #[test]
+    fn tab_cycles_through_verb_completions_and_wraps() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            tab_cycle("m", dir.path(), 3),
+            vec!["mkdir ", "mv ", "mkdir "],
+            "Tab must step through every verb sharing the prefix, then wrap"
+        );
+    }
+
+    #[test]
+    fn tab_cycles_through_path_completions() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("alpha.txt"), b"").unwrap();
+        fs::write(dir.path().join("alpine.txt"), b"").unwrap();
+
+        assert_eq!(
+            tab_cycle("mv al", dir.path(), 3),
+            vec!["mv alpha.txt", "mv alpine.txt", "mv alpha.txt"],
+            "a destination with two matches must offer both"
+        );
+    }
+
+    /// Typing anything ends the cycle, so the next `Tab` completes what is on
+    /// the line now rather than continuing an abandoned list.
+    #[test]
+    fn editing_restarts_the_completion_cycle() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf = "m".to_owned();
+        let mut cursor = buf.len();
+        let mut hist_idx = None;
+        let mut tab = TabState::new();
+        let h = CommandHistory::new();
+        let press = |code| KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+
+        let mut send = |code, buf: &mut String, cursor: &mut usize| {
+            feed(
+                press(code),
+                buf,
+                cursor,
+                &mut hist_idx,
+                &mut tab,
+                &h,
+                dir.path(),
+                false,
+            );
+        };
+
+        send(KeyCode::Tab, &mut buf, &mut cursor);
+        assert_eq!(buf, "mkdir ");
+        // Backspace leaves "mkdir", which is a complete verb on its own.
+        send(KeyCode::Backspace, &mut buf, &mut cursor);
+        send(KeyCode::Tab, &mut buf, &mut cursor);
+        assert_eq!(
+            buf, "mkdir ",
+            "the new cycle completes the edited text, not the old prefix"
+        );
     }
 
     // ── feed (cursor movement) ─────────────────────────────────────────────────
