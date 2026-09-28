@@ -66,6 +66,8 @@ fn spawn_directory_preview(
             // The directory preview's own entry cap is not reported here; only
             // the text path tracks truncation against `[preview] max_lines`.
             truncated: false,
+            // A directory is neither text nor binary; there is nothing to cache.
+            is_text: None,
         };
         // If the channel is closed the UI thread has exited; ignore the error.
         let _ = tx.send(msg).await;

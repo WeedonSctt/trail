@@ -86,6 +86,14 @@ pub enum WorkerMsg {
         /// Whether the file continues past the loaded content, because the
         /// worker stopped at `[preview] max_lines`.
         truncated: bool,
+        /// Whether the worker found the file to be text, or `None` when it never
+        /// got far enough to tell.
+        ///
+        /// Cached on the matching entry by [`merge`] even when the preview
+        /// itself is stale: it is a fact about the file, not about the selection,
+        /// and it is what spares the next preview of that entry a worker round
+        /// trip.
+        is_text: Option<bool>,
     },
 
     /// Image metadata (dimensions, format) is ready.
@@ -165,7 +173,15 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             path,
             content,
             truncated,
+            is_text,
         } => {
+            // Applied before either guard: what a file *is* does not go stale
+            // when the selection moves, and caching it is what keeps the next
+            // preview of this entry off the worker pool.
+            if let Some(is_text) = is_text {
+                state.classify_entry(&path, is_text);
+            }
+
             // Generation-guard: drop if the selection has moved on.
             if generation != state.preview.generation {
                 tracing::debug!(

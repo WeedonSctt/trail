@@ -1,11 +1,13 @@
 //! Text file preview provider.
 //!
-//! Provides preview content for text files. All text previews are deferred to
-//! `workers/highlight.rs` via the async worker pool — no blocking I/O is
-//! performed on the UI thread. The `Loading` placeholder is shown until the
-//! worker delivers the highlighted content. The `is_text_file` helper is called
-//! once per file at listing time (in `Entry::from_dir_entry`) and the result
-//! cached on the entry, so `TextProvider::can_handle` never reads from disk.
+//! Provides preview content for text files, and for files not yet known to be
+//! anything else. Every preview is deferred to `workers/highlight.rs` via the
+//! async worker pool — no blocking I/O is performed on the UI thread — and the
+//! `Loading` placeholder is shown until the worker delivers its result.
+//!
+//! `can_handle` therefore takes any regular file except one already classified
+//! as binary: the worker has to read the file anyway, so it is the cheapest
+//! place to find out which it is. [`is_text_file`] is the probe it uses.
 
 use std::fs;
 use std::path::Path;
@@ -17,12 +19,11 @@ use crate::preview::provider::{
     sanitize, PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider,
 };
 
-/// Byte threshold that separates synchronous (≤ threshold) from asynchronous
-/// (> threshold) text preview.
+/// Most bytes of a file the preview will read.
 ///
-/// Files at or under this size are highlighted synchronously on the UI thread;
-/// larger files are deferred to the highlight worker. This value is hardcoded
-/// The runtime threshold is supplied through `PreviewCtx` from config.
+/// Every text preview is off-thread now, so this is no longer a
+/// synchronous/asynchronous boundary — it is the ceiling that keeps one read
+/// bounded, and a preview that hits it is reported as truncated.
 ///
 /// Named constant per coding-standard §10: no magic numbers.
 pub const TEXT_SYNC_THRESHOLD: usize = 256 * 1024; // 256 KB
@@ -34,12 +35,11 @@ pub const TEXT_PREVIEW_MAX_BYTES: usize = TEXT_SYNC_THRESHOLD;
 #[allow(dead_code)]
 const TEXT_PREVIEW_MAX_LINES: usize = 500;
 
-/// Synchronous/async preview provider for text files.
+/// Preview provider for text files and for files not yet classified.
 ///
-/// - Files ≤ `TEXT_SYNC_THRESHOLD`: highlighted synchronously via `syntect`.
-/// - Files > `TEXT_SYNC_THRESHOLD`: `PreviewOutcome::Deferred` returned;
-///   `workers::highlight::spawn_highlight` is called to do the work off-thread.
-/// - Binary files: not handled here — `BinaryProvider` takes those.
+/// Always returns `PreviewOutcome::Deferred`: `workers::highlight` reads the
+/// file, decides whether it is text, and highlights it if so. A file already
+/// known to be binary is left to `BinaryProvider`, which needs no worker.
 pub struct TextProvider;
 
 impl PreviewProvider for TextProvider {
@@ -48,21 +48,23 @@ impl PreviewProvider for TextProvider {
         if entry.kind != EntryKind::File {
             return false;
         }
-        // Use the cached result from listing time — no I/O on the UI thread.
-        entry.is_text == Some(true)
+        // Take anything not already known to be binary. An unclassified file
+        // lands here rather than on the binary provider because the worker this
+        // spawns has to read the file to preview it anyway, and can answer the
+        // question on the way past — whereas answering it here would mean
+        // reading from disk on the UI thread.
+        entry.is_text != Some(false)
     }
 
     fn preview(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
-        // Always spawn the async highlight worker, regardless of file size.
+        // Always spawn the worker, regardless of file size.
         //
-        // Previously, files under `text_sync_threshold_bytes` were highlighted
-        // synchronously on the UI thread. That stalled the event loop for any
-        // file large enough to take perceptible time to read and highlight.
-        //
-        // Routing every text file through the worker keeps the UI thread free.
-        // The `Loading` placeholder is shown for the brief async window, and the
-        // generation-guard in `workers::merge` discards stale results when the
-        // user navigates away before the worker finishes.
+        // Files under a size threshold used to be highlighted synchronously on
+        // the UI thread, which stalled the event loop for any file big enough to
+        // take perceptible time. Routing every file through the worker keeps the
+        // thread free; the `Loading` placeholder covers the async window, and the
+        // generation-guard in `workers::merge` discards results for a selection
+        // the user has already left.
         crate::workers::highlight::spawn_highlight(
             entry.path.clone(),
             ctx.generation,

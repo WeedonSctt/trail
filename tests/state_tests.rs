@@ -733,6 +733,7 @@ fn preview_merge_matching_generation_applies() {
             path: path.clone(),
             content: content.clone(),
             truncated: false,
+            is_text: Some(true),
         },
         &mut state,
     );
@@ -756,6 +757,7 @@ fn preview_merge_stale_generation_dropped() {
             path: path.clone(),
             content: PreviewContent::Text(vec!["stale".to_owned()]),
             truncated: false,
+            is_text: Some(true),
         },
         &mut state,
     );
@@ -778,6 +780,7 @@ fn preview_merge_path_mismatch_dropped() {
             path: stale_path,
             content: PreviewContent::Text(vec!["wrong".to_owned()]),
             truncated: false,
+            is_text: Some(true),
         },
         &mut state,
     );

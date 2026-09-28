@@ -93,10 +93,16 @@ pub struct Entry {
     /// Git status, populated asynchronously by the git worker (Phase 4).
     /// `None` before the worker reports back, or outside a git repo.
     pub git_status: Option<GitFileStatus>,
-    /// Whether this entry is a text file, as determined by a content-inspection
-    /// probe at listing time. `None` for non-regular-file entries (directories,
-    /// symlinks). Populated once in `from_dir_entry` so that
-    /// `TextProvider::can_handle` can return without performing any I/O.
+    /// Whether this entry is a text file, once anything has had reason to find
+    /// out. `None` means "not yet classified", which is the state every entry
+    /// starts in.
+    ///
+    /// This used to be decided for every file during the directory listing,
+    /// which meant opening and reading 8 KB of each one on the UI thread — a
+    /// directory of 500 files cost 500 reads per navigation. The answer is now
+    /// produced by the highlight worker, which has to read the file anyway, and
+    /// cached here by `workers::merge` so the next preview of the same entry is
+    /// immediate.
     pub is_text: Option<bool>,
 }
 
@@ -105,10 +111,10 @@ impl Entry {
     ///
     /// Returns `None` if the file name cannot be represented as UTF-8.
     ///
-    /// For regular files the first 8 KB are read once here (via
-    /// `content_inspector`) to populate `is_text`. This is the only place
-    /// that probe runs; `TextProvider::can_handle` reads `is_text` directly
-    /// without any further I/O.
+    /// Performs no I/O beyond the `stat` the directory iterator already carries:
+    /// whether a file is text is left to the worker that reads it, because
+    /// answering it here cost one open and one 8 KB read per entry, on the UI
+    /// thread, every time a directory was listed.
     fn from_dir_entry(de: &fs::DirEntry) -> Option<Self> {
         let path = de.path();
         let file_name = path.file_name()?.to_str()?.to_owned();
@@ -128,14 +134,6 @@ impl Entry {
             EntryKind::File
         };
 
-        // Probe text vs. binary once at listing time; only meaningful for
-        // regular files. Directories and symlinks leave is_text as None.
-        let is_text = if kind == EntryKind::File {
-            Some(crate::preview::text::is_text_file(&path))
-        } else {
-            None
-        };
-
         Some(Entry {
             path,
             file_name,
@@ -143,7 +141,8 @@ impl Entry {
             is_hidden,
             metadata,
             git_status: None,
-            is_text,
+            // Unknown until something reads the file. See the field's docs.
+            is_text: None,
         })
     }
 }
@@ -709,6 +708,19 @@ impl AppState {
         }
         let found = anchor.and_then(|path| self.index_of_path(path));
         self.selected = found.unwrap_or_else(|| fallback.min(count - 1));
+    }
+
+    /// Records what a worker found out about whether `path` is text.
+    ///
+    /// The classification is a fact about the file rather than about the current
+    /// selection, so it is worth keeping even when the preview it arrived with is
+    /// stale: it is what lets the *next* preview of the same entry go straight to
+    /// the right provider instead of deferring to a worker again. Silently
+    /// ignores a path that is not in the current listing.
+    pub fn classify_entry(&mut self, path: &Path, is_text: bool) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.path == path) {
+            entry.is_text = Some(is_text);
+        }
     }
 
     /// Records which entry is selected in `cwd`, for [`AppState::load_dir`] to

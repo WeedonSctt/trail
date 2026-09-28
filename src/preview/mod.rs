@@ -29,15 +29,17 @@ use crate::preview::text::TextProvider;
 ///
 /// 1. `DirectoryProvider` — catches all directory entries (fastest path).
 /// 2. `ImageProvider` — catches image files before the binary provider.
-/// 3. `TextProvider` — catches text files (uses `content_inspector`).
-/// 4. `BinaryProvider` — catch-all for any remaining regular files.
+/// 3. `TextProvider` — catches text files, and files not yet classified.
+/// 4. `BinaryProvider` — files already known to be binary.
 pub fn register_defaults(registry: &mut PreviewRegistry) {
     // 1. Directories always match `EntryKind::Dir`.
     registry.register(Box::new(DirectoryProvider));
-    // 2. Image files (checked by extension before content inspection).
+    // 2. Image files (checked by extension, so routing needs no read).
     registry.register(Box::new(ImageProvider));
-    // 3. Text files (detected by content-inspection of the first 8 KB).
+    // 3. Text files, plus anything unclassified: the worker it spawns reads the
+    //    file and reports back which it is.
     registry.register(Box::new(TextProvider));
-    // 4. Binary catch-all: every regular file that isn't text or image.
+    // 4. Files a worker already classified as binary, previewed synchronously
+    //    from listing metadata.
     registry.register(Box::new(BinaryProvider));
 }

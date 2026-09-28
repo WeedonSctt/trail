@@ -1,15 +1,17 @@
 //! Binary file preview provider.
 //!
 //! Displays file metadata (size, type, modification timestamp) for non-text,
-//! non-image binary files. The metadata read is done on a worker task to avoid
-//! blocking the UI thread on slow filesystems.
+//! non-image binary files, from the metadata the directory listing already
+//! collected — so this provider performs no I/O of its own.
 //!
 //! Entry routing:
-//! - `ImageProvider` matches image files first (registered before `BinaryProvider`
-//!   in the registry).
-//! - `BinaryProvider` catches everything else that `TextProvider` and
-//!   `DirectoryProvider` did not handle — i.e. any file whose first 8 KB looks
-//!   binary to `content_inspector`.
+//! - `ImageProvider` matches image files first (registered before
+//!   `BinaryProvider` in the registry).
+//! - `TextProvider` takes every file *not yet* classified, because the worker it
+//!   spawns reads the file and can classify it on the way past.
+//! - `BinaryProvider` therefore serves files already known to be binary: the
+//!   second and later previews of one, after `workers::merge` cached what that
+//!   worker found.
 
 use std::path::Path;
 
@@ -40,11 +42,11 @@ impl PreviewProvider for BinaryProvider {
         if is_image_path(&entry.path) {
             return false;
         }
-        // All non-text regular files.
-        // `TextProvider` runs before us in the registry, so if we're called
-        // with a file, `TextProvider::can_handle` returned false — meaning the
-        // file is binary.
-        true
+        // Only a file already *known* to be binary. `TextProvider` runs first
+        // and takes every unclassified file, so this arm is reached on the
+        // second and later previews of a binary file — the highlight worker
+        // classified it the first time and `workers::merge` cached that.
+        entry.is_text == Some(false)
     }
 
     fn preview(&self, entry: &Entry, _ctx: &PreviewCtx) -> PreviewOutcome {
