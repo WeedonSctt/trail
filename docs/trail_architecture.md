@@ -135,7 +135,7 @@ Everything that is optional, variable-latency, or explicitly deferred in the spe
 |---|---|
 | Git status worker | Computes repo indicator, branch, optional per-file status; cached, invalidated on fs events |
 | Filesystem watcher | Watches the current directory via `notify`; debounces bursts of events (e.g. a `git checkout`) into a single refresh signal |
-| Syntax highlighter | Highlights text file previews off-thread for large files |
+| Preview worker | Reads a file off-thread, classifies it as text or binary, and highlights the text with `syntect`. The classification travels back with the preview and is cached on the entry, so the directory listing never has to read a file to decide what it is |
 | Image worker | Decodes the image off-thread and builds the encoder state for the active graphics protocol; resize and re-encode happen on the UI thread only when the preview pane changes size |
 
 ### Program logic
@@ -147,11 +147,11 @@ on directory_change or fs_event:
 
 on selection_change(entry):
     match entry.kind:
-        Directory -> synchronous (cheap: read_dir + counts)
-        TextFile  -> if size > threshold: spawn_task: highlight(path) -> send WorkerResult::Preview(...)
-                     else: synchronous
-        Binary    -> spawn_task: read_metadata(path) -> send WorkerResult::Preview(...)
-        Image     -> spawn_task: decode_image(path)  -> send WorkerResult::Preview(...)
+        Directory      -> synchronous (cheap: read_dir + counts)
+        Image          -> spawn_task: decode_image(path) -> send WorkerResult::ImageMeta(...)
+        known Binary   -> synchronous (metadata the listing already read)
+        anything else  -> spawn_task: preview(path) -> classify, highlight if text
+                          -> send WorkerResult::Preview(content, is_text)
 ```
 
 Key properties:

@@ -85,9 +85,9 @@ const CONTROL_PLACEHOLDER: char = '·';
 /// it the reason the renderer cleared the whole screen on every frame.
 ///
 /// Tabs become spaces (a terminal advances to its own next tab stop, which no
-/// pane layout can predict) and every other control character becomes
-/// [`CONTROL_PLACEHOLDER`], so the line keeps its length in cells and the
-/// preview stays honest about what is in the file.
+/// pane layout can predict) and every other control character becomes a middle
+/// dot, so the line keeps its length in cells and the preview stays honest about
+/// what is in the file.
 ///
 /// Bidirectional and zero-width characters are left alone: they are legitimate
 /// text content, and the terminal draws rather than executes them.

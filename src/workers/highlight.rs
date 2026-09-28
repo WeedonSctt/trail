@@ -1,12 +1,18 @@
 //! Syntax highlighting worker.
 //!
-//! Highlights text files off-thread for files over `TEXT_SYNC_THRESHOLD`.
-//! Small files are highlighted synchronously in `preview/text.rs` via
-//! `highlight_text`. Both paths use the same `syntect` pipeline so the
-//! output type is consistent.
+//! Previews every text file off-thread: reads it, classifies it as text or
+//! binary, and highlights it with `syntect`. Nothing here runs on the UI thread,
+//! and the syntax and theme sets are parsed once for the process rather than per
+//! preview.
+//!
+//! A file that turns out to be binary comes back as the same metadata preview
+//! `preview/binary.rs` builds, together with the classification, which
+//! `workers::merge` caches on the entry so the next preview of it is
+//! synchronous.
 
 use std::io::BufRead;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use syntect::easy::HighlightFile;
 use syntect::highlighting::ThemeSet;
@@ -21,6 +27,27 @@ use crate::workers::WorkerMsg;
 /// `base16-ocean.dark` is a widely supported theme bundled with syntect's
 /// default theme set. Theme colors are configurable through Phase 7 config.
 const DEFAULT_THEME: &str = "base16-ocean.dark";
+
+/// syntect's bundled syntax definitions, parsed once for the process.
+///
+/// Both of these used to be built inside the highlight call, which meant parsing
+/// every bundled syntax and theme *per preview* — once for each row the user
+/// scrolled past. That is tens of milliseconds and a few megabytes of
+/// allocation each time, and it is the same answer every time.
+static SYNTAX_SET: OnceLock<SyntaxSet> = OnceLock::new();
+
+/// syntect's bundled themes, parsed once for the process. See [`SYNTAX_SET`].
+static THEME_SET: OnceLock<ThemeSet> = OnceLock::new();
+
+/// The process-wide syntax set, built on first use.
+fn syntax_set() -> &'static SyntaxSet {
+    SYNTAX_SET.get_or_init(SyntaxSet::load_defaults_newlines)
+}
+
+/// The process-wide theme set, built on first use.
+fn theme_set() -> &'static ThemeSet {
+    THEME_SET.get_or_init(ThemeSet::load_defaults)
+}
 
 /// Highlights `path` off-thread, sending a `WorkerMsg::Preview` result back
 /// through `tx` tagged with `generation`.
@@ -43,20 +70,60 @@ pub fn spawn_highlight(
 ) {
     tokio::spawn(async move {
         let path_for_msg = path.clone();
-        let (content, truncated) =
-            tokio::task::spawn_blocking(move || highlight_file_sync(&path, max_lines))
-                .await
-                .unwrap_or_else(|_| (plain_text_fallback_empty(), false));
+        let outcome = tokio::task::spawn_blocking(move || preview_file_sync(&path, max_lines))
+            .await
+            .unwrap_or(Outcome {
+                content: plain_text_fallback_empty(),
+                truncated: false,
+                is_text: None,
+            });
 
         let msg = WorkerMsg::Preview {
             generation,
             path: path_for_msg,
-            content,
-            truncated,
+            content: outcome.content,
+            truncated: outcome.truncated,
+            is_text: outcome.is_text,
         };
         // If the channel is closed the UI thread has exited; ignore the error.
         let _ = tx.send(msg).await;
     });
+}
+
+/// What one run of the worker produced.
+struct Outcome {
+    /// The content to draw.
+    content: PreviewContent,
+    /// Whether the file continues past what was loaded.
+    truncated: bool,
+    /// Whether the file turned out to be text, when the worker got far enough to
+    /// tell. Cached on the entry by `workers::merge`.
+    is_text: Option<bool>,
+}
+
+/// Classifies `path` and builds the preview that suits it.
+///
+/// The text/binary question is answered here rather than during the directory
+/// listing because this worker opens the file regardless: probing every entry up
+/// front cost an open and an 8 KB read per file, on the UI thread, each time a
+/// directory was listed. A binary file gets the same metadata preview the
+/// synchronous [`crate::preview::binary`] provider would have produced, and the
+/// answer travels back so the next preview of that entry needs no worker at all.
+fn preview_file_sync(path: &std::path::Path, max_lines: usize) -> Outcome {
+    if !crate::preview::text::is_text_file(path) {
+        return Outcome {
+            content: crate::preview::binary::build_binary_preview(path, None),
+            truncated: false,
+            is_text: Some(false),
+        };
+    }
+
+    let (content, truncated) = highlight_file_sync(path, max_lines);
+    Outcome {
+        content,
+        truncated,
+        is_text: Some(true),
+    }
 }
 
 /// Performs the blocking syntect highlight operation.
@@ -66,10 +133,8 @@ pub fn spawn_highlight(
 /// if syntect cannot find a matching syntax, paired with whether the file has
 /// more lines than `max_lines`.
 fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewContent, bool) {
-    // SyntaxSet and ThemeSet are cheap to clone; building them here avoids the
-    // need to share them across threads (they are not Sync in all syntect versions).
-    let ss = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
+    let ss = syntax_set();
+    let ts = theme_set();
 
     let theme = ts.themes.get(DEFAULT_THEME).unwrap_or_else(|| {
         // Any bundled theme works; fall back to the first available.
@@ -79,7 +144,7 @@ fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewCont
             .expect("syntect ships at least one theme")
     });
 
-    let mut highlighter = match HighlightFile::new(path, &ss, theme) {
+    let mut highlighter = match HighlightFile::new(path, ss, theme) {
         Ok(h) => h,
         Err(_) => return plain_text_fallback(path, max_lines),
     };
@@ -107,7 +172,7 @@ fn highlight_file_sync(path: &std::path::Path, max_lines: usize) -> (PreviewCont
         // actually rendered.
         let line_text = sanitize(line_buf.trim_end_matches(['\n', '\r']));
 
-        let regions = match highlighter.highlight_lines.highlight_line(&line_text, &ss) {
+        let regions = match highlighter.highlight_lines.highlight_line(&line_text, ss) {
             Ok(r) => r,
             Err(_) => break,
         };

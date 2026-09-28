@@ -661,7 +661,17 @@ fn handle_worker_msg(
 
                 // Refresh the directory listing.
                 if let Err(e) = state.refresh() {
-                    tracing::debug!("refresh after FsChanged failed: {e}");
+                    // The directory we are watching can no longer be listed —
+                    // deleted, renamed, or a mount that went away. The watch is
+                    // pointing at something that is not there any more, so this
+                    // is the one case that has to re-arm it.
+                    tracing::warn!("refresh after FsChanged failed: {e}");
+                    resubscribe_fswatch(
+                        state.cwd.clone(),
+                        worker_tx,
+                        fs_watch_handle,
+                        state.config.general.fs_watch_debounce_ms,
+                    );
                 }
 
                 // Re-spawn the git worker for the now-refreshed directory.
@@ -688,13 +698,17 @@ fn handle_worker_msg(
                 tracing::debug!(?changed_path, "git branch change detected via .git/HEAD");
             }
 
-            // Regardless, resubscribe (the OS may have replaced the watched inode).
-            resubscribe_fswatch(
-                state.cwd.clone(),
-                worker_tx,
-                fs_watch_handle,
-                state.config.general.fs_watch_debounce_ms,
-            );
+            // The watch is *not* re-armed here. It used to be, on every event,
+            // which meant tearing down and rebuilding a `notify` watcher — a
+            // thread and a directory handle — for each debounced burst, on top
+            // of a re-listing and a git worker. A build writing into the watched
+            // directory therefore cost more in bookkeeping than in the work the
+            // user asked for, and that is what made Trail stutter under load.
+            //
+            // A directory watch survives changes *inside* the directory, so the
+            // only cases that need a fresh one are a change of `cwd` (handled
+            // where the directory changes) and a directory that can no longer be
+            // listed (handled above).
         }
         _ => {
             // All other messages go through the standard merge path.

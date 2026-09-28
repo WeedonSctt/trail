@@ -351,6 +351,7 @@ fn generation_guard_drops_stale_preview() {
         path: dir.path().join("a.txt"),
         content: PreviewContent::Text(vec!["stale".to_owned()]),
         truncated: false,
+        is_text: Some(true),
     };
     merge(stale_msg, &mut state);
     // Content should NOT have been updated.
@@ -365,6 +366,7 @@ fn generation_guard_drops_stale_preview() {
         path: dir.path().join("a.txt"),
         content: PreviewContent::Text(vec!["current".to_owned()]),
         truncated: false,
+        is_text: Some(true),
     };
     state.dirty = false; // reset before merge
     merge(current_msg, &mut state);
@@ -479,4 +481,90 @@ async fn text_provider_caps_lines_and_reports_truncation() {
         other => panic!("expected line content, got {other:?}"),
     };
     assert_eq!(loaded, 25, "the cap bounds what the worker loads");
+}
+
+// ── Classification ────────────────────────────────────────────────────────────
+
+/// Whether a file is text used to be decided during the directory listing, at
+/// the cost of one open and one 8 KB read per entry on the UI thread. The worker
+/// that reads the file answers it now, and the answer is cached on the entry.
+#[tokio::test]
+async fn the_worker_classifies_a_binary_file_and_the_answer_is_cached() {
+    use trail::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
+    use trail::workers::WorkerMsg;
+
+    let dir = tempfile::tempdir().unwrap();
+    // NUL bytes are what `content_inspector` calls binary.
+    std::fs::write(dir.path().join("blob.dat"), [0u8, 1, 2, 3, 0]).unwrap();
+
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let entry = state.selected_entry().cloned().expect("one entry");
+    assert_eq!(entry.file_name, "blob.dat");
+    assert_eq!(
+        entry.is_text, None,
+        "listing must not have read the file to classify it"
+    );
+
+    let mut registry = PreviewRegistry::new();
+    trail::preview::register_defaults(&mut registry);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let ctx = PreviewCtx {
+        show_hidden: false,
+        worker_tx: tx,
+        generation: state.preview.generation,
+        text_sync_threshold_bytes: 256 * 1024,
+        max_preview_lines: 2000,
+    };
+
+    // An unclassified file goes to the worker rather than being probed here.
+    assert!(
+        matches!(registry.preview_for(&entry, &ctx), PreviewOutcome::Deferred),
+        "an unclassified file must be deferred"
+    );
+
+    let msg = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+        .await
+        .expect("classification timed out")
+        .expect("worker channel closed");
+
+    let WorkerMsg::Preview {
+        ref content,
+        is_text,
+        ..
+    } = msg
+    else {
+        panic!("expected a Preview message, got {msg:?}");
+    };
+    assert_eq!(is_text, Some(false), "the worker must report what it found");
+    assert!(
+        matches!(content, PreviewContent::Binary(_)),
+        "a binary file gets a metadata preview, not highlighted text: {content:?}"
+    );
+
+    // Merging caches the answer, so the next preview needs no worker at all.
+    state.preview.for_path = entry.path.clone();
+    trail::workers::merge(msg, &mut state);
+    assert_eq!(
+        state.selected_entry().and_then(|e| e.is_text),
+        Some(false),
+        "the classification must be cached on the entry"
+    );
+
+    let entry = state.selected_entry().cloned().unwrap();
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+    let ctx = PreviewCtx {
+        show_hidden: false,
+        worker_tx: tx,
+        generation: state.preview.generation,
+        text_sync_threshold_bytes: 256 * 1024,
+        max_preview_lines: 2000,
+    };
+    assert!(
+        matches!(
+            registry.preview_for(&entry, &ctx),
+            PreviewOutcome::Ready(PreviewContent::Binary(_))
+        ),
+        "a file already known to be binary is previewed synchronously"
+    );
 }
