@@ -13,7 +13,9 @@ use std::path::Path;
 use content_inspector::inspect;
 
 use crate::app::state::{Entry, EntryKind};
-use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider};
+use crate::preview::provider::{
+    sanitize, PreviewContent, PreviewCtx, PreviewOutcome, PreviewProvider,
+};
 
 /// Byte threshold that separates synchronous (≤ threshold) from asynchronous
 /// (> threshold) text preview.
@@ -117,7 +119,7 @@ pub fn build_text_preview(path: &Path) -> PreviewContent {
         .lines()
         .take(TEXT_PREVIEW_MAX_LINES)
         .enumerate()
-        .map(|(i, line)| format!("{:>4}  {}", i + 1, line))
+        .map(|(i, line)| format!("{:>4}  {}", i + 1, sanitize(line)))
         .collect();
 
     PreviewContent::Text(lines)

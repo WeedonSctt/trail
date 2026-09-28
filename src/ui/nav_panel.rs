@@ -16,6 +16,7 @@ use ratatui::Frame;
 
 use crate::app::state::{AppState, EntryKind, GitFileStatus};
 use crate::pathfmt;
+use crate::preview::provider;
 use crate::ui::theme;
 
 /// Draws the navigation panel into `area`.
@@ -69,10 +70,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             };
 
             // Add a trailing `/` to directories for quick visual identification.
+            // The name is sanitized because a Unix file name may contain control
+            // characters, which a terminal would act on rather than draw.
+            let name = provider::sanitize(&entry.file_name);
             let label = if entry.kind == EntryKind::Dir {
-                format!("{}/", entry.file_name)
+                format!("{name}/")
             } else {
-                entry.file_name.clone()
+                name
             };
 
             // Build git badge span (empty when no status is known).

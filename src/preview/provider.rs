@@ -58,6 +58,51 @@ pub struct StyledSpan {
 /// A single highlighted line, made up of one or more [`StyledSpan`]s.
 pub type HighlightedLine = Vec<StyledSpan>;
 
+// ── Making file content safe to draw ──────────────────────────────────────────
+
+/// Columns a tab is expanded to in preview text.
+///
+/// Not tab-stop aware: each tab becomes this many spaces wherever it appears.
+/// The alternative is tracking the column across styled spans that are built
+/// independently, for a difference nobody reading a preview would notice.
+///
+/// Named constant per coding-standard §10: no magic numbers.
+const TAB_WIDTH: usize = 4;
+
+/// Shown in place of a control character.
+const CONTROL_PLACEHOLDER: char = '·';
+
+/// Returns `line` with everything a terminal would *act on* replaced by
+/// something it will print.
+///
+/// A file reaches the text preview when `content_inspector` finds no NUL bytes
+/// in its first 8 KB, which is not the same as finding nothing dangerous in it:
+/// ESC, BEL, CR and the other control characters all survive that test. They
+/// used to be written into the render buffer verbatim and handed to the
+/// terminal, which obeyed them rather than drawing them — stray characters
+/// anywhere on screen, including over the panel borders and the listing, and
+/// gone again after any full redraw. That is the artifact this removes, and with
+/// it the reason the renderer cleared the whole screen on every frame.
+///
+/// Tabs become spaces (a terminal advances to its own next tab stop, which no
+/// pane layout can predict) and every other control character becomes
+/// [`CONTROL_PLACEHOLDER`], so the line keeps its length in cells and the
+/// preview stays honest about what is in the file.
+///
+/// Bidirectional and zero-width characters are left alone: they are legitimate
+/// text content, and the terminal draws rather than executes them.
+pub fn sanitize(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    for ch in line.chars() {
+        match ch {
+            '\t' => (0..TAB_WIDTH).for_each(|_| out.push(' ')),
+            ch if ch.is_control() => out.push(CONTROL_PLACEHOLDER),
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
 /// The renderable content for the preview pane.
 ///
 /// Each variant carries the data needed by `ui/preview_panel.rs` to draw
@@ -256,5 +301,40 @@ impl PreviewRegistry {
 impl Default for PreviewRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_leaves_ordinary_text_alone() {
+        assert_eq!(sanitize("fn main() { todo!() }"), "fn main() { todo!() }");
+        // Not control characters: the terminal draws these.
+        assert_eq!(sanitize("héllo — wörld"), "héllo — wörld");
+    }
+
+    /// The artifact this removes: an ESC in a file that `content_inspector`
+    /// calls text reached the terminal as an escape sequence and painted
+    /// wherever it liked.
+    #[test]
+    fn sanitize_defuses_escape_sequences() {
+        let attack = "before\u{1b}[2J\u{1b}[Hafter";
+        let safe = sanitize(attack);
+        assert!(!safe.contains('\u{1b}'), "no escape may survive: {safe:?}");
+        assert_eq!(safe, "before·[2J·[Hafter");
+    }
+
+    #[test]
+    fn sanitize_replaces_carriage_returns_and_bells() {
+        // A CR would send the cursor back to the start of the row mid-pane.
+        assert_eq!(sanitize("a\rb\u{7}c"), "a·b·c");
+    }
+
+    #[test]
+    fn sanitize_expands_tabs_so_the_terminal_cannot_choose() {
+        assert_eq!(sanitize("\tindented"), "    indented");
+        assert_eq!(sanitize("a\tb").chars().count(), 1 + TAB_WIDTH + 1);
     }
 }
