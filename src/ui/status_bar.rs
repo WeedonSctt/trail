@@ -2,8 +2,13 @@
 //!
 //! Pure reflection of current state — no logic beyond formatting. Displays
 //! `cwd`, mode label, active filter string, git branch, entry count,
-//! Command Mode input buffer, validation errors, and delete confirmation.
-//! Phase 4 adds the git branch indicator.
+//! Command Mode input buffer, notices, and delete confirmation.
+//!
+//! The bar is one row, and three different things want it: the path and
+//! counters, a message, and the command line. They get it in that order of
+//! precedence — the command line takes the whole row (it is what the user is
+//! looking at), a message takes everything but the path (it is transient), and
+//! otherwise the row shows path, filter and counters.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -17,22 +22,30 @@ use crate::ui::theme;
 
 /// Draws the status bar into `area`.
 ///
-/// Layout adapts to the current mode:
+/// Layout adapts to what has to be said:
 ///
-/// - **Navigation**: mode badge + cwd | (empty) | entry count.
-/// - **Search**: mode badge + cwd | `/query` | entry count.
-/// - **Command**: mode badge + cwd | command buffer | entry count.
-/// - **Notice**: replaces the center section — an error in red, an outcome such
-///   as a yank or a saved bookmark in the "clean" colour.
-/// - **Pending delete**: center section shows a delete confirmation prompt.
+/// - **Command Mode**: the whole row is the command line, scrolled to keep the
+///   insertion point visible, with the terminal cursor placed on it.
+/// - **Notice or pending delete**: mode badge + path, then the message across
+///   everything the path does not use, elided with `…` rather than cut.
+/// - **Otherwise**: mode badge + path | filter query | entry count and branch.
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let styles = theme::resolve(&state.config.theme);
+
+    // Command Mode owns the row: a command is often longer than a third of the
+    // screen, and the one thing the user needs to see is where their next
+    // keystroke will land.
+    if let Mode::Command { buffer, cursor, .. } = &state.mode {
+        draw_command_line(frame, area, buffer, *cursor, styles.command);
+        return;
+    }
+
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(50), // left: mode + cwd / command line
-            Constraint::Percentage(30), // center: filter / error / command buffer
-            Constraint::Percentage(20), // right: count / git branch (Phase 4)
+            Constraint::Percentage(50), // left: mode + cwd
+            Constraint::Percentage(30), // center: filter query
+            Constraint::Percentage(20), // right: count / git branch
         ])
         .split(area);
 
@@ -62,50 +75,31 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     ]));
     frame.render_widget(left, sections[0]);
 
-    // ── Center section ─────────────────────────────────────────────────────────
+    // ── A message takes the rest of the row ───────────────────────────────────
     //
-    // Priority (highest first):
-    //   1. Pending-delete confirmation prompt.
-    //   2. The current notice — an error in red, an outcome in green.
-    //   3. Command Mode input buffer.
-    //   4. Search Mode filter query.
-    //   5. Empty.
-    let center_span: Span = if state.pending_delete {
-        let name = state
-            .selected_entry()
-            .map(|e| e.file_name.as_str())
-            .unwrap_or("selected entry");
-        Span::styled(
-            format!(" Delete '{name}'? [y/Enter=yes, n/Esc=cancel] "),
-            Style::default()
-                .fg(Color::Black)
-                .bg(theme::parse_color(&state.config.theme.error))
-                .add_modifier(Modifier::BOLD),
-        )
-    } else if let Some(ref notice) = state.notice {
-        match notice.level {
-            // "Error:" belongs only on something that actually failed. A
-            // successful bookmark used to arrive here through the error field
-            // and be announced as one.
-            NoticeLevel::Error => Span::styled(format!(" Error: {} ", notice.text), styles.error),
-            NoticeLevel::Info => Span::styled(format!(" {} ", notice.text), styles.git_clean),
-        }
-    } else {
-        match &state.mode {
-            Mode::Command { buffer, .. } => {
-                // Display the command buffer with the leading sentinel.
-                // When the buffer starts with '!' it is a shell command;
-                // otherwise it is a ':'-prefixed verb command.
-                let prompt = if buffer.starts_with('!') { "" } else { ":" };
-                Span::styled(format!("{prompt}{buffer}"), styles.command)
-            }
-            Mode::Search { query, .. } => Span::styled(format!("/{query}"), styles.search),
-            Mode::Navigation => Span::raw(""),
-        }
-    };
+    // Errors name a path and a reason, and the delete prompt spells out both
+    // keys that answer it; neither fits in 30% of a terminal. Giving a message
+    // the counters' room as well costs nothing — it is gone on the next
+    // keystroke — and what still does not fit is elided visibly instead of
+    // being cut off mid-word.
+    if let Some((text, style)) = message(state, &styles) {
+        let rest = Rect {
+            width: sections[1].width + sections[2].width,
+            ..sections[1]
+        };
+        let elided = elide(&text, usize::from(rest.width));
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(elided, style))),
+            rest,
+        );
+        return;
+    }
 
-    let center = Paragraph::new(Line::from(vec![center_span]));
-    frame.render_widget(center, sections[1]);
+    // ── Center section: the filter query ──────────────────────────────────────
+    if let Mode::Search { query, .. } = &state.mode {
+        let center = Paragraph::new(Line::from(Span::styled(format!("/{query}"), styles.search)));
+        frame.render_widget(center, sections[1]);
+    }
 
     // ── Right section: entry count + git branch ───────────────────────────────
     let right_text = if let Some(ref git) = state.git {
@@ -119,4 +113,110 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     };
     let right = Paragraph::new(Line::from(Span::styled(right_text, styles.status)));
     frame.render_widget(right, sections[2]);
+}
+
+/// The message to show, with the style to show it in, or `None` when there is
+/// nothing to say.
+///
+/// Priority: a pending delete is a question and outranks a notice, which is only
+/// ever a report of something already done.
+fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Style)> {
+    if state.pending_delete {
+        let name = state
+            .selected_entry()
+            .map(|e| e.file_name.as_str())
+            .unwrap_or("selected entry");
+        return Some((
+            format!(" Delete '{name}'? [y/Enter=yes, n/Esc=cancel] "),
+            Style::default()
+                .fg(Color::Black)
+                .bg(theme::parse_color(&state.config.theme.error))
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    let notice = state.notice.as_ref()?;
+    Some(match notice.level {
+        // "Error:" belongs only on something that actually failed. A successful
+        // bookmark used to arrive here through the error field and be announced
+        // as one.
+        NoticeLevel::Error => (format!(" Error: {} ", notice.text), styles.error),
+        NoticeLevel::Info => (format!(" {} ", notice.text), styles.git_clean),
+    })
+}
+
+/// Draws the command line across `area` and puts the terminal cursor on it.
+///
+/// `cursor` is a byte offset into `buffer`, as Command Mode tracks it. The line
+/// scrolls horizontally so the insertion point is always on screen: a `:mv` with
+/// a long destination runs past the width of any terminal, and before this the
+/// tail of it was simply invisible.
+///
+/// Calling [`Frame::set_cursor_position`] is also what makes the cursor *appear*
+/// — ratatui hides it on any frame that does not ask for it, which is why it is
+/// absent in every other mode.
+///
+/// Columns are counted in characters rather than display width: a command line
+/// is paths and flags, and the cost of being wrong about a double-width
+/// character is a cursor one column out, not a corrupted line.
+fn draw_command_line(frame: &mut Frame, area: Rect, buffer: &str, cursor: usize, style: Style) {
+    // The buffer holds the text after the sentinel, except for `!`, which stays
+    // in it — so the prompt is the `:` that was typed and is not stored.
+    let prompt = if buffer.starts_with('!') { "" } else { ":" };
+    let cursor_col = prompt.chars().count() + buffer[..cursor].chars().count();
+
+    // Scroll only once the cursor would leave the row, and keep the last column
+    // free so the cursor itself has somewhere to sit at the end of the line.
+    let width = usize::from(area.width);
+    let offset = cursor_col.saturating_sub(width.saturating_sub(1));
+
+    let full: String = format!("{prompt}{buffer}");
+    let visible: String = full.chars().skip(offset).take(width).collect();
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(visible, style))),
+        area,
+    );
+
+    // `offset` is chosen so this cannot exceed the row.
+    let column = area.x.saturating_add((cursor_col - offset) as u16);
+    frame.set_cursor_position((column, area.y));
+}
+
+/// Fits `text` into `width` columns, marking anything dropped with `…`.
+///
+/// A silent cut is the failure this replaces: an error naming a path and a
+/// reason looked, at 30% of a terminal, like an error naming half a path.
+fn elide(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if text.chars().count() <= width {
+        return text.to_owned();
+    }
+    let mut out: String = text.chars().take(width.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn elide_leaves_text_that_fits_alone() {
+        assert_eq!(elide("12 items", 20), "12 items");
+        assert_eq!(elide("12 items", 8), "12 items");
+    }
+
+    #[test]
+    fn elide_marks_what_it_drops() {
+        assert_eq!(elide("destination already exists", 10), "destinati…");
+        assert_eq!(elide("abc", 1), "…");
+    }
+
+    #[test]
+    fn elide_of_zero_width_is_empty() {
+        assert_eq!(elide("anything", 0), "");
+    }
 }
