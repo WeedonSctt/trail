@@ -246,7 +246,10 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
 /// - **Verb completion**: when the buffer is a prefix of a known verb (no
 ///   space typed yet), return the full verb with a trailing space.
 /// - **Path completion**: for `:mv` and `:cp`, complete the destination
-///   argument against filesystem entries in `cwd`.
+///   argument against filesystem entries. A destination that is a whole route
+///   (`nested\`, `..\dst\re`, `C:\Users\me\Desk`) is completed against the
+///   directory the route names, not against `cwd`. Directory candidates carry
+///   a trailing separator, so a route can be walked one `Tab` at a time.
 ///
 /// The returned `Vec` is empty when no completions apply. The caller should
 /// cycle through candidates on repeated `Tab` presses.
@@ -308,20 +311,61 @@ pub fn completions_with_plugins(
     path_completions(partial, cwd)
 }
 
-/// Returns filesystem-based completion candidates matching `partial` in `cwd`.
+/// Returns filesystem-based completion candidates matching `partial`.
 ///
-/// If `partial` is empty, all entries in `cwd` are returned. Otherwise,
-/// entries whose names start with `partial` (case-sensitive) are returned.
+/// `partial` is the destination typed so far. It may be a bare name (`no`), a
+/// route into a subdirectory (`nested\re`, `..\dst\`) or an absolute path
+/// (`C:\Users\me\Desk`). Everything up to the last separator names the
+/// directory to list; what follows is the prefix to match against its entries
+/// (case-sensitive). A route that names no directory is completed against
+/// `cwd`, as before.
+///
+/// Each candidate is the whole token to put back on the command line, route
+/// included, because [`apply_completion`] replaces the entire space-delimited
+/// token. Directories carry a trailing separator so a route can be walked one
+/// `Tab` at a time, and the separator the user already typed is the one used —
+/// a route typed with `\` stays spelled with `\`.
 fn path_completions(partial: &str, cwd: &Path) -> Vec<String> {
-    let read = match fs::read_dir(cwd) {
+    // `std::path::is_separator` is the platform's own answer: `/` and `\` on
+    // Windows, `/` alone on Unix, where a backslash is an ordinary character in
+    // a file name and must not split a route.
+    let split_at = partial.rfind(std::path::is_separator).map_or(0, |i| i + 1);
+    let (route, name_prefix) = partial.split_at(split_at);
+
+    let search_dir = if route.is_empty() {
+        cwd.to_owned()
+    } else {
+        // `join` is correct for every shape a route can take here, including a
+        // Windows path that is rooted but has no drive (`\Users`), which
+        // replaces everything but `cwd`'s drive letter.
+        cwd.join(route)
+    };
+
+    let read = match fs::read_dir(&search_dir) {
         Ok(r) => r,
         Err(_) => return Vec::new(),
     };
 
+    let separator = route
+        .chars()
+        .next_back()
+        .filter(|c| std::path::is_separator(*c))
+        .unwrap_or(std::path::MAIN_SEPARATOR);
+
     let mut candidates: Vec<String> = read
         .filter_map(|e| e.ok())
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|name| partial.is_empty() || name.starts_with(partial))
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            if !name.starts_with(name_prefix) {
+                return None;
+            }
+            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            if is_dir {
+                Some(format!("{route}{name}{separator}"))
+            } else {
+                Some(format!("{route}{name}"))
+            }
+        })
         .collect();
 
     candidates.sort();

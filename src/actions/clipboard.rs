@@ -79,13 +79,20 @@ pub enum ClipboardError {
 
 /// Returns the absolute path of `entry_path` as a string.
 ///
+/// The Windows verbatim prefix is dropped where dropping it still names the
+/// same file: entry paths descend from an `AppState::cwd` that
+/// `canonicalize` handed back as `\\?\C:\…`, and a yank exists to be pasted
+/// into a shell, not read back by Trail. See [`crate::pathfmt::simplified`]
+/// for the cases that keep the prefix because they need it.
+///
 /// Pure: performs no clipboard or filesystem access.
 ///
 /// # Errors
 ///
 /// Returns [`ClipboardError::NotUtf8`] if the path cannot be UTF-8 encoded.
 pub fn absolute_path_text(entry_path: &Path) -> Result<String, ClipboardError> {
-    Ok(entry_path
+    let simplified = crate::pathfmt::simplified(entry_path);
+    Ok(simplified
         .to_str()
         .ok_or(ClipboardError::NotUtf8)?
         .to_owned())

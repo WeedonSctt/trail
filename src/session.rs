@@ -30,21 +30,20 @@ use std::path::{Path, PathBuf};
 /// caller logs the error at `debug` level and continues with a normal exit —
 /// a failed write here is inconvenient but not catastrophic.
 pub fn write_cwd_file(cwd: &Path, cwd_file_path: &Path) -> io::Result<()> {
-    let cwd_str = cwd
-        .to_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "cwd is not valid UTF-8"))?;
-
-    #[cfg(windows)]
-    {
-        if let Some(stripped) = cwd_str.strip_prefix(r"\\?\UNC\") {
-            let unc_path = format!(r"\\{}", stripped);
-            return fs::write(cwd_file_path, unc_path);
-        } else if let Some(stripped) = cwd_str.strip_prefix(r"\\?\") {
-            return fs::write(cwd_file_path, stripped);
-        }
+    // Rendering is lossy for a path that is not valid UTF-8, and a `cd` to a
+    // path with replacement characters in it would land somewhere else or
+    // nowhere. Reject it instead.
+    if cwd.to_str().is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "cwd is not valid UTF-8",
+        ));
     }
 
-    fs::write(cwd_file_path, cwd_str)
+    // The shell wrapper runs `cd` on whatever this file holds, so it has to be
+    // a path a shell accepts: `pathfmt::display` drops the Windows verbatim
+    // prefix that `canonicalize` leaves on it. No shell wants `\\?\C:\Users\me`.
+    fs::write(cwd_file_path, crate::pathfmt::display(cwd))
 }
 
 #[cfg(test)]

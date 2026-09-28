@@ -207,6 +207,75 @@ fn path_completion_for_cp_matches_prefix() {
     );
 }
 
+/// A destination that names a directory should be completable one step at a
+/// time, which needs a trailing separator on the candidate — without it the
+/// next `Tab` has nothing to walk into.
+#[test]
+fn path_completion_marks_a_directory_with_a_separator() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    fs::write(dir.path().join("nested.txt"), b"").unwrap();
+
+    let candidates = completions("mv nested", dir.path(), false);
+    let want_dir = format!("nested{}", std::path::MAIN_SEPARATOR);
+    assert!(
+        candidates.contains(&want_dir),
+        "the directory should carry a trailing separator: {candidates:?}"
+    );
+    assert!(
+        candidates.contains(&"nested.txt".to_owned()),
+        "the file should not: {candidates:?}"
+    );
+}
+
+/// Regression: completion used to match the whole destination against the
+/// names in `cwd`, so the first separator typed killed it — no route into a
+/// subdirectory could ever be completed.
+#[test]
+fn path_completion_walks_into_a_subdirectory() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    fs::write(dir.path().join("nested").join("inner.txt"), b"").unwrap();
+    fs::write(dir.path().join("nested").join("other.txt"), b"").unwrap();
+
+    let candidates = completions("mv nested/in", dir.path(), false);
+    assert_eq!(
+        candidates,
+        vec!["nested/inner.txt".to_owned()],
+        "the route must be completed against the directory it names, and the \
+         candidate must carry the route back"
+    );
+}
+
+/// The separator the user typed is the one the candidate comes back with, so a
+/// route does not end up spelled two ways at once.
+#[test]
+#[cfg(windows)]
+fn path_completion_accepts_a_backslash_route() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir(dir.path().join("nested")).unwrap();
+    fs::write(dir.path().join("nested").join("inner.txt"), b"").unwrap();
+
+    let candidates = completions(r"mv nested\in", dir.path(), false);
+    assert_eq!(candidates, vec![r"nested\inner.txt".to_owned()]);
+}
+
+/// An absolute destination — what you get by pasting a path in — completes
+/// against the directory it names, not against `cwd`.
+#[test]
+fn path_completion_accepts_an_absolute_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let elsewhere = dir.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    fs::write(elsewhere.join("target.txt"), b"").unwrap();
+    let cwd = dir.path().join("cwd");
+    fs::create_dir(&cwd).unwrap();
+
+    let route = format!("{}{}", elsewhere.display(), std::path::MAIN_SEPARATOR);
+    let candidates = completions(&format!("mv {route}"), &cwd, false);
+    assert_eq!(candidates, vec![format!("{route}target.txt")]);
+}
+
 #[test]
 fn no_completion_for_rename_arg() {
     // rename takes a simple name, not a path — no path completion.
@@ -421,6 +490,28 @@ fn copy_abs_path_stores_in_last_yank() {
     );
 }
 
+/// Regression: `ya` yanked whatever `canonicalize` produced, which on Windows
+/// is `\\?\C:\…`. A yank exists to be pasted into a shell or another program,
+/// and the verbatim prefix is not something either wants to be handed.
+#[test]
+fn copy_abs_path_yanks_a_path_without_a_verbatim_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("file.txt"), b"").unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyAbsPath, &mut state).unwrap();
+    let yank = state.last_yank.as_deref().expect("last_yank should be set");
+    assert!(
+        !yank.contains(r"\\?\"),
+        "yank leaked an extended-length prefix: {yank}"
+    );
+    // Still a usable absolute path, not just a prefix-free string.
+    assert!(
+        std::path::Path::new(yank).exists(),
+        "the yanked path must still resolve: {yank}"
+    );
+}
+
 #[test]
 fn copy_filename_stores_just_name() {
     let dir = tempfile::tempdir().unwrap();
@@ -445,7 +536,7 @@ fn copy_rel_path_is_relative_to_the_launch_dir() {
     fs::write(browsing.join("rel.txt"), b"").unwrap();
 
     let mut state = trail::app::state::AppState::new(browsing).unwrap();
-    state.launch_dir = launched_from.canonicalize().unwrap();
+    state.launch_dir = trail::pathfmt::canonicalize(&launched_from).unwrap();
 
     trail::actions::apply(trail::actions::Action::CopyRelPath, &mut state).unwrap();
     let yank = state.last_yank.as_deref().expect("last_yank should be set");
@@ -464,7 +555,7 @@ fn copy_rel_path_and_copy_filename_yank_different_strings() {
     fs::write(browsing.join("rel.txt"), b"").unwrap();
 
     let mut state = trail::app::state::AppState::new(browsing).unwrap();
-    state.launch_dir = dir.path().canonicalize().unwrap();
+    state.launch_dir = trail::pathfmt::canonicalize(dir.path()).unwrap();
 
     trail::actions::apply(trail::actions::Action::CopyRelPath, &mut state).unwrap();
     let relative = state.last_yank.clone().expect("last_yank should be set");

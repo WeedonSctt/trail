@@ -312,6 +312,12 @@ pub struct AppState {
     /// Runtime configuration loaded from defaults plus any user TOML file.
     pub config: TrailConfig,
     /// Current working directory being displayed.
+    ///
+    /// Always absolute, and always in the form [`crate::pathfmt::simplified`]
+    /// produces — on Windows that means no `\\?\` prefix unless the path
+    /// genuinely needs one. Entry paths, the panel title, yanks and the
+    /// `--cwd-file` handoff are all derived from here, so normalizing this
+    /// field is what keeps the prefix out of all of them.
     pub cwd: PathBuf,
     /// The directory Trail was launched from — the shell's working directory
     /// at startup, which is unaffected by navigation.
@@ -321,9 +327,11 @@ pub struct AppState {
     /// and that shell has not moved. Relative to `cwd` instead, every yank
     /// would be the selection's own file name, which is what `yn` yanks.
     ///
-    /// Canonicalized to match the form of `cwd` and of entry paths, so the two
-    /// can be related component-by-component (on Windows both therefore carry
-    /// the same `\\?\` verbatim prefix).
+    /// Canonicalized through [`crate::pathfmt::canonicalize`], the same as
+    /// `cwd` and therefore as entry paths, so the two can be related
+    /// component-by-component. Both spellings have to match: relating a
+    /// `\\?\C:\…` base to a `C:\…` target would fail on the prefix component
+    /// and silently fall back to yanking the absolute path.
     pub launch_dir: PathBuf,
     /// Directory-first sorted listing of the current directory.
     /// Hidden entries are included but may be filtered from display.
@@ -428,7 +436,7 @@ impl AppState {
     ///
     /// Returns [`StateError::ReadDir`] if the initial directory listing fails.
     pub fn with_config(start_path: PathBuf, config: TrailConfig) -> Result<Self, StateError> {
-        let cwd = start_path.canonicalize().unwrap_or(start_path);
+        let cwd = crate::pathfmt::canonicalize(&start_path).unwrap_or(start_path);
 
         // The process working directory at startup is the shell's, since
         // nothing has navigated yet — Trail changes `cwd` here, never the
@@ -436,7 +444,7 @@ impl AppState {
         // in a directory that has since been deleted), fall back to the start
         // path, which at worst makes `yr` behave as it did before.
         let launch_dir = std::env::current_dir()
-            .map(|dir| dir.canonicalize().unwrap_or(dir))
+            .map(|dir| crate::pathfmt::canonicalize(&dir).unwrap_or(dir))
             .unwrap_or_else(|e| {
                 tracing::debug!("could not read the launch directory: {e}");
                 cwd.clone()
@@ -666,6 +674,13 @@ impl AppState {
     ///
     /// Propagates any `StateError` from `load_dir`.
     pub fn enter_dir(&mut self, path: PathBuf) -> Result<(), StateError> {
+        // Not every caller hands over a path descended from `cwd`: `:jump`
+        // reads one out of the bookmark store, which may have been written by
+        // a build that saved the Windows verbatim form. Normalize here, the
+        // one place an outside path becomes `cwd`, so the prefix cannot come
+        // back in and spread to the entries, the yanks and the history.
+        let path = crate::pathfmt::simplified(&path);
+
         // Remember where we were in the old directory.
         self.selection_memory
             .insert(self.cwd.clone(), self.selected);
@@ -877,7 +892,7 @@ impl AppState {
     ///
     /// Called automatically by `load_dir`.
     fn update_status(&mut self) {
-        self.status.cwd_display = self.cwd.display().to_string();
+        self.status.cwd_display = crate::pathfmt::display(&self.cwd);
         self.status.entry_count = self.visible_count();
     }
 
@@ -920,7 +935,11 @@ impl AppState {
     ///
     /// Returns [`StateError::ReadDir`] if the new tab's directory cannot be listed.
     pub fn open_tab(&mut self, cwd: Option<PathBuf>) -> Result<(), StateError> {
-        let new_cwd = cwd.unwrap_or_else(|| self.cwd.clone());
+        // Same reasoning as `enter_dir`: an explicit `cwd` comes from outside
+        // and may carry a Windows verbatim prefix.
+        let new_cwd = cwd
+            .map(|p| crate::pathfmt::simplified(&p))
+            .unwrap_or_else(|| self.cwd.clone());
         self.save_to_active_tab();
         self.tab_manager.open_tab(new_cwd.clone());
         self.cwd = new_cwd.clone();
