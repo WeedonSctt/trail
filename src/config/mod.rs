@@ -142,6 +142,7 @@ impl ConfigOverrides {
 struct GeneralOverrides {
     editor: Option<String>,
     shell: Option<String>,
+    shell_pause: Option<String>,
     text_sync_threshold_kb: Option<usize>,
     git_status_enabled: Option<bool>,
     fs_watch_debounce_ms: Option<u64>,
@@ -154,6 +155,9 @@ impl GeneralOverrides {
         }
         if let Some(shell) = self.shell {
             general.shell = shell;
+        }
+        if let Some(shell_pause) = self.shell_pause {
+            general.shell_pause = shell_pause;
         }
         if let Some(text_sync_threshold_kb) = self.text_sync_threshold_kb {
             general.text_sync_threshold_kb = text_sync_threshold_kb;

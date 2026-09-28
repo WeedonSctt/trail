@@ -35,6 +35,12 @@ const SHELL_SPEC_REASON: &str =
     "must be a program optionally followed by flags, e.g. \"pwsh -NoProfile -Command\"; \
      quote a path containing spaces";
 
+/// Explanation attached to a rejected `[general] shell_pause` value.
+///
+/// Shared by `validate` and `set_value`, for the same reason as
+/// [`SHELL_SPEC_REASON`].
+const SHELL_PAUSE_REASON: &str = "must be always, on_error or never";
+
 /// Top-level Trail configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +77,13 @@ impl TrailConfig {
                 "general.shell",
                 &self.general.shell,
                 SHELL_SPEC_REASON,
+            ));
+        }
+        if crate::actions::shell_exec::ShellPause::parse(&self.general.shell_pause).is_none() {
+            return Err(invalid_value(
+                "general.shell_pause",
+                &self.general.shell_pause,
+                SHELL_PAUSE_REASON,
             ));
         }
         if self.general.text_sync_threshold_kb == 0 {
@@ -147,6 +160,12 @@ impl TrailConfig {
                     return Err(invalid_value(key, value, SHELL_SPEC_REASON));
                 }
                 self.general.shell = value.trim().to_owned();
+            }
+            "general.shell_pause" | "shell_pause" => {
+                if crate::actions::shell_exec::ShellPause::parse(value).is_none() {
+                    return Err(invalid_value(key, value, SHELL_PAUSE_REASON));
+                }
+                self.general.shell_pause = value.trim().to_ascii_lowercase();
             }
             "general.text_sync_threshold_kb" | "text_sync_threshold_kb" => {
                 self.general.text_sync_threshold_kb = parse_positive_usize(key, value)?;
@@ -235,6 +254,11 @@ pub struct GeneralConfig {
     /// [`crate::actions::shell_exec::split_shell_spec`]; this is not itself a
     /// shell command, so it gets no expansion or pipelines.
     pub shell: String,
+    /// When to wait for Enter after a `!<command>` or `:git` finishes, before
+    /// Trail takes the screen back: `always`, `on_error` or `never`.
+    ///
+    /// Parsed by [`crate::actions::shell_exec::ShellPause::parse`].
+    pub shell_pause: String,
     /// Maximum file size, in KiB, previewed synchronously on the UI thread.
     pub text_sync_threshold_kb: usize,
     /// Whether git status workers should run.
@@ -658,6 +682,46 @@ mod tests {
         }
         // A rejected value must not have been applied.
         assert_eq!(config.general.shell, "bash -c");
+    }
+
+    #[test]
+    fn shell_pause_accepts_the_three_policies_and_rejects_anything_else() {
+        let mut config = crate::config::load(None).unwrap();
+        assert_eq!(
+            config.general.shell_pause, "always",
+            "the shipped default holds the screen, so command output can be read"
+        );
+
+        for accepted in ["never", "on_error", "ALWAYS"] {
+            config
+                .set_value("shell_pause", accepted)
+                .unwrap_or_else(|e| panic!("{accepted:?} should be accepted: {e}"));
+            assert_eq!(config.general.shell_pause, accepted.to_ascii_lowercase());
+            config.validate().expect("a set policy must still validate");
+        }
+
+        let err = config
+            .set_value("general.shell_pause", "sometimes")
+            .unwrap_err();
+        assert!(
+            matches!(err, SetConfigError::InvalidValue { .. }),
+            "an unknown policy should be rejected, got: {err}"
+        );
+        assert_eq!(
+            config.general.shell_pause, "always",
+            "a rejected value must not be applied"
+        );
+    }
+
+    #[test]
+    fn validate_rejects_an_unknown_shell_pause() {
+        let mut config = crate::config::load(None).unwrap();
+        config.general.shell_pause = "maybe".to_owned();
+        let err = config.validate().unwrap_err();
+        assert!(
+            format!("{err}").contains("general.shell_pause"),
+            "the error must name the key, got: {err}"
+        );
     }
 
     #[test]

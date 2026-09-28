@@ -605,9 +605,9 @@ fn handle_key_event(
     // Phase 6: drain any pending external action (editor-open or !shell).
     // run_external is synchronous (blocks until the child exits) but we must
     // call it here on the UI thread because it manipulates terminal state.
-    if let Some(Action::RunExternal { argv, cwd }) = state.pending_external.take() {
+    if let Some(Action::RunExternal { argv, cwd, pause }) = state.pending_external.take() {
         let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
-        if let Err(e) = shell_exec::run_external(&argv_refs, &cwd) {
+        if let Err(e) = shell_exec::run_external(&argv_refs, &cwd, pause) {
             state.set_error(format!("exec: {e}"));
         }
         // Force a full redraw: the child process may have overwritten the screen.
