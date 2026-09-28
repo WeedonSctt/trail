@@ -310,6 +310,39 @@ pub fn set_clipboard(text: &str) -> Result<(), ClipboardError> {
     Ok(())
 }
 
+// ── Reporting a yank ──────────────────────────────────────────────────────────
+
+/// Characters of a yank kept when it is reported in the status bar.
+///
+/// Named constant per coding-standard §10: no magic numbers.
+pub const YANK_SUMMARY_MAX_CHARS: usize = 40;
+
+/// Condenses a yanked string into one short line of feedback.
+///
+/// `yc` puts whole files on the clipboard, so a yank is not guaranteed to be a
+/// short single-line path: the raw string would spill newlines and control
+/// characters into a one-line widget. Only the first line is kept, capped at
+/// [`YANK_SUMMARY_MAX_CHARS`] and marked with `…` when anything was left out.
+///
+/// Lives here rather than in the status bar because the summary is also what
+/// reaches the log, and because a notice should be short before it is stored
+/// rather than at the moment it is drawn.
+///
+/// Scans at most one line and `YANK_SUMMARY_MAX_CHARS + 1` characters of it, so
+/// the cost does not grow with the size of the yank.
+pub fn summarize(yank: &str) -> String {
+    let first_line = yank.split('\n').next().unwrap_or("");
+
+    let mut visible = first_line.chars().filter(|c| !c.is_control());
+    let mut summary: String = visible.by_ref().take(YANK_SUMMARY_MAX_CHARS).collect();
+
+    // Elided if the line ran past the cap, or if there were further lines.
+    if visible.next().is_some() || first_line.len() < yank.len() {
+        summary.push('…');
+    }
+    summary
+}
+
 // ── Unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -462,5 +495,29 @@ mod tests {
         // A path with no file-name component (root) has nothing to yank.
         let p = PathBuf::from("/");
         assert!(matches!(filename_text(&p), Err(ClipboardError::NotUtf8)));
+    }
+
+    #[test]
+    fn summarize_passes_short_paths_through() {
+        assert_eq!(summarize("src/main.rs"), "src/main.rs");
+    }
+
+    #[test]
+    fn summarize_keeps_only_the_first_line() {
+        assert_eq!(summarize("fn main() {\n    todo!()\n}\n"), "fn main() {…");
+    }
+
+    #[test]
+    fn summarize_truncates_a_long_line() {
+        let long = "a".repeat(YANK_SUMMARY_MAX_CHARS * 2);
+        let summary = summarize(&long);
+        assert_eq!(summary.chars().count(), YANK_SUMMARY_MAX_CHARS + 1);
+        assert!(summary.ends_with('…'));
+    }
+
+    #[test]
+    fn summarize_drops_control_characters() {
+        // A lone CR would otherwise reset the cursor mid-status-bar.
+        assert_eq!(summarize("a\tb\rc"), "abc");
     }
 }

@@ -301,6 +301,31 @@ pub struct StatusBarState {
     pub entry_count: usize,
 }
 
+// ── Notices ───────────────────────────────────────────────────────────────────
+
+/// Whether a [`Notice`] reports a failure or just says what happened.
+///
+/// The distinction is the whole point of the type: before it existed, a
+/// successful `:bookmark` reported itself through the error field and the status
+/// bar dutifully rendered `Error: bookmark added: name` in red.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoticeLevel {
+    /// Something worked, and saying so is useful — a yank, a bookmark.
+    Info,
+    /// Something failed. Rendered in the theme's error colour.
+    Error,
+}
+
+/// One line of feedback for the status bar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Notice {
+    /// The text to show. Kept short by the caller; the status bar elides what
+    /// does not fit.
+    pub text: String,
+    /// Whether this is a failure or an ordinary report.
+    pub level: NoticeLevel,
+}
+
 // ── AppState ──────────────────────────────────────────────────────────────────
 
 /// Central application state owned by the UI thread.
@@ -366,11 +391,18 @@ pub struct AppState {
     /// The status bar renders a confirmation prompt while this is set.
     /// Confirmed via `Enter`; cancelled via `Esc`.
     pub pending_delete: bool,
-    /// Last error message surfaced by a command or fs operation, displayed
-    /// in the status bar. Cleared on the next successful action.
-    pub error_message: Option<String>,
-    /// The most-recently yanked path string (set by clipboard operations).
-    /// Displayed briefly in the status bar and observable in tests.
+    /// The one message the status bar is currently showing, if any.
+    ///
+    /// Set through [`AppState::notify`] and [`AppState::set_error`] rather than
+    /// directly, so that every message reaches the log as well as the screen.
+    /// Cleared by [`AppState::clear_notice`] on the next keystroke, which is
+    /// what makes it a flash rather than something that lingers over
+    /// directories it has nothing to do with.
+    pub notice: Option<Notice>,
+    /// The most-recently yanked string (set by clipboard operations).
+    ///
+    /// The full text, not the summary the status bar flashes — observable in
+    /// tests and the record of what the OS clipboard was handed.
     pub last_yank: Option<String>,
     /// Persisted command history for Command Mode.
     pub command_history: CommandHistory,
@@ -466,7 +498,7 @@ impl AppState {
             dirty: true,
             selection_memory: std::collections::HashMap::new(),
             pending_delete: false,
-            error_message: None,
+            notice: None,
             last_yank: None,
             command_history: CommandHistory::new(),
             tab_state: TabState::new(),
@@ -888,6 +920,74 @@ impl AppState {
         Ok(())
     }
 
+    // -- Notices --------------------------------------------------------------
+
+    /// Reports that something happened, in the status bar and in the log.
+    ///
+    /// For outcomes worth seeing but not worth alarm: a yank, a bookmark, a
+    /// count of files moved. Logged at `info`, which the default subscriber
+    /// filter keeps, so the log file says what the user was told.
+    ///
+    /// Replaces any notice already showing — the status bar holds one line, and
+    /// the newest outcome is the relevant one.
+    pub fn notify(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        tracing::info!(%text, "notice");
+        self.notice = Some(Notice {
+            text,
+            level: NoticeLevel::Info,
+        });
+        self.dirty = true;
+    }
+
+    /// Reports a failure, in the status bar and in the log.
+    ///
+    /// Logged at `warn` rather than `debug`: anything the user is shown as an
+    /// error is by definition worth having in the log afterwards, and `debug`
+    /// is below the default filter, so those messages used to reach the screen
+    /// and nothing else.
+    pub fn set_error(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        tracing::warn!(%text, "error notice");
+        self.notice = Some(Notice {
+            text,
+            level: NoticeLevel::Error,
+        });
+        self.dirty = true;
+    }
+
+    /// Dismisses the current notice, if there is one.
+    ///
+    /// Called on each keystroke from the event loop, before the keystroke's own
+    /// action runs — so a notice survives exactly until the user does the next
+    /// thing, and an action is free to post a new one. Returns whether anything
+    /// was actually dismissed, so the caller can avoid a needless redraw.
+    pub fn clear_notice(&mut self) -> bool {
+        if self.notice.is_none() {
+            return false;
+        }
+        self.notice = None;
+        self.dirty = true;
+        true
+    }
+
+    /// The text of the current notice when it is an error, else `None`.
+    ///
+    /// For callers that care specifically about failure — chiefly tests
+    /// asserting that an operation did or did not fail.
+    // clippy: dead_code — reached from tests/, which drive the library rather
+    // than the binary; the binary matches on the level directly.
+    #[allow(dead_code)]
+    pub fn error_text(&self) -> Option<&str> {
+        match &self.notice {
+            Some(Notice {
+                text,
+                level: NoticeLevel::Error,
+            }) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
     /// Updates the cached `StatusBarState` from current state.
     ///
     /// Called automatically by `load_dir`.
@@ -1154,5 +1254,50 @@ mod tests {
         state.dirty = false; // simulate post-render clear
         state.move_down();
         assert!(state.dirty);
+    }
+
+    /// The bug this guards: an outcome and a failure shared one field, so a
+    /// successful `:bookmark` was rendered as `Error: bookmark added: name`.
+    #[test]
+    fn an_outcome_is_not_an_error() {
+        let dir = make_test_dir();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+        state.notify("bookmark added: work");
+        assert_eq!(
+            state.notice.as_ref().map(|n| n.level),
+            Some(NoticeLevel::Info)
+        );
+        assert!(
+            state.error_text().is_none(),
+            "an info notice must not read as a failure"
+        );
+
+        state.set_error("mkdir: destination already exists");
+        assert_eq!(
+            state.notice.as_ref().map(|n| n.level),
+            Some(NoticeLevel::Error)
+        );
+        assert_eq!(
+            state.error_text(),
+            Some("mkdir: destination already exists")
+        );
+    }
+
+    /// The bug this guards: `last_yank` was only ever assigned, so one `ya`
+    /// kept announcing itself in every directory visited afterwards.
+    #[test]
+    fn clearing_a_notice_reports_whether_there_was_one() {
+        let dir = make_test_dir();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+        assert!(!state.clear_notice(), "nothing to clear on a fresh state");
+
+        state.notify("yanked: src/main.rs");
+        state.dirty = false; // simulate post-render clear
+        assert!(state.clear_notice(), "the notice was there to clear");
+        assert!(state.notice.is_none());
+        assert!(state.dirty, "dismissing a notice has to be drawn");
+        assert!(!state.clear_notice(), "and it is gone for good");
     }
 }

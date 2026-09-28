@@ -132,7 +132,9 @@ async fn main() -> Result<()> {
 
     // Surface a degraded remembered config in the status bar. Trail owns the
     // alternate screen, so this is the only channel available.
-    state.error_message = config_warning;
+    if let Some(warning) = config_warning {
+        state.set_error(warning);
+    }
 
     state.bookmark_store =
         match plugin::bookmarks::BookmarkStore::open(data_dir.join(paths::BOOKMARKS_FILE)) {
@@ -226,7 +228,10 @@ async fn main() -> Result<()> {
             if let Err(e) = session::write_cwd_file(&state.cwd, path) {
                 // Non-fatal: log and continue. The user still exits cleanly;
                 // they just won't be `cd`-ed to the right directory this time.
-                tracing::debug!("failed to write cwd-file: {e}");
+                // `warn`, not `debug`: the shell silently staying put is the
+                // one failure the user is guaranteed to notice and have no
+                // explanation for, and the alternate screen is already gone.
+                tracing::warn!("failed to write cwd-file: {e}");
             }
         }
 
@@ -526,6 +531,15 @@ fn handle_key_event(
     let old_selected = state.selected;
     let old_cwd = state.cwd.clone();
 
+    // A notice lasts until the user does the next thing. Dismissing it here —
+    // before the keystroke's own action runs, and only for a real press — is
+    // what keeps "yanked: …" from following the user into directories it has
+    // nothing to do with, while still leaving the action free to post a new
+    // one that this frame will draw.
+    if key.kind == crossterm::event::KeyEventKind::Press {
+        state.clear_notice();
+    }
+
     if let Some(action) = input::dispatch(key, state, ctx) {
         if action == Action::Quit {
             *should_quit = true;
@@ -544,10 +558,12 @@ fn handle_key_event(
         // changing the selected index or cwd (e.g. Refresh, ToggleHidden).
         let forces_preview_refresh = matches!(action, Action::Refresh | Action::ToggleHidden);
 
-        // Log navigation errors at debug level and continue rather than
-        // crashing — a bad directory is inconvenient, not fatal.
+        // Report the failure and continue rather than crashing — a bad
+        // directory is inconvenient, not fatal. `set_error` puts it in the
+        // status bar and in the log, where it used to be `debug`-only and
+        // therefore below the default filter.
         if let Err(e) = actions::apply(action, state) {
-            tracing::debug!("action error: {e}");
+            state.set_error(e.to_string());
         }
 
         if !is_prefix && state.pending_nav_key.is_some() {
@@ -592,8 +608,7 @@ fn handle_key_event(
     if let Some(Action::RunExternal { argv, cwd }) = state.pending_external.take() {
         let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
         if let Err(e) = shell_exec::run_external(&argv_refs, &cwd) {
-            tracing::debug!("run_external error: {e}");
-            state.error_message = Some(format!("exec: {e}"));
+            state.set_error(format!("exec: {e}"));
         }
         // Force a full redraw: the child process may have overwritten the screen.
         // terminal.clear() resets ratatui's internal buffer so the next render

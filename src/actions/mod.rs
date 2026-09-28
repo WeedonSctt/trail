@@ -233,7 +233,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 cursor: 0,
                 history_index: None,
             };
-            state.error_message = None;
+            state.clear_notice();
             state.dirty = true;
         }
 
@@ -243,7 +243,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 state.mode = Mode::Navigation;
                 state.filter = None;
                 state.pending_delete = false;
-                state.error_message = None;
+                state.clear_notice();
                 state.pending_nav_key = None;
                 state.dirty = true;
             }
@@ -388,7 +388,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 }
                 FeedResult::Cancel => {
                     state.mode = Mode::Navigation;
-                    state.error_message = None;
+                    state.clear_notice();
                     state.dirty = true;
                 }
                 FeedResult::Submit(submitted_buf) => {
@@ -417,13 +417,13 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
                     match parse_result {
                         Ok(cmd) => {
-                            state.error_message = None;
+                            state.clear_notice();
                             // Apply the parsed command.
                             apply(Action::ExecuteCommand(cmd), state)?;
                         }
                         Err(e) => {
                             // Surface validation error in the status bar.
-                            state.error_message = Some(e.to_string());
+                            state.set_error(e.to_string());
                         }
                     }
                 }
@@ -469,7 +469,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         Action::BeginDelete => {
             if state.selected_entry().is_some() {
                 state.pending_delete = true;
-                state.error_message = None;
+                state.clear_notice();
                 state.dirty = true;
             }
         }
@@ -482,13 +482,12 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             if let Some(entry) = state.selected_entry().cloned() {
                 match fs_ops::delete(&entry.path) {
                     Ok(()) => {
-                        state.error_message = None;
+                        state.clear_notice();
                         // Refresh to reflect the deletion.
                         state.refresh()?;
                     }
                     Err(e) => {
-                        state.error_message = Some(format!("delete: {e}"));
-                        state.dirty = true;
+                        state.set_error(format!("delete: {e}"));
                     }
                 }
             }
@@ -496,7 +495,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         Action::CancelDelete => {
             state.pending_delete = false;
-            state.error_message = None;
+            state.clear_notice();
             state.dirty = true;
         }
 
@@ -583,16 +582,17 @@ fn record_yank(state: &mut AppState, text: Result<String, clipboard::ClipboardEr
             if let Err(e) = clipboard::set_clipboard(&s) {
                 // Non-fatal: the yank still happened as far as Trail is
                 // concerned, the OS just would not take it.
-                tracing::debug!("clipboard write failed: {e}");
-                state.error_message = Some(format!("clipboard unavailable: {e}"));
+                state.set_error(format!("clipboard unavailable: {e}"));
             } else {
-                state.error_message = None;
+                // Summarized here rather than in the status bar: a `yc` of a
+                // whole file must not put the file in a one-line widget, and
+                // the notice is the thing that gets logged.
+                state.notify(format!("yanked: {}", clipboard::summarize(&s)));
             }
-            tracing::info!(yank = %s, "yanked");
             state.last_yank = Some(s);
         }
         Err(e) => {
-            state.error_message = Some(format!("yank: {e}"));
+            state.set_error(format!("yank: {e}"));
         }
     }
     state.dirty = true;
@@ -606,23 +606,21 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
     match cmd {
         ParsedCommand::Mkdir(name) => match fs_ops::mkdir(&cwd, &name) {
             Ok(_) => {
-                state.error_message = None;
+                state.clear_notice();
                 state.refresh()?;
             }
             Err(e) => {
-                state.error_message = Some(format!("mkdir: {e}"));
-                state.dirty = true;
+                state.set_error(format!("mkdir: {e}"));
             }
         },
 
         ParsedCommand::Touch(name) => match fs_ops::touch(&cwd, &name) {
             Ok(_) => {
-                state.error_message = None;
+                state.clear_notice();
                 state.refresh()?;
             }
             Err(e) => {
-                state.error_message = Some(format!("touch: {e}"));
-                state.dirty = true;
+                state.set_error(format!("touch: {e}"));
             }
         },
 
@@ -630,12 +628,11 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             if let Some(entry) = state.selected_entry().cloned() {
                 match fs_ops::rename(&entry.path, &new_name) {
                     Ok(_) => {
-                        state.error_message = None;
+                        state.clear_notice();
                         state.refresh()?;
                     }
                     Err(e) => {
-                        state.error_message = Some(format!("rename: {e}"));
-                        state.dirty = true;
+                        state.set_error(format!("rename: {e}"));
                     }
                 }
             }
@@ -645,12 +642,11 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             if let Some(entry) = state.selected_entry().cloned() {
                 match fs_ops::mv(&entry.path, &dest, &cwd) {
                     Ok(_) => {
-                        state.error_message = None;
+                        state.clear_notice();
                         state.refresh()?;
                     }
                     Err(e) => {
-                        state.error_message = Some(format!("mv: {e}"));
-                        state.dirty = true;
+                        state.set_error(format!("mv: {e}"));
                     }
                 }
             }
@@ -660,12 +656,11 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             if let Some(entry) = state.selected_entry().cloned() {
                 match fs_ops::cp(&entry.path, &dest, &cwd) {
                     Ok(_) => {
-                        state.error_message = None;
+                        state.clear_notice();
                         state.refresh()?;
                     }
                     Err(e) => {
-                        state.error_message = Some(format!("cp: {e}"));
-                        state.dirty = true;
+                        state.set_error(format!("cp: {e}"));
                     }
                 }
             }
@@ -693,12 +688,11 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                         ),
                     );
                 }
-                state.error_message = None;
+                state.clear_notice();
                 state.dirty = true;
             }
             Err(e) => {
-                state.error_message = Some(format!("set: {e}"));
-                state.dirty = true;
+                state.set_error(format!("set: {e}"));
             }
         },
 
@@ -709,8 +703,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             // Direct argv-split would fail for any non-trivial shell command.
             // Which interpreter is `[general] shell`'s call, not ours.
             if cmd_str.trim().is_empty() {
-                state.error_message = Some("!: empty command".to_owned());
-                state.dirty = true;
+                state.set_error("!: empty command".to_owned());
             } else {
                 state.pending_external = Some(Action::RunExternal {
                     argv: shell_exec::shell_argv(&state.config.general.shell, &cmd_str),
@@ -734,42 +727,35 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             };
             match state.bookmark_add(bookmark_name.clone()) {
                 Ok(()) => {
-                    state.error_message = Some(format!("bookmark added: {bookmark_name}"));
-                    state.dirty = true;
+                    state.notify(format!("bookmark added: {bookmark_name}"));
                 }
                 Err(e) => {
-                    state.error_message = Some(format!("bookmark: {e}"));
-                    state.dirty = true;
+                    state.set_error(format!("bookmark: {e}"));
                 }
             }
         }
 
         ParsedCommand::Jump(name) => match state.bookmark_jump(&name) {
             Ok(true) => {
-                state.error_message = None;
+                state.clear_notice();
             }
             Ok(false) => {
-                state.error_message = Some(format!("bookmark '{name}' not found"));
-                state.dirty = true;
+                state.set_error(format!("bookmark '{name}' not found"));
             }
             Err(e) => {
-                state.error_message = Some(format!("jump: {e}"));
-                state.dirty = true;
+                state.set_error(format!("jump: {e}"));
             }
         },
 
         ParsedCommand::Plugin { name, arg } => {
             if let Some(engine) = &state.plugin_engine {
                 if engine.fire_action(&name, &arg) {
-                    state.error_message = None;
+                    state.clear_notice();
                 } else {
-                    state.error_message = Some(format!("plugin action '{name}' not found"));
-                    state.dirty = true;
+                    state.set_error(format!("plugin action '{name}' not found"));
                 }
             } else {
-                state.error_message =
-                    Some(format!("plugin action '{name}' failed: no plugins loaded"));
-                state.dirty = true;
+                state.set_error(format!("plugin action '{name}' failed: no plugins loaded"));
             }
         }
     }

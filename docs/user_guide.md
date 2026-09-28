@@ -66,6 +66,17 @@ has no lines to scroll, so the keys do nothing there.
 - `R`: Refresh the current directory view
 - `.`: Toggle visibility of hidden files
 
+### Status Bar Messages
+
+The middle of the status bar carries one message at a time. A failure is shown in the
+theme's error colour and prefixed with `Error:`; an outcome worth confirming — a yank, a
+saved bookmark, a count of files moved — is shown in the "clean" colour with no prefix.
+
+A message lasts until your next keystroke, so it never follows you into a directory it has
+nothing to do with. Everything shown there is also written to the log file (`trail --paths`
+prints its location), which is where to look for the full text of a message that was too
+long for the bar.
+
 ### Mode Switching & Exit
 - `/`: Enter Search Mode
 - `:`: Enter Command Mode
