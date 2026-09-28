@@ -6,6 +6,8 @@
 //! Mode; hidden entries are dimmed when visible. Git badges are rendered in
 //! Phase 4 once the git worker populates `entry.git_status`.
 
+use std::path::Path;
+
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -34,7 +36,7 @@ use crate::ui::theme;
 /// - `R` (cyan) — renamed
 pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let styles = theme::resolve(&state.config.theme);
-    let title = format!(" {} ", pathfmt::display(&state.cwd));
+    let title = format!(" {} ", panel_title(&state.cwd));
 
     let items: Vec<ListItem> = state
         .filtered_entries()
@@ -117,4 +119,37 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     frame.render_stateful_widget(list, area, &mut list_state);
+}
+
+/// The panel's border title: the directory's own name.
+///
+/// The status bar already carries the full path, and drawing it here as well
+/// spent the title on a second copy of it — on a deep path, the one thing the
+/// title could not then show was which directory you were actually in, because
+/// the interesting end was the part that got cut.
+///
+/// A root has no name of its own, so it keeps its full spelling: `C:\` and `/`
+/// are already as short as they get.
+fn panel_title(cwd: &Path) -> String {
+    cwd.file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| pathfmt::display(cwd))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn title_is_the_directory_name() {
+        assert_eq!(panel_title(Path::new(r"C:\Users\me\project")), "project");
+        assert_eq!(panel_title(Path::new("/home/me/project")), "project");
+    }
+
+    #[test]
+    fn title_of_a_root_is_the_root() {
+        // No name of its own to fall back to, and nothing shorter to show.
+        assert_eq!(panel_title(Path::new("/")), "/");
+    }
 }

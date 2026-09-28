@@ -456,3 +456,28 @@ async fn switching_with_one_tab_explains_itself() {
     );
     assert!(state.error_text().is_none(), "it is a hint, not a failure");
 }
+
+/// The bug this guards: the full path was drawn twice — once as the nav panel's
+/// border title and once in the status bar — so the title's width went on a
+/// second copy of what was already on screen.
+#[tokio::test]
+async fn the_full_path_is_drawn_once_and_the_title_names_the_directory() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let subdir = state.cwd.join("alpha_dir");
+    state.enter_dir(subdir).unwrap();
+
+    // Wide enough that the status bar's half is not what truncates the path.
+    let rendered = render_to_string(&mut state, 300, 30).await;
+    let full_path = state.status.cwd_display.clone();
+
+    assert_eq!(
+        rendered.matches(&full_path).count(),
+        1,
+        "the full path belongs in the status bar only:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("╭ alpha_dir "),
+        "the panel title should name the directory:\n{rendered}"
+    );
+}
