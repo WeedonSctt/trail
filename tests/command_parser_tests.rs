@@ -358,9 +358,9 @@ fn execute_mkdir_creates_dir_and_refreshes() {
     .unwrap();
 
     assert!(
-        state.error_message.is_none(),
+        state.error_text().is_none(),
         "no error expected; got {:?}",
-        state.error_message
+        state.error_text()
     );
     assert_eq!(
         state.visible_count(),
@@ -381,7 +381,7 @@ fn execute_touch_creates_file_and_refreshes() {
     )
     .unwrap();
 
-    assert!(state.error_message.is_none());
+    assert!(state.error_text().is_none());
     assert_eq!(state.visible_count(), before + 1);
 }
 
@@ -402,7 +402,7 @@ fn execute_rename_renames_selected_entry() {
     )
     .unwrap();
 
-    assert!(state.error_message.is_none());
+    assert!(state.error_text().is_none());
     assert!(
         state.visible_entries().any(|e| e.file_name == "new.txt"),
         "new.txt should appear in listing"
@@ -422,7 +422,7 @@ fn execute_mkdir_duplicate_surfaces_error_message() {
     .unwrap();
 
     assert!(
-        state.error_message.is_some(),
+        state.error_text().is_some(),
         "an error message should be set for duplicate mkdir"
     );
 }
@@ -603,11 +603,72 @@ fn copy_content_of_a_binary_file_reports_an_error() {
         "nothing should be yanked for a binary file"
     );
     let err = state
-        .error_message
-        .as_deref()
+        .error_text()
         .expect("a binary yank should surface an error");
     assert!(
         err.contains("binary"),
         "error should name the cause; got: {err}"
     );
+}
+
+// ── Notices ───────────────────────────────────────────────────────────────────
+
+/// The bug this guards: the success branch of `:bookmark` set the error field,
+/// so a bookmark that saved correctly was announced as
+/// `Error: bookmark added: name`.
+#[test]
+fn a_saved_bookmark_is_reported_as_an_outcome_not_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(
+        trail::actions::Action::ExecuteCommand(ParsedCommand::Bookmark("work".to_owned())),
+        &mut state,
+    )
+    .unwrap();
+
+    assert!(
+        state.error_text().is_none(),
+        "saving a bookmark is not a failure"
+    );
+    let notice = state.notice.as_ref().expect("the outcome should be shown");
+    assert_eq!(notice.level, trail::app::state::NoticeLevel::Info);
+    assert!(
+        notice.text.contains("bookmark added: work"),
+        "the notice should name the bookmark; got: {}",
+        notice.text
+    );
+}
+
+/// A yank reports itself through the notice channel, summarized: `yc` puts
+/// whole files on the clipboard and the status bar holds one line.
+#[test]
+fn a_yank_posts_a_summarized_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("long.txt"), "first line\nsecond line\n").unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::CopyContent, &mut state).unwrap();
+
+    // The clipboard itself may be unreachable (headless CI), which is reported
+    // as an error rather than an outcome — but either way the notice must be
+    // one line and must not carry the whole file.
+    let notice = state.notice.as_ref().expect("a yank should report itself");
+    assert!(
+        !notice.text.contains('\n'),
+        "a notice is one line; got: {:?}",
+        notice.text
+    );
+    if notice.level == trail::app::state::NoticeLevel::Info {
+        assert!(
+            notice.text.starts_with("yanked: first line"),
+            "the notice should summarize the yank; got: {}",
+            notice.text
+        );
+        assert!(
+            notice.text.ends_with('…'),
+            "the elision should be marked; got: {}",
+            notice.text
+        );
+    }
 }
