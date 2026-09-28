@@ -411,3 +411,48 @@ async fn a_long_error_is_elided_rather_than_cut() {
         "the counters stand aside for a transient message:\n{rendered}"
     );
 }
+
+/// The bug this guards: `Tab` and `Shift-Tab` changed the focused tab with
+/// nothing on screen to say so, which is indistinguishable from a dead key.
+#[tokio::test]
+async fn the_focused_tab_is_shown_once_there_is_more_than_one() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        !rendered.contains("[1/1]"),
+        "one tab needs no indicator; the path wants the room:\n{rendered}"
+    );
+
+    state.open_tab(None).unwrap();
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        rendered.contains("[2/2]"),
+        "the second tab must be identified:\n{rendered}"
+    );
+
+    trail::actions::apply(trail::actions::Action::SwitchTabPrev, &mut state).unwrap();
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        rendered.contains("[1/2]"),
+        "switching back must be visible:\n{rendered}"
+    );
+}
+
+/// A switch with one tab open is a no-op, so it says so instead of looking like
+/// a binding that does not work.
+#[tokio::test]
+async fn switching_with_one_tab_explains_itself() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    trail::actions::apply(trail::actions::Action::SwitchTabNext, &mut state).unwrap();
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        rendered.contains("only one tab open"),
+        "the no-op must be explained:\n{rendered}"
+    );
+    assert!(state.error_text().is_none(), "it is a hint, not a failure");
+}

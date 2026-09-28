@@ -78,8 +78,8 @@ impl TabManager {
     }
 
     /// Returns the number of open tabs.
-    // clippy: dead_code — API consumed in Phase 9 UI
-    #[allow(dead_code)]
+    ///
+    /// Read by the status bar for the `[2/3]` indicator.
     pub fn len(&self) -> usize {
         self.tabs.len()
     }
@@ -93,7 +93,9 @@ impl TabManager {
 
     /// Returns `true` when exactly one tab is open.
     ///
-    /// Used by the UI to decide whether to render the tab bar.
+    /// The status bar shows its tab indicator only when this is false — with one
+    /// tab there is nothing to disambiguate — and a switch request with one tab
+    /// says so rather than doing nothing.
     pub fn is_single(&self) -> bool {
         self.tabs.len() == 1
     }

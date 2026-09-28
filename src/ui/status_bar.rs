@@ -68,12 +68,27 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let cwd_str = &state.status.cwd_display;
 
-    let left = Paragraph::new(Line::from(vec![
+    let mut left_spans = vec![
         Span::styled(format!(" {mode_label} "), mode_style),
         Span::raw(" "),
-        Span::styled(cwd_str.as_str(), styles.normal),
-    ]));
-    frame.render_widget(left, sections[0]);
+    ];
+    // Which tab is focused, but only once there is more than one: with a single
+    // tab the answer is never in doubt and the path wants the room. Without
+    // this, `Tab` and `Shift-Tab` changed the focused tab with nothing on screen
+    // to say so, which reads as a key that does nothing.
+    if !state.tab_manager.is_single() {
+        left_spans.push(Span::styled(
+            format!(
+                "[{}/{}] ",
+                state.tab_manager.active + 1,
+                state.tab_manager.len()
+            ),
+            styles.command,
+        ));
+    }
+    left_spans.push(Span::styled(cwd_str.as_str(), styles.normal));
+
+    frame.render_widget(Paragraph::new(Line::from(left_spans)), sections[0]);
 
     // ── A message takes the rest of the row ───────────────────────────────────
     //
