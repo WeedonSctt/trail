@@ -117,6 +117,11 @@ pub enum Action {
         argv: Vec<String>,
         /// Working directory for the subprocess. Typically `state.cwd`.
         cwd: std::path::PathBuf,
+        /// Whether to hold the screen after the command finishes so its output
+        /// can be read. Resolved from `[general] shell_pause` for `!` and
+        /// `:git`, and always [`shell_exec::ShellPause::Never`] for the editor
+        /// and OS-handler opens, which draw their own screens.
+        pause: shell_exec::ShellPause,
     },
 
     // ── Quit ─────────────────────────────────────────────────────────────
@@ -187,6 +192,9 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         state.pending_external = Some(Action::RunExternal {
                             argv: vec![editor, entry.path.display().to_string()],
                             cwd: state.cwd.clone(),
+                            // An editor owns the screen while it runs and leaves
+                            // nothing to read behind it.
+                            pause: shell_exec::ShellPause::Never,
                         });
                         state.dirty = true;
                     }
@@ -302,6 +310,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                         state.pending_external = Some(Action::RunExternal {
                             argv: vec![editor, entry.path.display().to_string()],
                             cwd: state.cwd.clone(),
+                            pause: shell_exec::ShellPause::Never,
                         });
                         state.dirty = true;
                     }
@@ -536,6 +545,9 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 state.pending_external = Some(Action::RunExternal {
                     argv,
                     cwd: state.cwd.clone(),
+                    // The OS handler opens its own window; there is no output
+                    // here to hold the screen for.
+                    pause: shell_exec::ShellPause::Never,
                 });
                 state.dirty = true;
             }
@@ -573,6 +585,17 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
     }
     Ok(())
+}
+
+/// The pause policy for a command whose output the user is expecting to read.
+///
+/// An unparseable value cannot normally reach here -- `TrailConfig::validate`
+/// rejects one at load and `:set` rejects one at runtime -- so falling back to
+/// waiting is the conservative answer for a config that somehow got past both:
+/// output kept is recoverable, output erased is not.
+fn configured_pause(state: &AppState) -> shell_exec::ShellPause {
+    shell_exec::ShellPause::parse(&state.config.general.shell_pause)
+        .unwrap_or(shell_exec::ShellPause::Always)
 }
 
 /// Shown when a tab switch is asked for and there is nothing to switch to.
@@ -688,6 +711,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             state.pending_external = Some(Action::RunExternal {
                 argv: shell_exec::shell_argv(&state.config.general.shell, &format!("git {subcmd}")),
                 cwd: state.cwd.clone(),
+                pause: configured_pause(state),
             });
             state.dirty = true;
         }
@@ -726,6 +750,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 state.pending_external = Some(Action::RunExternal {
                     argv: shell_exec::shell_argv(&state.config.general.shell, &cmd_str),
                     cwd: state.cwd.clone(),
+                    pause: configured_pause(state),
                 });
                 state.dirty = true;
             }

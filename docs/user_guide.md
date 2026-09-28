@@ -123,6 +123,12 @@ The command runs in the directory the nav panel is showing, and the whole string
 to a shell to interpret, so pipes, redirection, `&&` and shell builtins all work. That
 shell is `cmd.exe /C` on Windows and `sh -c` elsewhere, and `:git` uses the same one.
 
+While the command runs, Trail steps aside and gives it the whole terminal. When it
+finishes, Trail waits for you to press Enter before taking the screen back — otherwise its
+output would be erased the instant it appeared. Set `[general] shell_pause` to `on_error` to
+be held up only when a command fails, or to `never` if you would rather not press a key.
+Opening a file in the editor never waits.
+
 Change it with `[general] shell` — see
 [the configuration guide](configuration_guide.md#configuring-the-shell). On Windows the
 usual reason to is that `cmd.exe` rejects a leading `./`: `!./gradlew runClient` fails with

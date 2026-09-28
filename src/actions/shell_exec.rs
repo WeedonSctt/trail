@@ -16,7 +16,7 @@
 //! which shell runs them is the user's choice rather than a compile-time
 //! constant.
 
-use std::io::stdout;
+use std::io::{stdout, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -38,6 +38,55 @@ pub const DEFAULT_SHELL_ARGV: &[&str] = &["cmd.exe", "/C"];
 /// login shell such as fish would interpret parts of it differently.
 #[cfg(not(windows))]
 pub const DEFAULT_SHELL_ARGV: &[&str] = &["sh", "-c"];
+
+/// Prompt shown while the terminal is still the child's, before Trail takes it
+/// back.
+///
+/// Written with `write!` rather than `println!`: this is the one moment Trail is
+/// allowed to touch stdout, and being explicit about it marks the difference from
+/// the logging the coding standard forbids here.
+const PAUSE_PROMPT: &str = "\n[trail] press Enter to return… ";
+
+/// When Trail waits for a keypress before reclaiming the screen from a command.
+///
+/// Without a pause, `run_external` re-enters the alternate screen the instant the
+/// child exits, so the output of `!ls` is painted and erased in the same breath.
+/// The editor is the reason this is a choice rather than always on: nobody wants
+/// to press Enter after closing their editor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellPause {
+    /// Always wait — the default for `!<command>` and `:git`.
+    Always,
+    /// Wait only when the command exited non-zero, or could not be run at all.
+    OnError,
+    /// Never wait. Used for the editor and for OS-handler opens, whatever the
+    /// configured policy is, since those draw their own screens.
+    Never,
+}
+
+impl ShellPause {
+    /// Parses a `[general] shell_pause` value.
+    ///
+    /// Returns `None` for an unrecognised name so the config layer can report it
+    /// with the key that carried it.
+    pub fn parse(value: &str) -> Option<ShellPause> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "always" => Some(ShellPause::Always),
+            "on_error" | "on-error" => Some(ShellPause::OnError),
+            "never" | "off" => Some(ShellPause::Never),
+            _ => None,
+        }
+    }
+
+    /// Whether a command that finished with `success` should hold the screen.
+    fn applies(self, success: bool) -> bool {
+        match self {
+            ShellPause::Always => true,
+            ShellPause::OnError => !success,
+            ShellPause::Never => false,
+        }
+    }
+}
 
 /// Errors that can arise while running an external process.
 #[derive(Debug, Error)]
@@ -68,11 +117,17 @@ pub enum ShellExecError {
 /// child process may have written to the terminal. See `main.rs`'s handling of
 /// [`crate::actions::Action::RunExternal`].
 ///
+/// **Pause**: `pause` decides whether step 4 waits for Enter first. A command's
+/// output lives on the normal screen, which step 4 replaces, so without a pause
+/// anything `!ls` printed is gone before it can be read. The wait happens while
+/// the terminal is still in cooked mode with the alternate screen inactive, which
+/// is the one point where writing a prompt to stdout is legitimate.
+///
 /// # Errors
 ///
 /// Returns [`ShellExecError`] if terminal manipulation or process I/O fails.
 /// Even on error we make a best-effort attempt to restore terminal state.
-pub fn run_external(argv: &[&str], cwd: &Path) -> Result<(), ShellExecError> {
+pub fn run_external(argv: &[&str], cwd: &Path, pause: ShellPause) -> Result<(), ShellExecError> {
     if argv.is_empty() {
         // Nothing to run.
         return Ok(());
@@ -90,9 +145,23 @@ pub fn run_external(argv: &[&str], cwd: &Path) -> Result<(), ShellExecError> {
         .spawn();
 
     let wait_result = match spawn_result {
-        Ok(mut child) => child.wait().map(|_| ()).map_err(ShellExecError::Wait),
+        Ok(mut child) => child.wait().map_err(ShellExecError::Wait),
         Err(e) => Err(ShellExecError::Spawn(e)),
     };
+
+    // ── Step 3b: hold the screen so the output can be read ────────────────────
+    // A command that could not be spawned counts as a failure, so `OnError`
+    // pauses for it too — the error message is on the normal screen and is about
+    // to be covered by the alternate one.
+    let succeeded = wait_result
+        .as_ref()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if pause.applies(succeeded) {
+        wait_for_enter();
+    }
+
+    let wait_result = wait_result.map(|_| ());
 
     // ── Step 4: restore raw mode and alternate screen ─────────────────────────
     // Always restore regardless of spawn/wait errors, so the TUI isn't left
@@ -106,6 +175,24 @@ pub fn run_external(argv: &[&str], cwd: &Path) -> Result<(), ShellExecError> {
     }
 
     wait_result
+}
+
+/// Prints [`PAUSE_PROMPT`] and waits for a line on stdin.
+///
+/// Called only between the child exiting and the alternate screen coming back, so
+/// the terminal is in cooked mode and stdout is the user's normal screen — the
+/// one window where Trail may write to it.
+///
+/// Every failure here is ignored on purpose: a closed or redirected stdin reads
+/// EOF immediately, which means "do not wait", and that is the right answer for a
+/// non-interactive session. Trail must not refuse to come back because it could
+/// not ask a question.
+fn wait_for_enter() {
+    let mut out = stdout();
+    let _ = out.write_all(PAUSE_PROMPT.as_bytes());
+    let _ = out.flush();
+    let mut discard = String::new();
+    let _ = std::io::stdin().read_line(&mut discard);
 }
 
 /// Splits a `[general] shell` spec into the argv prefix it stands for.
@@ -281,6 +368,28 @@ mod tests {
             stdout.contains("trail-ok"),
             "the shell did not interpret the command; stdout was {stdout:?}"
         );
+    }
+
+    #[test]
+    fn pause_policies_parse_from_what_the_config_can_say() {
+        assert_eq!(ShellPause::parse("always"), Some(ShellPause::Always));
+        assert_eq!(ShellPause::parse(" ALWAYS "), Some(ShellPause::Always));
+        assert_eq!(ShellPause::parse("on_error"), Some(ShellPause::OnError));
+        assert_eq!(ShellPause::parse("on-error"), Some(ShellPause::OnError));
+        assert_eq!(ShellPause::parse("never"), Some(ShellPause::Never));
+        assert_eq!(ShellPause::parse("off"), Some(ShellPause::Never));
+        assert_eq!(ShellPause::parse("sometimes"), None);
+        assert_eq!(ShellPause::parse(""), None);
+    }
+
+    #[test]
+    fn on_error_waits_only_for_a_command_that_failed() {
+        assert!(ShellPause::Always.applies(true));
+        assert!(ShellPause::Always.applies(false));
+        assert!(!ShellPause::OnError.applies(true));
+        assert!(ShellPause::OnError.applies(false));
+        assert!(!ShellPause::Never.applies(true));
+        assert!(!ShellPause::Never.applies(false));
     }
 
     #[test]

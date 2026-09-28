@@ -19,6 +19,17 @@ editor = "nvim"
 # Windows paths need a TOML literal string, e.g.
 # shell = '"C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -Command'
 shell = ""
+# Whether to wait for Enter after a `!<command>` or `:git` finishes, before
+# Trail takes the screen back: always | on_error | never.
+#
+# A command's output is printed on the normal screen, which Trail covers again
+# the moment the command exits -- so without a pause, `!ls` paints its output and
+# erases it in the same breath.  The trade-off is a keystroke per command: set
+# `on_error` to be held up only when something failed, or `never` if you run
+# commands for their effect rather than their output and would rather read them
+# in the log.  Opening a file in the editor never pauses whatever this says --
+# an editor owns the screen while it runs and leaves nothing behind to read.
+shell_pause = "always"
 text_sync_threshold_kb = 256
 git_status_enabled = true
 fs_watch_debounce_ms = 200
