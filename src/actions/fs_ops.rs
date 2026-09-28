@@ -259,6 +259,106 @@ pub fn delete(target: &Path, mode: DeleteMode) -> Result<(), FsError> {
     }
 }
 
+// ── Wildcard matching ─────────────────────────────────────────────────────────
+
+/// Whether `token` asks to be matched against several names rather than naming
+/// one.
+///
+/// `*` and `?` are not legal in a Windows filename at all, and are rare enough
+/// in a Unix one that reading them as wildcards is what a user typing them into
+/// a file manager means. This is what lets `:mv` keep its one-argument form —
+/// `:mv ../dest` still moves the selection — and grow a two-argument one without
+/// the two becoming ambiguous.
+pub fn is_pattern(token: &str) -> bool {
+    token.contains('*') || token.contains('?')
+}
+
+/// Entries of `cwd` whose names match `pattern`, in listing order.
+///
+/// `*` matches any run of characters including none, `?` exactly one. Matching is
+/// case-insensitive on Windows, where file names are, and case-sensitive
+/// elsewhere, where they are not.
+///
+/// A leading dot is protected the way a shell protects it: `*` does not match a
+/// hidden name unless the pattern itself starts with a dot. Otherwise `:mv *`
+/// in a repository would quietly take `.git` with it.
+///
+/// # Errors
+///
+/// Returns [`FsError::Io`] if `cwd` cannot be read.
+pub fn matching_entries(cwd: &Path, pattern: &str) -> Result<Vec<PathBuf>, FsError> {
+    let read = fs::read_dir(cwd).map_err(|e| io_err(format!("readdir {}", cwd.display()), e))?;
+    let include_hidden = pattern.starts_with('.');
+
+    let mut matches: Vec<PathBuf> = read
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            if name.starts_with('.') && !include_hidden {
+                return None;
+            }
+            matches_pattern(&name, pattern).then(|| entry.path())
+        })
+        .collect();
+
+    matches.sort();
+    Ok(matches)
+}
+
+/// Whether `name` matches `pattern`, with `*` and `?` as the only wildcards.
+///
+/// Iterative with one backtrack point, so a pattern full of stars cannot make
+/// this blow up the way a naive recursive matcher does: `last_star` remembers
+/// where to resume, which is all the backtracking `*` needs.
+fn matches_pattern(name: &str, pattern: &str) -> bool {
+    // Windows file names are case-insensitive, so a pattern typed in either case
+    // has to match either case. Elsewhere the filesystem is literal and so is
+    // this.
+    let (name, pattern) = if cfg!(windows) {
+        (name.to_lowercase(), pattern.to_lowercase())
+    } else {
+        (name.to_owned(), pattern.to_owned())
+    };
+    let name: Vec<char> = name.chars().collect();
+    let pattern: Vec<char> = pattern.chars().collect();
+
+    let mut n = 0; // index into `name`
+    let mut p = 0; // index into `pattern`
+    let mut last_star: Option<(usize, usize)> = None;
+
+    while n < name.len() {
+        match pattern.get(p) {
+            Some('*') => {
+                // Try the shortest match first and come back for more if the
+                // rest of the pattern fails.
+                last_star = Some((p, n));
+                p += 1;
+            }
+            Some('?') => {
+                p += 1;
+                n += 1;
+            }
+            Some(&ch) if ch == name[n] => {
+                p += 1;
+                n += 1;
+            }
+            // Mismatch: let the last `*` swallow one more character, if there
+            // was one. If not, this name does not match.
+            _ => match last_star {
+                Some((star_p, star_n)) => {
+                    p = star_p + 1;
+                    n = star_n + 1;
+                    last_star = Some((star_p, n));
+                }
+                None => return false,
+            },
+        }
+    }
+
+    // Any pattern left over may only be stars.
+    pattern[p..].iter().all(|&ch| ch == '*')
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Validates that `name` is a simple, non-path component (no separators).
@@ -443,6 +543,67 @@ mod tests {
         // Checked before either mode is consulted, so one case covers both.
         let err = delete(&dir.path().join("nope"), DeleteMode::Trash).unwrap_err();
         assert!(matches!(err, FsError::SourceNotFound(_)));
+    }
+
+    // -- wildcard matching ----------------------------------------------------
+
+    #[test]
+    fn a_star_matches_any_run_including_none() {
+        assert!(matches_pattern("notes.md", "*.md"));
+        assert!(matches_pattern(".md", "*.md"));
+        assert!(matches_pattern("a.md", "*"));
+        assert!(!matches_pattern("notes.txt", "*.md"));
+        assert!(matches_pattern("README", "*"));
+    }
+
+    #[test]
+    fn a_question_mark_matches_exactly_one_character() {
+        assert!(matches_pattern("a.md", "?.md"));
+        assert!(!matches_pattern("ab.md", "?.md"));
+        assert!(!matches_pattern(".md", "?.md"));
+    }
+
+    /// The case a naive matcher gets wrong: a `*` has to give characters back
+    /// when what follows it fails to line up.
+    #[test]
+    fn a_star_backtracks_when_the_tail_does_not_fit() {
+        assert!(matches_pattern("archive.tar.gz", "*.tar.gz"));
+        assert!(matches_pattern("a.b.c.d", "*.d"));
+        assert!(matches_pattern("xxxxab", "*ab"));
+        assert!(!matches_pattern("xxxxabc", "*ab"));
+        assert!(matches_pattern("abcabcabd", "*abc*abd"));
+        // Many stars must not make this fall over.
+        assert!(matches_pattern("aaaaaaaaaaaaaaaaaaaab", "*a*a*a*a*a*b"));
+        assert!(!matches_pattern("aaaaaaaaaaaaaaaaaaaa", "*a*a*a*a*a*b"));
+    }
+
+    #[test]
+    fn a_pattern_is_recognised_by_its_wildcards() {
+        assert!(is_pattern("*.md"));
+        assert!(is_pattern("note?.txt"));
+        // A destination with a space in it is not a pattern, which is what keeps
+        // the one-argument form of `:mv` working.
+        assert!(!is_pattern("my"));
+        assert!(!is_pattern("../backup"));
+    }
+
+    #[test]
+    fn matching_entries_skips_hidden_names_unless_asked() {
+        let dir = tmp();
+        fs::write(dir.path().join("one.md"), b"").unwrap();
+        fs::write(dir.path().join("two.md"), b"").unwrap();
+        fs::write(dir.path().join(".hidden.md"), b"").unwrap();
+
+        let visible = matching_entries(dir.path(), "*.md").unwrap();
+        assert_eq!(visible.len(), 2, "a bare `*` must not take hidden files");
+
+        let hidden = matching_entries(dir.path(), ".*.md").unwrap();
+        assert_eq!(
+            hidden.len(),
+            1,
+            "a pattern starting with a dot asks for them"
+        );
+        assert!(hidden[0].ends_with(".hidden.md"));
     }
 
     /// The recycle bin itself is not exercised here: it is per-user desktop
