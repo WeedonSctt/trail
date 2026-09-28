@@ -1,11 +1,11 @@
-//! Snapshot tests for the three-panel layout using `ratatui::backend::TestBackend`.
+//! Render tests for the three-panel layout, using `ratatui::backend::TestBackend`.
 //!
-//! Each test renders an `AppState` fixture through `ui::render` and asserts
-//! structural properties of the terminal buffer output.
-//!
-//! To add true insta snapshot assertions later, uncomment the `assert_snapshot!`
-//! macro calls and run `cargo insta review` to review and accept the initial
-//! snapshots.
+//! Each test renders an `AppState` fixture through `ui::render` and asserts on
+//! what came out: a substring, a cursor position, a count of occurrences. There
+//! are no golden files — a whole-frame snapshot would fail on every deliberate
+//! layout change and say nothing about which property broke, so each test names
+//! the one thing it is protecting instead. `insta` stays a dev-dependency for the
+//! day a full-frame comparison earns its keep.
 
 use std::fs;
 

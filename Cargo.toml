@@ -89,7 +89,7 @@ tracing-appender = "0.2"   # log to a file, since stdout/stderr belong to the TU
 futures = "0.3"            # StreamExt for crossterm EventStream in the async event loop
 
 [dev-dependencies]
-insta = "1"        # snapshot tests for render_snapshot_tests.rs (ratatui::TestBackend output)
+insta = "1"        # kept for a future whole-frame snapshot; render tests currently assert on buffer contents
 tempfile = "3"     # scratch dirs/files for fixture-driven preview + fs_ops tests
 
 [profile.dev]
