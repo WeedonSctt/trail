@@ -23,6 +23,7 @@ The authoritative documents, in order of precedence for code-quality questions:
 | `docs/trail_architecture.md` | *How it is structured* (tech stack, threading model, module tables) |
 | `docs/trail_implementation_plan.md` | Phase breakdown and the Decision Log |
 | `docs/configuration_guide.md` | Every user-facing config key |
+| `docs/upcoming_features.md` | Assessed-but-unbuilt improvements, and why the deferred ones wait |
 | `docs/release_process.md` / `docs/release_checklist.md` | Cutting a release |
 
 If code and a doc disagree, that is a bug in one of them — say so rather than silently
