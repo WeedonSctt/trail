@@ -65,7 +65,7 @@ src/
   pathfmt.rs       how a path is spelled for a human vs. for the OS (Windows `\\?\`)
   paths.rs         every location Trail owns; the only ProjectDirs caller
   session.rs       cd-on-exit handoff to the shell wrappers
-  app/             state.rs (AppState), mode.rs, history.rs, tabs.rs
+  app/             state.rs (AppState), mode.rs, history.rs, tabs.rs, sort.rs, scroll.rs
   ui/              mod.rs (render entry), nav_panel, preview_panel, status_bar, theme
   input/           keymap.rs, command_parser.rs
   preview/         provider.rs (PreviewProvider trait + PreviewContent), text, directory,
@@ -344,7 +344,7 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
-- Released: **v1.8.3**, from `main`, which is current and pushed.
+- Released: **v1.9.0**, from `main`, which is current and pushed.
 - `t` and `c` are accidental prefix keys: `configured_nav_prefix` treats any binding
   longer than one character as a multi-key sequence, so `"tab"` makes `t` one and
   `"ctrl-r"` makes `c` one, and both swallow the following keystroke. Assessed in
