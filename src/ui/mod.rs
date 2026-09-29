@@ -5,7 +5,7 @@
 //! is set. The function is generic over `B: Backend` so that tests can pass a
 //! `TestBackend` without a real terminal.
 
-mod nav_panel;
+pub mod nav_panel;
 mod preview_panel;
 mod status_bar;
 mod theme;

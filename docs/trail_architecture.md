@@ -45,7 +45,9 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Component | Responsibility |
 |---|---|
 | State manager | Current directory, selection, mode, navigation history stack, tabs |
-| Navigation panel | Reads directory entries, sorts directories-first, renders the list, merges in git badges once workers report them |
+| Navigation panel | Reads directory entries, renders the list, merges in git badges once workers report them, and draws the optional right-flushed details column (`[navigation] entry_details`), which stands down rather than crush names on a narrow panel |
+| Listing order (`src/app/sort.rs`) | Orders the listing by name, size, modification time or extension, with directory grouping and reversal as separate axes. Held **per tab** on `TabState`, so each tab keeps the order it was left in. Every key comes from the `Entry::metadata` the listing already collected, so a re-sort performs no I/O |
+| Metadata formatter (`src/metafmt.rs`) | Single place that decides how a size and a timestamp are spelled for a person, shared by the details column and the binary/image previews so they cannot disagree about the same file |
 | Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation; owns the pane's scroll offset — it records the pane height and clamps the offset each frame, because nothing else knows the pane's size |
 | Status bar | Pure reflection of current state — path, mode, filter, branch, entry count |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |

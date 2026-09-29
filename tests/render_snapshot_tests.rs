@@ -503,3 +503,121 @@ async fn the_delete_prompt_says_where_the_entry_is_going() {
         "a permanent delete must not read as recoverable:\n{rendered}"
     );
 }
+
+// ── The details column ────────────────────────────────────────────────────────
+
+/// A directory with one file whose size is worth printing, so the column has
+/// something unambiguous to show.
+fn make_details_dir() -> TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(dir.path().join("alpha_dir")).unwrap();
+    fs::write(dir.path().join("b_file.txt"), vec![b'x'; 2000]).unwrap();
+    dir
+}
+
+#[tokio::test]
+async fn the_listing_shows_no_details_by_default() {
+    let dir = make_details_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        !rendered.contains("2 kB"),
+        "v1.7.2 rendered no details, and the default must not change that:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_details_column_shows_a_size_when_asked() {
+    let dir = make_details_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("entry_details", "size").unwrap();
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("2 kB"),
+        "the size belongs in the listing:\n{rendered}"
+    );
+    // A directory's byte length describes its directory record, so the column
+    // declines to print one rather than printing something false.
+    // `alpha_dir/` with the slash the listing appends — the bare name also
+    // appears as the preview pane's border title, which is not this row.
+    let dir_row = rendered
+        .lines()
+        .find(|l| l.contains("alpha_dir/"))
+        .expect("the directory is listed");
+    assert!(
+        dir_row.contains('—'),
+        "a directory gets the placeholder, not a size: {dir_row}"
+    );
+}
+
+#[tokio::test]
+async fn the_details_column_stands_down_when_the_panel_is_too_narrow() {
+    let dir = make_details_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("entry_details", "both").unwrap();
+
+    // 40% of 50 columns is 20, which leaves 16 for a row — less than `both`
+    // needs plus a readable name. The name wins.
+    let rendered = render_to_string(&mut state, 50, 24).await;
+    assert!(
+        !rendered.contains("2 kB"),
+        "a crushed name is worse than no column:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("b_file"),
+        "the name must survive the panel being narrow:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn both_details_fit_on_a_wide_panel() {
+    let dir = make_details_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("entry_details", "both").unwrap();
+
+    // 40% of 160 columns is 64 — room for the size, the full timestamp and a
+    // name that is still worth reading.
+    let rendered = render_to_string(&mut state, 160, 24).await;
+    let row = rendered
+        .lines()
+        .find(|l| l.contains("b_file.txt"))
+        .expect("the file is listed");
+    assert!(row.contains("2 kB"), "size missing from: {row}");
+    // `%Y-` of the formatted stamp; asserting the exact time would be asserting
+    // on the clock.
+    assert!(
+        row.contains("20") && row.matches('-').count() >= 2,
+        "a dated timestamp is missing from: {row}"
+    );
+}
+
+#[tokio::test]
+async fn a_name_too_long_for_its_budget_is_elided_not_wrapped() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(
+        dir.path()
+            .join("a-very-long-file-name-that-will-not-fit.txt"),
+        vec![b'x'; 2000],
+    )
+    .unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("entry_details", "size").unwrap();
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        rendered.contains('…'),
+        "a name that does not fit is marked as cut:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("2 kB"),
+        "the column keeps its room even when the name overruns:\n{rendered}"
+    );
+    // One row per entry: a wrapped name would push the listing down and the
+    // border out of place.
+    let border_rows = rendered
+        .lines()
+        .filter(|l| l.contains('╰') || l.contains('╭'))
+        .count();
+    assert_eq!(border_rows, 2, "the panel border moved:\n{rendered}");
+}

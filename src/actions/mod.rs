@@ -44,6 +44,16 @@ pub enum Action {
     /// Toggle visibility of hidden files.
     ToggleHidden,
 
+    // ── Listing order ───────────────────────────────────────────────────────
+    /// Re-order the active tab's listing by the given key.
+    SetSortBy(crate::app::sort::SortBy),
+    /// Flip the active tab's listing order.
+    ToggleSortReverse,
+    /// Toggle whether directories are grouped ahead of files in the active tab.
+    ToggleDirsFirst,
+    /// Step the details column through `none → size → modified → both → none`.
+    CycleEntryDetails,
+
     // ── Preview scrolling ───────────────────────────────────────────────────
     /// Scroll the preview pane down one line, leaving the selection alone.
     PreviewScrollDown,
@@ -222,6 +232,27 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         Action::ToggleHidden => {
             state.toggle_hidden()?;
+        }
+
+        Action::SetSortBy(by) => {
+            apply_sort(state, |s| s.by = by);
+        }
+
+        Action::ToggleSortReverse => {
+            apply_sort(state, |s| s.reverse = !s.reverse);
+        }
+
+        Action::ToggleDirsFirst => {
+            apply_sort(state, |s| s.dirs_first = !s.dirs_first);
+        }
+
+        Action::CycleEntryDetails => {
+            // Read at render time, so unlike the sort keys this needs nothing
+            // rebuilt — the next frame simply draws the new column.
+            let next = state.config.navigation.details().next();
+            state.config.navigation.entry_details = next.as_str().to_owned();
+            state.notify(format!("details: {}", next.as_str()));
+            state.dirty = true;
         }
 
         // Mode transitions.
@@ -673,6 +704,21 @@ fn apply_to_matches(
 /// An unparseable value cannot normally reach here -- it is rejected at load and
 /// by `:set` -- so the fallback is the recoverable option: a config Trail cannot
 /// read must not be the reason a file cannot be got back.
+/// Applies `change` to the active tab's sort settings, re-orders the listing,
+/// and says what the new order is.
+///
+/// Every sort binding and `:sort` go through here so that the notice, the
+/// re-sort and the per-tab bookkeeping cannot be done by one caller and
+/// forgotten by the next. The settings are read back from `state.sort` rather
+/// than from the config, because they are per tab: the config only ever seeded
+/// the first one.
+fn apply_sort(state: &mut AppState, change: impl FnOnce(&mut crate::app::sort::SortSettings)) {
+    let mut settings = state.sort;
+    change(&mut settings);
+    state.set_sort(settings);
+    state.notify(settings.describe());
+}
+
 fn configured_delete_mode(state: &AppState) -> fs_ops::DeleteMode {
     fs_ops::DeleteMode::parse(&state.config.general.delete_mode)
         .unwrap_or(fs_ops::DeleteMode::Trash)
@@ -815,6 +861,17 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             state.dirty = true;
         }
 
+        ParsedCommand::Sort { by, reverse } => {
+            apply_sort(state, |s| {
+                if let Some(by) = by {
+                    s.by = by;
+                }
+                if reverse {
+                    s.reverse = !s.reverse;
+                }
+            });
+        }
+
         ParsedCommand::Set { key, value } => match state.config.set_value(&key, &value) {
             Ok(()) => {
                 // `preview.*` keys feed process-wide graphics state rather than
@@ -828,6 +885,22 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                             state.config.preview.image_cell_height,
                         ),
                     );
+                }
+                // The sort keys decide the order the listing was *built* in, so
+                // setting one has no effect until something re-sorts — without
+                // this, `:set sort_by size` would appear to do nothing until the
+                // next navigation. `entry_details` needs no such rebuild: the
+                // renderer reads it every frame.
+                if matches!(
+                    key.as_str(),
+                    "navigation.sort_by"
+                        | "sort_by"
+                        | "navigation.sort_reverse"
+                        | "sort_reverse"
+                        | "navigation.dirs_first"
+                        | "dirs_first"
+                ) {
+                    state.set_sort(state.config.navigation.sort_settings());
                 }
                 state.clear_notice();
                 state.dirty = true;

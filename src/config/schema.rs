@@ -1,8 +1,8 @@
 //! Serde structs mirroring the TOML config shape.
 //!
-//! Covers `[general]`, `[preview]`, `[theme]`, `[keymap]`, and `[plugins]`
-//! sections. All structs reject unknown TOML keys so user typos are surfaced
-//! instead of silently ignored.
+//! Covers `[general]`, `[navigation]`, `[preview]`, `[theme]`, `[keymap]`, and
+//! `[plugins]` sections. All structs reject unknown TOML keys so user typos are
+//! surfaced instead of silently ignored.
 
 use std::collections::HashMap;
 
@@ -50,6 +50,8 @@ const DELETE_MODE_REASON: &str = "must be trash or permanent";
 pub struct TrailConfig {
     /// General behavior settings.
     pub general: GeneralConfig,
+    /// Navigation panel settings: listing order and per-entry details.
+    pub navigation: NavigationConfig,
     /// Preview pane settings, including inline image rendering.
     pub preview: PreviewConfig,
     /// UI color settings.
@@ -101,6 +103,20 @@ impl TrailConfig {
                 "general.text_sync_threshold_kb",
                 "0",
                 "must be greater than zero",
+            ));
+        }
+        if crate::app::sort::SortBy::parse(&self.navigation.sort_by).is_none() {
+            return Err(invalid_value(
+                "navigation.sort_by",
+                &self.navigation.sort_by,
+                crate::app::sort::SORT_BY_REASON,
+            ));
+        }
+        if crate::ui::nav_panel::EntryDetails::parse(&self.navigation.entry_details).is_none() {
+            return Err(invalid_value(
+                "navigation.entry_details",
+                &self.navigation.entry_details,
+                crate::ui::nav_panel::ENTRY_DETAILS_REASON,
             ));
         }
         if !self.preview.image_protocol.eq_ignore_ascii_case("auto")
@@ -191,6 +207,28 @@ impl TrailConfig {
             }
             "general.fs_watch_debounce_ms" | "fs_watch_debounce_ms" => {
                 self.general.fs_watch_debounce_ms = parse_u64(key, value)?;
+            }
+            "navigation.sort_by" | "sort_by" => {
+                if crate::app::sort::SortBy::parse(value).is_none() {
+                    return Err(invalid_value(key, value, crate::app::sort::SORT_BY_REASON));
+                }
+                self.navigation.sort_by = value.trim().to_ascii_lowercase();
+            }
+            "navigation.sort_reverse" | "sort_reverse" => {
+                self.navigation.sort_reverse = parse_bool(key, value)?;
+            }
+            "navigation.dirs_first" | "dirs_first" => {
+                self.navigation.dirs_first = parse_bool(key, value)?;
+            }
+            "navigation.entry_details" | "entry_details" => {
+                if crate::ui::nav_panel::EntryDetails::parse(value).is_none() {
+                    return Err(invalid_value(
+                        key,
+                        value,
+                        crate::ui::nav_panel::ENTRY_DETAILS_REASON,
+                    ));
+                }
+                self.navigation.entry_details = value.trim().to_ascii_lowercase();
             }
             "preview.image_protocol" | "image_protocol" => {
                 if !value.trim().eq_ignore_ascii_case("auto")
@@ -290,6 +328,53 @@ pub struct GeneralConfig {
     pub git_status_enabled: bool,
     /// Filesystem watcher debounce window in milliseconds.
     pub fs_watch_debounce_ms: u64,
+}
+
+/// Navigation panel settings: how the listing is ordered and what it shows.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct NavigationConfig {
+    /// Which property the listing is ordered by: `name`, `size`, `modified` or
+    /// `extension`.
+    ///
+    /// Parsed by [`crate::app::sort::SortBy::parse`]. This seeds the first
+    /// tab's order only — each tab owns its own from then on, and `:sort`
+    /// changes the active tab's without touching the others.
+    pub sort_by: String,
+    /// Whether the order within each group is flipped.
+    pub sort_reverse: bool,
+    /// Whether directories are grouped ahead of files whatever `sort_by` says.
+    pub dirs_first: bool,
+    /// What the listing shows beside each name: `none`, `size`, `modified` or
+    /// `both`.
+    ///
+    /// Parsed by [`crate::ui::nav_panel::EntryDetails::parse`]. Unlike the sort
+    /// keys this is not per tab — it describes the panel rather than a place
+    /// you are working.
+    pub entry_details: String,
+}
+
+impl NavigationConfig {
+    /// The [`crate::app::sort::SortSettings`] this section describes.
+    ///
+    /// Falls back to the default order for an unparseable `sort_by`, which
+    /// [`TrailConfig::validate`] has already rejected — the fallback exists so
+    /// this cannot panic rather than because it is reachable.
+    pub fn sort_settings(&self) -> crate::app::sort::SortSettings {
+        crate::app::sort::SortSettings {
+            by: crate::app::sort::SortBy::parse(&self.sort_by).unwrap_or_default(),
+            reverse: self.sort_reverse,
+            dirs_first: self.dirs_first,
+        }
+    }
+
+    /// The [`crate::ui::nav_panel::EntryDetails`] this section describes.
+    ///
+    /// Falls back to showing nothing for an unparseable value, on the same
+    /// reasoning as [`NavigationConfig::sort_settings`].
+    pub fn details(&self) -> crate::ui::nav_panel::EntryDetails {
+        crate::ui::nav_panel::EntryDetails::parse(&self.entry_details).unwrap_or_default()
+    }
 }
 
 /// Preview pane settings.
@@ -559,6 +644,13 @@ const NAV_ACTIONS: &[&str] = &[
     "history_forward",
     "refresh",
     "toggle_hidden",
+    "sort_name",
+    "sort_size",
+    "sort_time",
+    "sort_extension",
+    "sort_reverse",
+    "sort_dirs_first",
+    "toggle_details",
     "copy_absolute_path",
     "copy_relative_path",
     "copy_filename",

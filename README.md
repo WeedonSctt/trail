@@ -224,6 +224,27 @@ The default mode. Vim-style bindings, with arrow keys and standard keys as fallb
 | `Ctrl-r` | Forward in navigation history |
 | `R` | Refresh the current directory |
 | `.` | Toggle hidden files |
+| `m` | Cycle the details column: none → size → modified → both |
+
+**Sorting**
+
+`s` is a prefix; the second key picks the order. Size and time run largest-first and
+newest-first, the way `ls -S` and `ls -t` do, and `sr` flips whichever is active.
+
+| Key | Action |
+|---|---|
+| `sn` | Sort by name (A–Z) |
+| `ss` | Sort by size, largest first |
+| `st` | Sort by modification time, most recent first |
+| `se` | Sort by extension, then name |
+| `sr` | Flip the current order |
+| `sd` | Toggle grouping directories ahead of files |
+
+Sorting is **per tab** — a downloads tab can sit in `st` while the tab beside it keeps a
+source tree in `sn` — and a new tab inherits the order it was opened from. Set
+`[navigation] sort_by` in `trail.toml` for the order every session starts in, and
+`[navigation] entry_details` to show size or modification time in the listing. The details
+column stands down on a narrow panel rather than crushing names.
 
 **Preview pane**
 

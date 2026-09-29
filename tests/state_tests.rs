@@ -13,6 +13,7 @@ use std::fs;
 use tempfile::TempDir;
 
 use trail::app::mode::Mode;
+use trail::app::sort::{SortBy, SortSettings};
 use trail::app::state::{AppState, EntryKind};
 
 /// The prefix Windows canonicalization leaves on an absolute path. It must
@@ -1181,4 +1182,296 @@ fn the_command_reaches_the_shell_unsplit() {
     let argv = queued_argv(&mut state, "!ls -la | grep \"a file\" && echo done");
     assert_eq!(argv.len(), 3);
     assert_eq!(argv[2], "ls -la | grep \"a file\" && echo done");
+}
+
+// ── Listing order ─────────────────────────────────────────────────────────────
+
+/// A directory whose entries differ in size, extension and modification time,
+/// so one fixture exercises every sort key.
+fn make_sortable_dir() -> TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let p = dir.path();
+    fs::create_dir(p.join("sub")).expect("mkdir sub");
+    fs::write(p.join("big.md"), vec![b'x'; 3000]).expect("write big.md");
+    fs::write(p.join("mid.rs"), vec![b'x'; 2000]).expect("write mid.rs");
+    fs::write(p.join("small.txt"), vec![b'x'; 10]).expect("write small.txt");
+    dir
+}
+
+/// Sets `path`'s modification time to `secs` after the Unix epoch.
+///
+/// Set explicitly rather than left to write order: files written in the same
+/// instant share an mtime to whatever resolution the platform records, and a
+/// test relying on that would be flaky wherever the clock is coarsest.
+fn set_mtime(path: &std::path::Path, secs: u64) {
+    let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+    let f = fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open for mtime");
+    f.set_modified(when).expect("set mtime");
+}
+
+/// The visible listing as file names, in order.
+fn visible_names(state: &AppState) -> Vec<String> {
+    state
+        .visible_entries()
+        .map(|e| e.file_name.clone())
+        .collect()
+}
+
+/// Re-orders `state` by `by`, leaving the other sort settings alone.
+fn sorted_by(state: &mut AppState, by: SortBy) {
+    state.set_sort(SortSettings { by, ..state.sort });
+}
+
+/// Runs `buffer` as Command Mode would, for commands with no external process.
+fn run_command(state: &mut AppState, buffer: &str) {
+    let parsed = trail::input::command_parser::parse(buffer, false).expect("parses");
+    trail::actions::apply(trail::actions::Action::ExecuteCommand(parsed), state).expect("applies");
+}
+
+#[test]
+fn default_order_is_directories_then_name() {
+    let dir = make_sortable_dir();
+    let state = AppState::new(dir.path().to_owned()).unwrap();
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "big.md", "mid.rs", "small.txt"]
+    );
+}
+
+#[test]
+fn size_sort_puts_the_largest_first() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    sorted_by(&mut state, SortBy::Size);
+    // Directories stay grouped first; the files run largest to smallest, the
+    // way `ls -S` reads.
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "big.md", "mid.rs", "small.txt"]
+    );
+}
+
+#[test]
+fn reversing_a_size_sort_puts_the_smallest_first() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: true,
+        dirs_first: true,
+    });
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "small.txt", "mid.rs", "big.md"],
+        "reverse flips the files but not the directory grouping"
+    );
+}
+
+#[test]
+fn modified_sort_puts_the_most_recent_first() {
+    let dir = make_sortable_dir();
+    set_mtime(&dir.path().join("big.md"), 1_000_000);
+    set_mtime(&dir.path().join("mid.rs"), 3_000_000);
+    set_mtime(&dir.path().join("small.txt"), 2_000_000);
+
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    sorted_by(&mut state, SortBy::Modified);
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "mid.rs", "small.txt", "big.md"]
+    );
+}
+
+#[test]
+fn extension_sort_groups_by_extension_then_name() {
+    let dir = make_sortable_dir();
+    fs::write(dir.path().join("another.md"), b"").expect("write another.md");
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    sorted_by(&mut state, SortBy::Extension);
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "another.md", "big.md", "mid.rs", "small.txt"]
+    );
+}
+
+#[test]
+fn directories_keep_name_order_inside_a_size_sort() {
+    let dir = make_sortable_dir();
+    fs::create_dir(dir.path().join("aaa")).expect("mkdir aaa");
+    fs::create_dir(dir.path().join("zzz")).expect("mkdir zzz");
+
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // Not grouped first, so a directory would be ranked by `metadata.len()` if
+    // anything ranked it — which is the size of the directory record, not of
+    // what is in it. The rule is that it is not ranked at all.
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: false,
+        dirs_first: false,
+    });
+    let names = visible_names(&state);
+    let aaa = names.iter().position(|n| n == "aaa").expect("aaa listed");
+    let sub = names.iter().position(|n| n == "sub").expect("sub listed");
+    let zzz = names.iter().position(|n| n == "zzz").expect("zzz listed");
+    assert!(
+        aaa < sub && sub < zzz,
+        "directories in name order: {names:?}"
+    );
+}
+
+#[test]
+fn equal_sizes_are_broken_by_name() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // Every file is empty, so the size key ties for all of them and only the
+    // tie-break decides. Without one the order would be whatever `read_dir`
+    // yielded, which differs between filesystems and between runs.
+    for name in ["delta", "alpha", "charlie", "bravo"] {
+        fs::write(dir.path().join(name), b"").expect("write");
+    }
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    sorted_by(&mut state, SortBy::Size);
+    assert_eq!(
+        visible_names(&state),
+        vec!["alpha", "bravo", "charlie", "delta"]
+    );
+}
+
+#[test]
+fn dirs_first_can_be_turned_off() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.set_sort(SortSettings {
+        by: SortBy::Name,
+        reverse: false,
+        dirs_first: false,
+    });
+    // `sub` now sorts among the files by name rather than ahead of them.
+    assert_eq!(
+        visible_names(&state),
+        vec!["big.md", "mid.rs", "small.txt", "sub"]
+    );
+}
+
+#[test]
+fn re_sorting_keeps_the_selection_on_the_same_entry() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // Select `small.txt`, which is last under the name sort and will move.
+    state.selected = 3;
+    let before = state.selected_entry().unwrap().path.clone();
+    assert!(before.ends_with("small.txt"));
+
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: true,
+        dirs_first: true,
+    });
+
+    let after = state.selected_entry().unwrap().path.clone();
+    assert_eq!(
+        after, before,
+        "the selection is an index, so it has to be re-found by path"
+    );
+    assert_eq!(state.selected, 1, "small.txt is now the first file");
+}
+
+#[test]
+fn re_sorting_under_a_filter_keeps_the_filter_pointing_at_the_right_files() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // `FilterState::matches` holds indices into `entries`, so a re-sort that
+    // did not re-run the filter would leave every index naming a different
+    // file — silently, and only under an active search.
+    state.apply_filter("m".to_owned());
+    let mut before: Vec<String> = state
+        .filtered_entries()
+        .map(|(_, e)| e.file_name.clone())
+        .collect();
+    assert!(before.contains(&"mid.rs".to_owned()));
+
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: true,
+        dirs_first: true,
+    });
+
+    let mut after: Vec<String> = state
+        .filtered_entries()
+        .map(|(_, e)| e.file_name.clone())
+        .collect();
+    before.sort();
+    after.sort();
+    assert_eq!(before, after, "the same files match, whatever the order");
+}
+
+#[test]
+fn each_tab_keeps_its_own_order() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: true,
+        dirs_first: true,
+    });
+    let first_tab_order = visible_names(&state);
+
+    // A new tab inherits the order it was opened from...
+    state.open_tab(None).unwrap();
+    assert_eq!(state.sort.by, SortBy::Size);
+    assert!(state.sort.reverse);
+
+    // ...but changing it there must not reach back into the first tab.
+    state.set_sort(SortSettings {
+        by: SortBy::Name,
+        reverse: false,
+        dirs_first: true,
+    });
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "big.md", "mid.rs", "small.txt"]
+    );
+
+    state.switch_tab_prev().unwrap();
+    assert_eq!(state.sort.by, SortBy::Size);
+    assert!(state.sort.reverse);
+    assert_eq!(
+        visible_names(&state),
+        first_tab_order,
+        "a tab comes back in the order it was left in"
+    );
+}
+
+#[test]
+fn set_of_a_sort_key_reorders_the_listing_immediately() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // `sort_by` feeds the listing as it is built rather than the render pass,
+    // so `:set` has to re-sort or it silently does nothing until the next
+    // navigation.
+    run_command(&mut state, "set sort_by size");
+    run_command(&mut state, "set sort_reverse true");
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "small.txt", "mid.rs", "big.md"]
+    );
+}
+
+#[test]
+fn the_sort_command_reorders_the_listing() {
+    let dir = make_sortable_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    run_command(&mut state, "sort size reverse");
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "small.txt", "mid.rs", "big.md"]
+    );
+    // A bare `:sort reverse` flips what is already in use rather than choosing.
+    run_command(&mut state, "sort reverse");
+    assert_eq!(
+        visible_names(&state),
+        vec!["sub", "big.md", "mid.rs", "small.txt"]
+    );
 }

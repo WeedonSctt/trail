@@ -116,6 +116,17 @@ Controls overall application behavior.
 - `git_status_enabled` (Boolean): Enable or disable background git status workers. (Default: `true`)
 - `fs_watch_debounce_ms` (Non-negative Integer): Debounce delay for filesystem watching in milliseconds. (Default: `200`)
 
+#### `[navigation]`
+Controls how the navigation panel orders the listing and what it shows beside each name.
+
+- `sort_by` (String): Which property the listing is ordered by — `"name"`, `"size"`, `"modified"` or `"extension"`. `"size"` puts the largest first and `"modified"` the most recent first, the way `ls -S` and `ls -t` do; `"name"` and `"extension"` run A–Z, and `"extension"` falls back to the name within each group. Ties are always broken by name, case-insensitively, so an order does not shuffle between refreshes. Note that this key **seeds the first tab only**: each tab then owns its order, so `ss` in a downloads tab leaves the source tree in the next tab alone, and a new tab inherits the order of the tab it was opened from. There is deliberately no `"created"` — many Unix filesystems do not record a creation time, so that sort would work on Windows and silently tie on Linux. (Default: `"name"`)
+- `sort_reverse` (Boolean): Flip whichever order `sort_by` selected. (Default: `false`)
+- `dirs_first` (Boolean): Group directories ahead of files whatever `sort_by` says. This is an axis of its own — `sort_reverse` does *not* flip it, because reversing a listing is asking for the files in the other order, not for the directories to move to the bottom. A directory has no meaningful size, so directories keep name order inside a size sort whether or not they are grouped. (Default: `true`)
+- `entry_details` (String): What each row shows beside the name — `"none"`, `"size"`, `"modified"` or `"both"`. The navigation panel is 40% of the screen, which is 28 usable columns on an 80-column terminal, and `"both"` wants 26 of them; rather than crushing names, the column **stands down entirely** when it cannot leave at least 12 columns for a name, and `"both"` first drops the clock time and keeps the date. A directory shows `—` for its size, because a directory's byte length describes its directory record rather than its contents. (Default: `"none"`)
+
+The default reproduces Trail's ordering before v1.8.0 exactly: directories first, then name,
+case-insensitive, with no details column.
+
 #### `[preview]`
 Controls the preview pane, including inline image rendering.
 
@@ -325,6 +336,16 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 - `:set text_sync_threshold_kb 512`
 - `:set git_status_enabled false` (Accepts `true`, `yes`, `on`, `1` / `false`, `no`, `off`, `0`)
 - `:set fs_watch_debounce_ms 500`
+
+**Navigation Properties (Aliases supported):**
+- `:set sort_by size` (or `:set navigation.sort_by size`) — re-orders the active tab immediately
+- `:set sort_reverse true`
+- `:set dirs_first false`
+- `:set entry_details both`
+
+The three sort keys change the **active tab only**, the same as `:sort` and the `s` bindings;
+they do not reach the other tabs or the config file. `entry_details` applies to the whole
+window, because it describes the panel rather than a place you are working.
 
 **Preview Properties (Aliases supported):**
 - `:set image_protocol halfblocks` (or `:set preview.image_protocol halfblocks`)

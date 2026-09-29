@@ -1,12 +1,13 @@
 //! Multi-tab support: `TabState` and tab management.
 //!
-//! Each tab holds an independent `{cwd, entries, selected, history}`.
+//! Each tab holds an independent `{cwd, entries, selected, history, sort}`.
 //! `TabState` is embedded in `AppState.tabs`; Phase 8 enables creation,
 //! switching, and closing of additional tabs alongside the initial one.
 
 use std::path::PathBuf;
 
 use crate::app::history::NavigationHistory;
+use crate::app::sort::SortSettings;
 use crate::app::state::Entry;
 
 /// The complete navigation state for a single tab.
@@ -24,19 +25,28 @@ pub struct TabState {
     pub selected: usize,
     /// Back/forward navigation history for this tab.
     pub history: NavigationHistory,
+    /// How this tab orders its listing.
+    ///
+    /// Per tab rather than per application, because a tab is a place you are
+    /// working: the order that suits a source tree is not the one that suits a
+    /// downloads folder, and having to re-pick it on every switch would make
+    /// the setting useless.
+    pub sort: SortSettings,
 }
 
 impl TabState {
-    /// Creates a `TabState` for `cwd` with an empty entry list.
+    /// Creates a `TabState` for `cwd` with an empty entry list and `sort` as
+    /// its ordering.
     ///
     /// The caller is responsible for populating `entries` by calling
     /// `AppState::load_dir` or equivalent after construction.
-    pub fn new(cwd: PathBuf) -> Self {
+    pub fn new(cwd: PathBuf, sort: SortSettings) -> Self {
         Self {
             cwd,
             entries: Vec::new(),
             selected: 0,
             history: NavigationHistory::new(),
+            sort,
         }
     }
 }
@@ -54,10 +64,11 @@ pub struct TabManager {
 }
 
 impl TabManager {
-    /// Creates a `TabManager` with a single initial tab rooted at `cwd`.
-    pub fn new(cwd: PathBuf) -> Self {
+    /// Creates a `TabManager` with a single initial tab rooted at `cwd`,
+    /// ordered by `sort`.
+    pub fn new(cwd: PathBuf, sort: SortSettings) -> Self {
         Self {
-            tabs: vec![TabState::new(cwd)],
+            tabs: vec![TabState::new(cwd, sort)],
             active: 0,
         }
     }
@@ -100,12 +111,15 @@ impl TabManager {
         self.tabs.len() == 1
     }
 
-    /// Opens a new tab rooted at `cwd` and switches focus to it.
+    /// Opens a new tab rooted at `cwd`, ordered by `sort`, and switches focus
+    /// to it.
     ///
-    /// The new tab is inserted after the currently active tab.
-    pub fn open_tab(&mut self, cwd: PathBuf) {
+    /// The new tab is inserted after the currently active tab. Callers pass the
+    /// outgoing tab's `sort` so a new tab inherits the order you were already
+    /// using rather than snapping back to the configured default.
+    pub fn open_tab(&mut self, cwd: PathBuf, sort: SortSettings) {
         let insert_at = self.active + 1;
-        self.tabs.insert(insert_at, TabState::new(cwd));
+        self.tabs.insert(insert_at, TabState::new(cwd, sort));
         self.active = insert_at;
     }
 
@@ -181,7 +195,7 @@ mod tests {
 
     #[test]
     fn new_tab_manager_has_one_tab() {
-        let mgr = TabManager::new(p("/start"));
+        let mgr = TabManager::new(p("/start"), SortSettings::default());
         assert_eq!(mgr.len(), 1);
         assert_eq!(mgr.active, 0);
         assert_eq!(mgr.active_tab().cwd, p("/start"));
@@ -189,8 +203,8 @@ mod tests {
 
     #[test]
     fn open_tab_inserts_after_active() {
-        let mut mgr = TabManager::new(p("/a"));
-        mgr.open_tab(p("/b"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        mgr.open_tab(p("/b"), SortSettings::default());
         assert_eq!(mgr.len(), 2);
         assert_eq!(mgr.active, 1);
         assert_eq!(mgr.active_tab().cwd, p("/b"));
@@ -198,7 +212,7 @@ mod tests {
 
     #[test]
     fn close_tab_not_allowed_when_last() {
-        let mut mgr = TabManager::new(p("/a"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
         let closed = mgr.close_active_tab();
         assert!(!closed);
         assert_eq!(mgr.len(), 1);
@@ -206,8 +220,8 @@ mod tests {
 
     #[test]
     fn close_active_tab_switches_to_remaining() {
-        let mut mgr = TabManager::new(p("/a"));
-        mgr.open_tab(p("/b"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        mgr.open_tab(p("/b"), SortSettings::default());
         // Active is now 1 (/b). Close it; active should become 0 (/a).
         let closed = mgr.close_active_tab();
         assert!(closed);
@@ -218,8 +232,8 @@ mod tests {
 
     #[test]
     fn switch_next_wraps() {
-        let mut mgr = TabManager::new(p("/a"));
-        mgr.open_tab(p("/b"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        mgr.open_tab(p("/b"), SortSettings::default());
         let _ = mgr.switch_to(0);
         mgr.active = 0;
         assert!(mgr.switch_next());
@@ -230,8 +244,8 @@ mod tests {
 
     #[test]
     fn switch_prev_wraps() {
-        let mut mgr = TabManager::new(p("/a"));
-        mgr.open_tab(p("/b"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        mgr.open_tab(p("/b"), SortSettings::default());
         mgr.active = 0;
         assert!(mgr.switch_prev()); // wraps to last (1)
         assert_eq!(mgr.active, 1);
@@ -239,29 +253,44 @@ mod tests {
 
     #[test]
     fn switch_next_single_tab_returns_false() {
-        let mut mgr = TabManager::new(p("/a"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
         assert!(!mgr.switch_next());
     }
 
     #[test]
     fn switch_to_out_of_bounds_returns_false() {
-        let mut mgr = TabManager::new(p("/a"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
         assert!(!mgr.switch_to(99));
     }
 
     #[test]
     fn switch_to_same_tab_returns_false() {
-        let mut mgr = TabManager::new(p("/a"));
-        mgr.open_tab(p("/b"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        mgr.open_tab(p("/b"), SortSettings::default());
         mgr.active = 1;
         assert!(!mgr.switch_to(1));
     }
 
     #[test]
+    fn a_new_tab_inherits_the_order_it_was_opened_from() {
+        use crate::app::sort::SortBy;
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
+        let inherited = SortSettings {
+            by: SortBy::Size,
+            reverse: true,
+            dirs_first: false,
+        };
+        mgr.open_tab(p("/b"), inherited);
+        assert_eq!(mgr.active_tab().sort, inherited);
+        // ...and the tab it came from keeps its own.
+        assert_eq!(mgr.tabs[0].sort, SortSettings::default());
+    }
+
+    #[test]
     fn is_single_reflects_tab_count() {
-        let mut mgr = TabManager::new(p("/a"));
+        let mut mgr = TabManager::new(p("/a"), SortSettings::default());
         assert!(mgr.is_single());
-        mgr.open_tab(p("/b"));
+        mgr.open_tab(p("/b"), SortSettings::default());
         assert!(!mgr.is_single());
     }
 }

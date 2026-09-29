@@ -14,6 +14,7 @@ mod app;
 mod cli;
 mod config;
 mod input;
+mod metafmt;
 mod pathfmt;
 mod paths;
 mod plugin;

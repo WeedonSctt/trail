@@ -88,7 +88,12 @@ pub struct Entry {
     /// Whether the entry name starts with `.` (Unix hidden-file convention).
     pub is_hidden: bool,
     /// Filesystem metadata, if available.
-    #[allow(dead_code)] // TODO(phase-5): Used by binary formatter
+    ///
+    /// Collected by the directory iterator as it walks — one `lstat` that has
+    /// already been paid for — which is why sorting by size or time and showing
+    /// either in the listing cost no I/O at all. `None` when the entry could
+    /// not be stat'd; see [`crate::app::sort::sort_entries`] for where such an
+    /// entry lands.
     pub metadata: Option<fs::Metadata>,
     /// Git status, populated asynchronously by the git worker (Phase 4).
     /// `None` before the worker reports back, or outside a git repo.
@@ -384,6 +389,14 @@ pub struct AppState {
     pub status: StatusBarState,
     /// Whether hidden files are shown. Toggled by a keybinding (Phase 1).
     pub show_hidden: bool,
+    /// How the active tab orders its listing.
+    ///
+    /// A mirror of the active [`crate::app::tabs::TabState`]'s `sort`, kept
+    /// flat here for the same reason `cwd` and `selected` are: the listing code
+    /// reads it on every `load_dir` and should not have to go through the tab
+    /// manager to do so. `save_to_active_tab` and `restore_from_active_tab`
+    /// keep the two in step.
+    pub sort: crate::app::sort::SortSettings,
     /// Set `true` on any state mutation; cleared after each render.
     pub dirty: bool,
     /// The entry to re-select when returning to a directory visited before.
@@ -492,6 +505,10 @@ impl AppState {
                 cwd.clone()
             });
 
+        // The configured order seeds the first tab; every tab opened later
+        // inherits the order of the tab it was opened from.
+        let sort = config.navigation.sort_settings();
+
         let mut state = AppState {
             config,
             cwd: cwd.clone(),
@@ -505,6 +522,7 @@ impl AppState {
             git: None,
             status: StatusBarState::default(),
             show_hidden: false,
+            sort,
             dirty: true,
             selection_memory: std::collections::HashMap::new(),
             pending_delete: false,
@@ -514,7 +532,7 @@ impl AppState {
             tab_state: TabState::new(),
             pending_nav_key: None,
             pending_external: None,
-            tab_manager: TabManager::new(cwd.clone()),
+            tab_manager: TabManager::new(cwd.clone(), sort),
             bookmark_store: None,
             plugin_engine: None,
             recent_dirs: crate::session::RecentDirs::default(),
@@ -633,9 +651,10 @@ impl AppState {
 
     /// Reads and sorts the directory at `path`, replacing `self.entries`.
     ///
-    /// Sort order: directories first, then files/symlinks; within each group,
-    /// alphabetical case-insensitive. Hidden entries are always included in
-    /// `entries`; visibility is controlled by `show_hidden` at render time.
+    /// Sort order comes from `self.sort`, which is the active tab's — see
+    /// [`crate::app::sort::sort_entries`] for the rules. Hidden entries are
+    /// always included in `entries`; visibility is controlled by `show_hidden`
+    /// at render time.
     ///
     /// Also updates `status` and sets `dirty`.
     ///
@@ -653,17 +672,7 @@ impl AppState {
             .filter_map(|de| Entry::from_dir_entry(&de))
             .collect();
 
-        // Directory-first sort, then alphabetical case-insensitive within each
-        // group. Decision log: tie-break is alphabetical, case-insensitive.
-        entries.sort_by(|a, b| {
-            let a_is_dir = a.kind == EntryKind::Dir;
-            let b_is_dir = b.kind == EntryKind::Dir;
-            match (a_is_dir, b_is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()),
-            }
-        });
+        crate::app::sort::sort_entries(&mut entries, self.sort);
 
         self.entries = entries;
 
@@ -962,6 +971,36 @@ impl AppState {
         Ok(())
     }
 
+    /// Re-orders the listing under `settings`, keeping the selection on the
+    /// same entry, and records the new order on the active tab.
+    ///
+    /// Re-sorting is done in place rather than by re-listing the directory:
+    /// every sort key comes from data the entries already carry, so there is
+    /// nothing to re-read and no reason to pay for a `read_dir`.
+    ///
+    /// Two things have to move with the order, and both are silent corruption
+    /// if they do not:
+    ///
+    /// - **The filter's match list** holds *indices* into `entries`
+    ///   ([`FilterState::matches`]), so after a re-sort every index names a
+    ///   different file. The filter is re-applied rather than re-indexed.
+    /// - **The selection** is an index too, so it is resolved to a path first
+    ///   and looked up again afterwards — the same rule as `toggle_hidden`.
+    pub fn set_sort(&mut self, settings: crate::app::sort::SortSettings) {
+        let anchor = self.selected_entry().map(|e| e.path.clone());
+
+        self.sort = settings;
+        self.tab_manager.active_tab_mut().sort = settings;
+        crate::app::sort::sort_entries(&mut self.entries, settings);
+
+        if let Some(f) = self.filter.take() {
+            let q = f.query.clone();
+            self.apply_filter(q);
+        }
+        self.restore_selection(anchor.as_deref(), self.selected);
+        self.dirty = true;
+    }
+
     /// Reloads the current directory listing in place (e.g. after an external
     /// change or a self-initiated filesystem mutation).
     ///
@@ -1069,6 +1108,7 @@ impl AppState {
         tab.cwd = self.cwd.clone();
         tab.entries = self.entries.clone();
         tab.selected = self.selected;
+        tab.sort = self.sort;
         std::mem::swap(&mut tab.history, &mut self.history);
     }
 
@@ -1081,9 +1121,14 @@ impl AppState {
         let tab = self.tab_manager.active_tab_mut();
         let new_cwd = tab.cwd.clone();
         let new_selected = tab.selected;
+        // Restored before `load_dir` below, which sorts by it — a tab must come
+        // back in the order it was left in, not the order the tab you came from
+        // happened to be using.
+        let new_sort = tab.sort;
         std::mem::swap(&mut tab.history, &mut self.history);
         self.cwd = new_cwd.clone();
         self.selected = new_selected;
+        self.sort = new_sort;
         self.git = None;
         self.filter = None;
         self.preview = PreviewSlot::default();
@@ -1106,7 +1151,9 @@ impl AppState {
             .map(|p| crate::pathfmt::simplified(&p))
             .unwrap_or_else(|| self.cwd.clone());
         self.save_to_active_tab();
-        self.tab_manager.open_tab(new_cwd.clone());
+        // The new tab inherits this one's order: opening a second view of the
+        // same work is not a request to go back to the configured default.
+        self.tab_manager.open_tab(new_cwd.clone(), self.sort);
         self.cwd = new_cwd.clone();
         self.selected = 0;
         self.git = None;
@@ -1132,9 +1179,12 @@ impl AppState {
         let tab = self.tab_manager.active_tab_mut();
         let new_cwd = tab.cwd.clone();
         let new_selected = tab.selected;
+        // As in `restore_from_active_tab`: the revealed tab keeps its own order.
+        let new_sort = tab.sort;
         std::mem::swap(&mut tab.history, &mut self.history);
         self.cwd = new_cwd.clone();
         self.selected = new_selected;
+        self.sort = new_sort;
         self.git = None;
         self.filter = None;
         self.preview = PreviewSlot::default();

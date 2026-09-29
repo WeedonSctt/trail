@@ -13,8 +13,8 @@ use thiserror::Error;
 
 pub use last_used::ConfigSource;
 pub use schema::{
-    GeneralConfig, KeymapConfig, PluginsConfig, PreviewConfig, SetConfigError, ThemeConfig,
-    TrailConfig,
+    GeneralConfig, KeymapConfig, NavigationConfig, PluginsConfig, PreviewConfig, SetConfigError,
+    ThemeConfig, TrailConfig,
 };
 
 /// Built-in default configuration shipped with the binary.
@@ -111,6 +111,7 @@ fn parse_overrides(content: &str, path: &Path) -> Result<ConfigOverrides, Config
 #[serde(deny_unknown_fields)]
 struct ConfigOverrides {
     general: Option<GeneralOverrides>,
+    navigation: Option<NavigationOverrides>,
     preview: Option<PreviewOverrides>,
     theme: Option<ThemeOverrides>,
     keymap: Option<KeymapOverrides>,
@@ -121,6 +122,9 @@ impl ConfigOverrides {
     fn apply_to(self, config: &mut TrailConfig) {
         if let Some(general) = self.general {
             general.apply_to(&mut config.general);
+        }
+        if let Some(navigation) = self.navigation {
+            navigation.apply_to(&mut config.navigation);
         }
         if let Some(preview) = self.preview {
             preview.apply_to(&mut config.preview);
@@ -171,6 +175,32 @@ impl GeneralOverrides {
         }
         if let Some(fs_watch_debounce_ms) = self.fs_watch_debounce_ms {
             general.fs_watch_debounce_ms = fs_watch_debounce_ms;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NavigationOverrides {
+    sort_by: Option<String>,
+    sort_reverse: Option<bool>,
+    dirs_first: Option<bool>,
+    entry_details: Option<String>,
+}
+
+impl NavigationOverrides {
+    fn apply_to(self, navigation: &mut NavigationConfig) {
+        if let Some(sort_by) = self.sort_by {
+            navigation.sort_by = sort_by;
+        }
+        if let Some(sort_reverse) = self.sort_reverse {
+            navigation.sort_reverse = sort_reverse;
+        }
+        if let Some(dirs_first) = self.dirs_first {
+            navigation.dirs_first = dirs_first;
+        }
+        if let Some(entry_details) = self.entry_details {
+            navigation.entry_details = entry_details;
         }
     }
 }
@@ -369,6 +399,73 @@ navigation = { move_down = "n" }
             Some(&"n".to_owned())
         );
         assert_eq!(cfg.keymap.navigation.get("move_up"), Some(&"k".to_owned()));
+    }
+
+    #[test]
+    fn user_config_can_override_part_of_the_navigation_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(
+            &path,
+            r#"
+[navigation]
+sort_by = "modified"
+entry_details = "size"
+"#,
+        )
+        .unwrap();
+
+        let cfg = load(Some(&path)).unwrap();
+        assert_eq!(cfg.general.editor, "nvim", "other sections are untouched");
+        assert_eq!(cfg.navigation.sort_by, "modified");
+        assert_eq!(cfg.navigation.entry_details, "size");
+        // The keys the user did not write keep their defaults rather than
+        // becoming empty.
+        assert!(!cfg.navigation.sort_reverse);
+        assert!(cfg.navigation.dirs_first);
+        assert_eq!(
+            cfg.navigation.sort_settings(),
+            crate::app::sort::SortSettings {
+                by: crate::app::sort::SortBy::Modified,
+                reverse: false,
+                dirs_first: true,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unknown_key_in_the_navigation_section_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        // `deny_unknown_fields` is the invariant: a typo has to be reported,
+        // never silently dropped, or the setting appears not to work.
+        std::fs::write(
+            &path,
+            r#"
+[navigation]
+sort_order = "size"
+"#,
+        )
+        .unwrap();
+
+        assert!(load(Some(&path)).is_err());
+    }
+
+    #[test]
+    fn a_bad_sort_key_is_rejected_with_the_options_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(
+            &path,
+            r#"
+[navigation]
+sort_by = "created"
+"#,
+        )
+        .unwrap();
+
+        let err = load(Some(&path)).unwrap_err().to_string();
+        assert!(err.contains("name, size, modified or extension"), "{err}");
     }
 
     #[test]

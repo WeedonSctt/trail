@@ -69,8 +69,6 @@ fn is_image_path(path: &Path) -> bool {
 /// fresh `fs::metadata` call if not. Returns `PreviewContent::Empty` only if
 /// neither source works.
 pub fn build_binary_preview(path: &Path, metadata: Option<&std::fs::Metadata>) -> PreviewContent {
-    use chrono::{DateTime, Local};
-
     let owned;
     let meta: &std::fs::Metadata = match metadata {
         Some(m) => m,
@@ -85,7 +83,9 @@ pub fn build_binary_preview(path: &Path, metadata: Option<&std::fs::Metadata>) -
         }
     };
 
-    let size_str = humansize::format_size(meta.len(), humansize::DECIMAL);
+    // The same formatters the listing's details column uses, so a file cannot
+    // be described one way in the pane and another in the list.
+    let size_str = crate::metafmt::size(meta.len());
 
     let ext = path
         .extension()
@@ -93,14 +93,7 @@ pub fn build_binary_preview(path: &Path, metadata: Option<&std::fs::Metadata>) -
         .unwrap_or("unknown")
         .to_uppercase();
 
-    let modified = meta
-        .modified()
-        .ok()
-        .map(|t| {
-            let dt: DateTime<Local> = t.into();
-            dt.format("%Y-%m-%d %H:%M").to_string()
-        })
-        .unwrap_or_else(|| "unknown".to_owned());
+    let modified = crate::metafmt::modified(meta.modified().ok());
 
     let mut lines = vec![
         format!("  Type     : {} binary", ext),

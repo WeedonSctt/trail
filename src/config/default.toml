@@ -53,6 +53,35 @@ delete_mode = "trash"
 git_status_enabled = true
 fs_watch_debounce_ms = 200
 
+[navigation]
+# How the listing is ordered: name | size | modified | extension.
+#
+# `size` puts the largest first and `modified` the most recent first, the way
+# `ls -S` and `ls -t` do -- the end of the range you went looking for.  `name`
+# and `extension` run A-Z.  `sort_reverse` flips whichever of those is active.
+#
+# This seeds the first tab only.  Each tab then owns its order, so `ss` in a
+# downloads tab does not re-sort the source tree in the next one, and a new tab
+# inherits the order of the tab it was opened from.
+sort_by = "name"
+sort_reverse = false
+# Group directories ahead of files whatever `sort_by` says.  This is an axis of
+# its own: `sort_reverse` does not flip it, because reversing a listing is
+# asking for the files in the other order, not for the directories to move to
+# the bottom.  Set false to rank directories among the files -- though note that
+# a directory has no meaningful size, so a size sort keeps them in name order
+# either way.
+dirs_first = true
+# What each row shows beside the name: none | size | modified | both.
+#
+# The navigation panel is 40% of the screen -- 28 columns on an 80-column
+# terminal -- and `both` wants 26 of them, so the column stands down rather than
+# crushing names when there is not room for a readable name beside it.  On a
+# narrow panel `both` first drops the clock time and keeps the date.  Default is
+# `none`: the name is what you navigate by, and the preview pane already shows
+# size and modification time for whatever is selected.
+entry_details = "none"
+
 [preview]
 # Inline-image protocol: auto | kitty | iterm2 | sixel | halfblocks | none
 image_protocol = "auto"
@@ -97,6 +126,17 @@ history_back = "u"
 history_forward = "ctrl-r"
 refresh = "R"
 toggle_hidden = "."
+# Listing order, per tab.  `s` is a prefix rather than a binding of its own, so
+# the second key picks the field: name, size, time, extension.  `sr` flips the
+# order and `sd` toggles directory grouping.
+sort_name = "sn"
+sort_size = "ss"
+sort_time = "st"
+sort_extension = "se"
+sort_reverse = "sr"
+sort_dirs_first = "sd"
+# Step the details column through none -> size -> modified -> both -> none.
+toggle_details = "m"
 copy_absolute_path = "ya"
 copy_relative_path = "yr"
 copy_filename = "yn"

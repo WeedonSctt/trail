@@ -6,6 +6,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::actions::Action;
+use crate::app::sort::SortBy;
 use crate::app::state::AppState;
 use crate::config::KeymapConfig;
 use crate::input::InputCtx;
@@ -169,6 +170,16 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "history_forward" => Some(Action::HistoryForward),
         "refresh" => Some(Action::Refresh),
         "toggle_hidden" => Some(Action::ToggleHidden),
+        // Listing order. `s` is never bound on its own: `configured_nav_prefix`
+        // makes any first character of a longer binding a prefix, so these six
+        // give it its meaning without any change to the sequence machinery.
+        "sort_name" => Some(Action::SetSortBy(SortBy::Name)),
+        "sort_size" => Some(Action::SetSortBy(SortBy::Size)),
+        "sort_time" => Some(Action::SetSortBy(SortBy::Modified)),
+        "sort_extension" => Some(Action::SetSortBy(SortBy::Extension)),
+        "sort_reverse" => Some(Action::ToggleSortReverse),
+        "sort_dirs_first" => Some(Action::ToggleDirsFirst),
+        "toggle_details" => Some(Action::CycleEntryDetails),
         "copy_absolute_path" => Some(Action::CopyAbsPath),
         "copy_relative_path" => Some(Action::CopyRelPath),
         "copy_filename" => Some(Action::CopyFilename),

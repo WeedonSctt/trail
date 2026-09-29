@@ -10,6 +10,7 @@
 //!           | "!" shell_string
 //!
 //! verb    ::= "mkdir" | "touch" | "rename" | "mv" | "cp" | "git" | "set"
+//!           | "sort" | "bookmark" | "jump" | "plugin"
 //! ```
 //!
 //! `:git` and `:set` are syntactically accepted and validated here; their
@@ -59,6 +60,16 @@ pub enum ParsedCommand {
     /// Set a runtime config key to a value.
     /// The config schema will be wired in Phase 7; syntactically accepted now.
     Set { key: String, value: String },
+    /// Re-order the active tab's listing: `:sort [key] [reverse]`.
+    ///
+    /// `by` is `None` when the command named only `reverse`, which flips the
+    /// order already in use rather than choosing a new one.
+    Sort {
+        /// The key to order by, or `None` to keep the current one.
+        by: Option<crate::app::sort::SortBy>,
+        /// Whether to flip the resulting order.
+        reverse: bool,
+    },
     /// Execute an arbitrary shell command string.
     Shell(String),
     /// Add a bookmark: `:bookmark <name>` saves `cwd` under `name`.
@@ -76,7 +87,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :bookmark, :jump, :plugin")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :plugin")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -215,6 +226,32 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             })
         }
 
+        "sort" => {
+            // `:sort`, `:sort <key>`, `:sort reverse`, `:sort <key> reverse` —
+            // in any order, because "sort reverse size" is the same request as
+            // "sort size reverse" and refusing it teaches nothing.
+            let mut by = None;
+            let mut reverse = false;
+            for word in rest.split_whitespace() {
+                if word.eq_ignore_ascii_case("reverse") || word.eq_ignore_ascii_case("rev") {
+                    reverse = true;
+                } else if let Some(key) = crate::app::sort::SortBy::parse(word) {
+                    by = Some(key);
+                } else {
+                    return Err(ParseError::InvalidArgument(format!(
+                        "sort: '{word}' is not a sort key ({})",
+                        crate::app::sort::SORT_BY_REASON
+                    )));
+                }
+            }
+            if by.is_none() && !reverse {
+                return Err(ParseError::MissingArgument(
+                    "sort requires a key (name, size, modified, extension) or 'reverse'".to_owned(),
+                ));
+            }
+            Ok(ParsedCommand::Sort { by, reverse })
+        }
+
         "bookmark" | "bm" => {
             // :bookmark [name] — name is optional; empty string means
             // "use the cwd base-name" (resolved at execution time).
@@ -330,7 +367,8 @@ pub fn completions_with_plugins(
     if !trimmed.contains(' ') {
         let prefix = trimmed;
         let verbs = [
-            "mkdir", "touch", "rename", "mv", "cp", "git", "set", "bookmark", "jump", "plugin",
+            "mkdir", "touch", "rename", "mv", "cp", "git", "set", "sort", "bookmark", "jump",
+            "plugin",
         ];
         return verbs
             .iter()
@@ -970,6 +1008,54 @@ mod tests {
     }
 
     #[test]
+    fn parse_sort_key_only() {
+        use crate::app::sort::SortBy;
+        assert_eq!(
+            parse("sort size", false).unwrap(),
+            ParsedCommand::Sort {
+                by: Some(SortBy::Size),
+                reverse: false
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sort_key_and_reverse_in_either_word_order() {
+        use crate::app::sort::SortBy;
+        let expected = ParsedCommand::Sort {
+            by: Some(SortBy::Modified),
+            reverse: true,
+        };
+        assert_eq!(parse("sort modified reverse", false).unwrap(), expected);
+        assert_eq!(parse("sort reverse modified", false).unwrap(), expected);
+    }
+
+    #[test]
+    fn parse_sort_reverse_alone_keeps_the_current_key() {
+        assert_eq!(
+            parse("sort reverse", false).unwrap(),
+            ParsedCommand::Sort {
+                by: None,
+                reverse: true
+            }
+        );
+    }
+
+    #[test]
+    fn parse_sort_with_no_argument_is_error() {
+        let err = parse("sort", false).unwrap_err();
+        assert!(matches!(err, ParseError::MissingArgument(_)));
+    }
+
+    #[test]
+    fn parse_sort_with_an_unknown_key_is_error() {
+        // `created` is the one a user is most likely to reach for; it is not a
+        // key because the platform will not reliably report a creation time.
+        let err = parse("sort created", false).unwrap_err();
+        assert!(matches!(err, ParseError::InvalidArgument(_)), "{err:?}");
+    }
+
+    #[test]
     fn parse_empty_is_error() {
         let err = parse("", false).unwrap_err();
         assert!(matches!(err, ParseError::Empty));
@@ -1039,7 +1125,18 @@ mod tests {
     fn verb_completion_empty_returns_all_verbs() {
         let dir = tempfile::tempdir().unwrap();
         let candidates = completions("", dir.path(), false);
-        assert_eq!(candidates.len(), 10);
+        // A count alone says nothing about *which* verb went missing, so the
+        // set is asserted: a verb added to the parser and forgotten here is the
+        // failure this catches.
+        let mut got: Vec<String> = candidates.iter().map(|c| c.trim().to_owned()).collect();
+        got.sort();
+        assert_eq!(
+            got,
+            vec![
+                "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
+                "touch",
+            ]
+        );
     }
 
     #[test]

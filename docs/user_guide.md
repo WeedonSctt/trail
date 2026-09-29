@@ -73,6 +73,34 @@ has no lines to scroll, so the keys do nothing there.
 ### Display Options
 - `R`: Refresh the current directory view
 - `.`: Toggle visibility of hidden files
+- `m`: Step the details column through none → size → modified → both → none
+
+### Sorting
+
+`s` is a prefix; the second key picks what the listing is ordered by.
+
+- `sn`: Sort by name (A–Z)
+- `ss`: Sort by size, largest first
+- `st`: Sort by modification time, most recent first
+- `se`: Sort by extension, then name
+- `sr`: Flip the current order
+- `sd`: Toggle whether directories are grouped ahead of files
+
+Size and time run largest-first and newest-first because that is the end of the range you
+usually went looking for — `ls -S` and `ls -t` read the same way — and `sr` flips whichever
+order is active. Directory grouping is separate: `sr` does not move directories to the
+bottom, `sd` is what controls that.
+
+**Sorting is per tab.** A downloads tab can sit in `st` while the tab next to it keeps a
+source tree in `sn`, and each comes back in the order you left it. A new tab inherits the
+order of the tab it was opened from. None of this is written to `trail.toml`; set
+`[navigation] sort_by` there for the order every session should start in.
+
+Two things are worth knowing. A directory has no meaningful size — what the filesystem
+reports is the size of its directory record — so directories keep name order inside a size
+sort, and the details column shows `—` rather than a misleading number. And under `st`, the
+listing re-orders when a file is saved, because the filesystem watcher refreshes the view;
+the selection follows the file it was on rather than staying on the row.
 
 ### Status Bar Messages
 
@@ -122,6 +150,9 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   pattern itself starts with a dot, and the status bar reports how many were moved
 - `:git <subcommand>`: Run a git subcommand (e.g., `:git status --short`)
 - `:set <key> <value>`: Set a runtime configuration value
+- `:sort <key> [reverse]`: Re-order the active tab's listing. `<key>` is `name`, `size`,
+  `modified` or `extension`; the two words may be given in either order, and `:sort reverse`
+  on its own flips whichever order is already in use
 - `:bookmark <name>` (or `:bm`): Bookmark the current directory (defaults to directory base name if no name provided)
 - `:jump <name>` (or `:j`): Jump to a previously saved bookmark
 

@@ -183,10 +183,18 @@ fn plugin_without_action_returns_error() {
 fn verb_completion_all_verbs_when_empty() {
     let dir = tempfile::tempdir().unwrap();
     let candidates = completions("", dir.path(), false);
+    // Named rather than counted: a count tells you a verb is missing but not
+    // which one, and the failure this guards against is a verb added to the
+    // parser and forgotten in the completion list.
+    let mut got: Vec<String> = candidates.iter().map(|c| c.trim().to_owned()).collect();
+    got.sort();
     assert_eq!(
-        candidates.len(),
-        10,
-        "all 10 verbs should be returned for empty prefix; got {candidates:?}"
+        got,
+        vec![
+            "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
+            "touch",
+        ],
+        "every verb should be offered for an empty prefix"
     );
 }
 

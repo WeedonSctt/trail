@@ -74,11 +74,13 @@ fn build_metadata_preview_sync(
         .unwrap_or("unknown")
         .to_uppercase();
 
+    // Formatted by `metafmt`, the same as the binary preview and the listing's
+    // details column.
     let size_str = metadata
-        .map(|m| humansize::format_size(m.len(), humansize::DECIMAL))
+        .map(|m| crate::metafmt::size(m.len()))
         .or_else(|| {
             std::fs::metadata(path)
-                .map(|m| humansize::format_size(m.len(), humansize::DECIMAL))
+                .map(|m| crate::metafmt::size(m.len()))
                 .ok()
         })
         .unwrap_or_else(|| "unknown".to_owned());
