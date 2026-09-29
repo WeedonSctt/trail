@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Errors produced while applying a runtime `:set` update.
@@ -45,7 +45,7 @@ const SHELL_PAUSE_REASON: &str = "must be always, on_error or never";
 const DELETE_MODE_REASON: &str = "must be trash or permanent";
 
 /// Top-level Trail configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TrailConfig {
     /// General behavior settings.
@@ -117,6 +117,13 @@ impl TrailConfig {
                 "navigation.entry_details",
                 &self.navigation.entry_details,
                 crate::ui::nav_panel::ENTRY_DETAILS_REASON,
+            ));
+        }
+        if self.plugins.budget_ms == 0 {
+            return Err(invalid_value(
+                "plugins.budget_ms",
+                "0",
+                "must be greater than zero",
             ));
         }
         // `navigation.scroll_margin` needs no range check: zero is "no margin",
@@ -236,6 +243,13 @@ impl TrailConfig {
                 }
                 self.navigation.entry_details = value.trim().to_ascii_lowercase();
             }
+            "plugins.budget_ms" | "budget_ms" => {
+                let budget = parse_u64(key, value)?;
+                if budget == 0 {
+                    return Err(invalid_value(key, value, "must be greater than zero"));
+                }
+                self.plugins.budget_ms = budget;
+            }
             "navigation.scroll_margin" | "scroll_margin" => {
                 self.navigation.scroll_margin = parse_usize(key, value)?;
             }
@@ -304,7 +318,7 @@ impl TrailConfig {
 }
 
 /// General behavior settings.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GeneralConfig {
     /// Editor command used when opening a file.
@@ -346,7 +360,7 @@ pub struct GeneralConfig {
 }
 
 /// Navigation panel settings: how the listing is ordered and what it shows.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct NavigationConfig {
     /// Which property the listing is ordered by: `name`, `size`, `modified` or
@@ -399,7 +413,7 @@ impl NavigationConfig {
 }
 
 /// Preview pane settings.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PreviewConfig {
     /// Inline-image protocol to use: `"auto"` to detect from the environment,
@@ -432,7 +446,7 @@ pub struct PreviewConfig {
 pub const PREVIEW_MAX_LINES_LIMIT: usize = 100_000;
 
 /// UI color configuration.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeConfig {
     /// Default foreground color.
@@ -466,7 +480,7 @@ pub struct ThemeConfig {
 }
 
 /// Configurable key bindings.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct KeymapConfig {
     /// Navigation-mode bindings by action name.
@@ -476,11 +490,17 @@ pub struct KeymapConfig {
 }
 
 /// Plugin loader settings.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PluginsConfig {
     /// Plugin names enabled for loading in Phase 8.
     pub enabled: Vec<String>,
+    /// How long, in milliseconds, one call into a plugin may run before it is
+    /// stopped.
+    ///
+    /// Plugin hooks run on the UI thread, so this is the bound on how long a
+    /// plugin can hold up a keystroke. Loading a plugin gets ten times as long.
+    pub budget_ms: u64,
 }
 
 /// Parses one axis of `[preview]`'s character cell size.

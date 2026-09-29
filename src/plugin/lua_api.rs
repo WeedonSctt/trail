@@ -1,36 +1,58 @@
-//! Lua scripting API (v1, via `mlua`).
+//! The Lua plugin engine: loading, firing hooks and actions, and the budget.
 //!
-//! Exposes `on_select`, `on_enter_dir`, and `register_action` hooks to
-//! Lua scripts. Hooks are registered during plugin load; Trail fires them at
-//! appropriate runtime moments via the `fire_*` methods.
+//! One `mlua::Lua` state is shared by every plugin. The `trail` table is
+//! built by [`crate::plugin::api`]; this module owns the calls *into* Lua.
+//! Every call goes through `PluginEngine::invoke`, which does three things
+//! around it:
 //!
-//! # Hook Contract
+//! 1. **Attributes it.** The running plugin's name is recorded, so anything it
+//!    registers or reports carries its name.
+//! 2. **Lends it `&AppState`.** The read functions (`trail.selection()` and
+//!    friends) are installed as `mlua` scoped functions that borrow the state
+//!    for exactly the length of the call, then replaced by stubs. Nothing is
+//!    copied until a plugin asks for it.
+//! 3. **Budgets it.** An instruction-count hook aborts a call that runs past
+//!    `[plugins] budget_ms`, because the call is on the UI thread and
+//!    invariant 1 does not stop applying to code Trail did not write.
 //!
-//! Each loaded plugin is a Lua chunk executed once at load time. The chunk
-//! calls `trail.on_select(fn)`, `trail.on_enter_dir(fn)`, or
-//! `trail.register_action(name, fn)` to register callbacks. Trail fires those
-//! callbacks by calling `fire_on_select`, `fire_on_enter_dir`, or
-//! `fire_action`.
-//!
-//! Hook errors are logged at `debug` level and never propagate — a
-//! misbehaving plugin must not crash the application.
-//!
-//! # Lifetime notes
-//!
-//! `mlua::Function` carries a `'lua` lifetime bound to the `Lua` instance.
-//! We store callbacks using `mlua::RegistryKey` instead, which is `'static`
-//! and keeps the value alive as long as the `Lua` state exists.
+//! Nothing here mutates `AppState`. Writes are queued (see
+//! [`crate::plugin::request`]) and applied by [`crate::plugin::host`] once the
+//! call has returned. Design: `docs/plugin_api_plan.md` §3.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
-use mlua::{Function, Lua, RegistryKey, Table};
+use mlua::{Function, HookTriggers, IntoLuaMulti, Lua, MultiValue, Table, Value};
 use thiserror::Error;
+
+use crate::app::state::{AppState, Entry};
+use crate::plugin::api::{self, Binding, Hook, Jobs, Queue, Registry};
+use crate::plugin::previewer::PreviewerRule;
+use crate::plugin::read;
+use crate::plugin::request::{JobResult, PluginRequest};
+
+/// How often, in Lua VM instructions, the budget is checked.
+///
+/// Checking reads the clock, so it is not free; every thousand instructions
+/// bounds an overrun to well under a millisecond on any machine Trail runs on.
+const BUDGET_CHECK_INTERVAL: u32 = 1_000;
+
+/// How many budgets a plugin's top-level chunk gets when it loads.
+///
+/// Loading happens once, before the first frame, and may legitimately build
+/// tables a hook never would.
+const LOAD_BUDGET_MULTIPLIER: u32 = 10;
+
+/// The budget used until [`PluginEngine::set_budget`] is called.
+pub const DEFAULT_BUDGET: Duration = Duration::from_millis(50);
 
 /// Errors that can arise when loading or running Lua plugins.
 #[derive(Debug, Error)]
 pub enum PluginError {
     /// A Lua runtime error occurred while loading or executing a plugin.
-    #[error("Lua error: {0}")]
+    #[error("{}", brief(.0))]
     Lua(#[from] mlua::Error),
     /// A plugin file could not be read from disk.
     #[error("failed to read plugin {path}: {source}")]
@@ -43,389 +65,412 @@ pub enum PluginError {
     },
 }
 
-/// The v1 plugin engine: an embedded Lua interpreter with Trail's hook API.
-///
-/// Holds a single `mlua::Lua` state shared across all loaded plugins.
-/// Callbacks are stored as [`mlua::RegistryKey`] values so they remain
-/// `'static` while the `Lua` state is alive.
-///
-/// The hook API is intentionally minimal for v1 — resist expanding it until
-/// a real plugin author needs more (coding standard §13 / decision log).
+/// What running a registered action came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ActionOutcome {
+    /// No plugin registered an action by that name.
+    NotFound,
+    /// The handler succeeded, optionally with a message to show.
+    Done(Option<String>),
+    /// The handler returned `false` or raised an error.
+    Failed(String),
+}
+
+/// The plugin engine: an embedded Lua interpreter with Trail's API.
 pub struct PluginEngine {
     lua: Lua,
-    /// Registry keys for registered `on_select` callbacks, in load order.
-    on_select_keys: Vec<RegistryKey>,
-    /// Registry keys for registered `on_enter_dir` callbacks, in load order.
-    on_enter_dir_keys: Vec<RegistryKey>,
-    /// Registry keys for registered custom action callbacks: `(name, key)`.
-    registered_action_keys: Vec<(String, RegistryKey)>,
+    budget: Duration,
+    /// When the running call must finish by; `None` between calls. Shared with
+    /// the instruction hook, which is the only thing that reads it.
+    deadline: Rc<Cell<Option<Instant>>>,
 }
 
 impl std::fmt::Debug for PluginEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PluginEngine")
-            .field("on_select_hooks", &self.on_select_keys.len())
-            .field("on_enter_dir_hooks", &self.on_enter_dir_keys.len())
-            .field("registered_actions", &self.registered_action_keys.len())
-            .finish()
+        let mut s = f.debug_struct("PluginEngine");
+        if let Some(r) = self.lua.app_data_ref::<Registry>() {
+            s.field("on_select", &r.on_select.len())
+                .field("on_enter_dir", &r.on_enter_dir.len())
+                .field("on_fs_change", &r.on_fs_change.len())
+                .field("actions", &r.actions.len())
+                .field("bindings", &r.bindings.len())
+                .field("previewers", &r.previewers.len());
+        }
+        s.field("budget", &self.budget).finish()
     }
 }
 
 impl PluginEngine {
-    /// Creates a new `PluginEngine` and installs the Trail Lua API surface.
-    ///
-    /// Sets up the `trail` global table with `on_select`, `on_enter_dir`,
-    /// `register_action`, and `log` functions for use by plugins.
+    /// Creates an engine with the `trail` API installed and no plugins loaded.
     ///
     /// # Errors
     ///
-    /// Returns [`PluginError::Lua`] if the Lua state cannot be created or the
-    /// API table cannot be installed.
+    /// Returns [`PluginError::Lua`] if the API table cannot be installed.
     pub fn new() -> Result<Self, PluginError> {
         let lua = Lua::new();
-        Self::install_trail_api(&lua)?;
+        api::install(&lua)?;
+
+        let deadline: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
+        let watched = Rc::clone(&deadline);
+        lua.set_hook(
+            HookTriggers::new().every_nth_instruction(BUDGET_CHECK_INTERVAL),
+            move |_, _| match watched.get() {
+                Some(limit) if Instant::now() > limit => Err(mlua::Error::RuntimeError(
+                    "ran past its time budget and was stopped".to_owned(),
+                )),
+                _ => Ok(()),
+            },
+        );
 
         Ok(Self {
             lua,
-            on_select_keys: Vec::new(),
-            on_enter_dir_keys: Vec::new(),
-            registered_action_keys: Vec::new(),
+            budget: DEFAULT_BUDGET,
+            deadline,
         })
     }
 
-    /// Installs the `trail` global API table into `lua`.
-    ///
-    /// Also installs a `__trail_registry` table used internally during plugin
-    /// loading to capture hook registrations.
-    fn install_trail_api(lua: &Lua) -> Result<(), mlua::Error> {
-        // __trail_registry collects registrations during a single load_plugin call.
-        let registry = lua.create_table()?;
-        registry.set("_on_select", lua.create_table()?)?;
-        registry.set("_on_enter_dir", lua.create_table()?)?;
-        registry.set("_actions", lua.create_table()?)?;
-        lua.globals().set("__trail_registry", registry)?;
-
-        // trail.on_select(fn) — appends fn to _on_select.
-        let on_select_fn = lua.create_function(|lua, f: Function| {
-            let registry: Table = lua.globals().get("__trail_registry")?;
-            let tbl: Table = registry.get("_on_select")?;
-            tbl.push(f)?;
-            Ok(())
-        })?;
-
-        // trail.on_enter_dir(fn) — appends fn to _on_enter_dir.
-        let on_enter_dir_fn = lua.create_function(|lua, f: Function| {
-            let registry: Table = lua.globals().get("__trail_registry")?;
-            let tbl: Table = registry.get("_on_enter_dir")?;
-            tbl.push(f)?;
-            Ok(())
-        })?;
-
-        // trail.register_action(name, fn) — appends {name, fn} pair to _actions.
-        let register_action_fn = lua.create_function(|lua, (name, f): (String, Function)| {
-            let registry: Table = lua.globals().get("__trail_registry")?;
-            let actions: Table = registry.get("_actions")?;
-            // Store as a two-element table: {name, fn}.
-            let entry = lua.create_table()?;
-            entry.set(1, name)?;
-            entry.set(2, f)?;
-            actions.push(entry)?;
-            Ok(())
-        })?;
-
-        // trail.log(msg) — emits an info log from plugin code.
-        let log_fn = lua.create_function(|_lua, msg: String| {
-            tracing::info!(plugin = true, "{}", msg);
-            Ok(())
-        })?;
-
-        let trail_api = lua.create_table()?;
-        trail_api.set("on_select", on_select_fn)?;
-        trail_api.set("on_enter_dir", on_enter_dir_fn)?;
-        trail_api.set("register_action", register_action_fn)?;
-        trail_api.set("log", log_fn)?;
-        lua.globals().set("trail", trail_api)?;
-
-        Ok(())
+    /// Sets how long one call into a plugin may run: `[plugins] budget_ms`.
+    pub fn set_budget(&mut self, budget: Duration) {
+        self.budget = budget;
     }
 
-    /// Drains newly registered hooks from `__trail_registry` into the engine's
-    /// internal key lists, then resets the registry tables for the next load.
-    fn drain_registry(&mut self) -> Result<(), mlua::Error> {
-        let registry: Table = self.lua.globals().get("__trail_registry")?;
-
-        // Drain on_select hooks.
-        let on_select_tbl: Table = registry.get("_on_select")?;
-        for val in on_select_tbl.sequence_values::<Function>() {
-            let key = self.lua.create_registry_value(val?)?;
-            self.on_select_keys.push(key);
-        }
-        registry.set("_on_select", self.lua.create_table()?)?;
-
-        // Drain on_enter_dir hooks.
-        let on_enter_dir_tbl: Table = registry.get("_on_enter_dir")?;
-        for val in on_enter_dir_tbl.sequence_values::<Function>() {
-            let key = self.lua.create_registry_value(val?)?;
-            self.on_enter_dir_keys.push(key);
-        }
-        registry.set("_on_enter_dir", self.lua.create_table()?)?;
-
-        // Drain registered actions.
-        let actions_tbl: Table = registry.get("_actions")?;
-        for val in actions_tbl.sequence_values::<Table>() {
-            let entry = val?;
-            let name: String = entry.get(1)?;
-            let func: Function = entry.get(2)?;
-            let key = self.lua.create_registry_value(func)?;
-            self.registered_action_keys.push((name, key));
-        }
-        registry.set("_actions", self.lua.create_table()?)?;
-
-        Ok(())
-    }
-
-    /// Loads and executes a Lua plugin from `path`.
-    ///
-    /// The plugin chunk runs once; any `trail.*` registration calls are
-    /// captured and stored as registry keys.
+    /// Loads and runs a plugin file, named after its file stem.
     ///
     /// # Errors
     ///
-    /// Returns [`PluginError::Io`] if the file cannot be read, or
-    /// [`PluginError::Lua`] if the chunk fails to compile or execute.
+    /// [`PluginError::Io`] if it cannot be read, [`PluginError::Lua`] if it
+    /// fails to compile or run. A plugin that fails part-way through loading
+    /// keeps none of what it registered, so a broken plugin is absent rather
+    /// than half-present.
     pub fn load_plugin(&mut self, path: &Path) -> Result<(), PluginError> {
         let source = std::fs::read_to_string(path).map_err(|e| PluginError::Io {
             path: path.to_owned(),
             source: e,
         })?;
-        self.lua
-            .load(&source)
-            .set_name(path.display().to_string())
-            .exec()?;
-        self.drain_registry()?;
-        tracing::debug!("loaded plugin: {}", path.display());
-        Ok(())
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("plugin")
+            .to_owned();
+        self.load_named(&name, &source, &path.display().to_string())
     }
 
-    /// Loads a Lua plugin from a source string.
-    ///
-    /// `name` is used as a debug label in error messages. This is the
-    /// preferred path for embedded (built-in) plugins and unit tests.
+    /// Loads and runs a plugin from source, under `name`.
     ///
     /// # Errors
     ///
-    /// Returns [`PluginError::Lua`] if the chunk fails to compile or execute.
+    /// [`PluginError::Lua`] if the chunk fails to compile or run; as with
+    /// [`PluginEngine::load_plugin`], nothing it registered is kept.
     pub fn load_plugin_str(&mut self, name: &str, source: &str) -> Result<(), PluginError> {
-        self.lua.load(source).set_name(name).exec()?;
-        self.drain_registry()?;
+        self.load_named(name, source, name)
+    }
+
+    fn load_named(&mut self, name: &str, source: &str, chunk: &str) -> Result<(), PluginError> {
+        self.set_current(name)?;
+        self.deadline
+            .set(Some(Instant::now() + self.budget * LOAD_BUDGET_MULTIPLIER));
+        let result = self.lua.load(source).set_name(chunk).exec();
+        self.deadline.set(None);
+        if let Err(e) = result {
+            self.forget(name);
+            return Err(e.into());
+        }
         Ok(())
     }
 
-    /// Fires all registered `on_select` hooks with the path of the selected entry.
-    ///
-    /// Hook errors are logged at `debug` level and do not propagate.
-    pub fn fire_on_select(&self, path: &Path) {
-        let path_str = path.display().to_string();
-        for key in &self.on_select_keys {
-            let func: Result<Function, _> = self.lua.registry_value(key);
-            match func {
-                Ok(f) => {
-                    if let Err(e) = f.call::<_, ()>(path_str.clone()) {
-                        tracing::debug!("on_select hook error: {e}");
-                    }
-                }
-                Err(e) => tracing::debug!("on_select registry lookup error: {e}"),
-            }
+    /// Drops everything `plugin` registered.
+    fn forget(&self, plugin: &str) {
+        if let Some(mut r) = self.lua.app_data_mut::<Registry>() {
+            r.on_select.retain(|h| h.plugin != plugin);
+            r.on_enter_dir.retain(|h| h.plugin != plugin);
+            r.on_fs_change.retain(|h| h.plugin != plugin);
+            r.actions.retain(|(_, h)| h.plugin != plugin);
+            r.bindings.retain(|b| b.plugin != plugin);
+            r.previewers.retain(|p| p.plugin != plugin);
         }
     }
 
-    /// Fires all registered `on_enter_dir` hooks with the entered directory path.
-    ///
-    /// Hook errors are logged at `debug` level and do not propagate.
-    pub fn fire_on_enter_dir(&self, dir: &Path) {
-        let dir_str = dir.display().to_string();
-        for key in &self.on_enter_dir_keys {
-            let func: Result<Function, _> = self.lua.registry_value(key);
-            match func {
-                Ok(f) => {
-                    if let Err(e) = f.call::<_, ()>(dir_str.clone()) {
-                        tracing::debug!("on_enter_dir hook error: {e}");
-                    }
-                }
-                Err(e) => tracing::debug!("on_enter_dir registry lookup error: {e}"),
-            }
-        }
+    fn set_current(&self, plugin: &str) -> mlua::Result<()> {
+        let mut r = self
+            .lua
+            .app_data_mut::<Registry>()
+            .ok_or_else(|| mlua::Error::RuntimeError("plugin registry missing".to_owned()))?;
+        plugin.clone_into(&mut r.current);
+        Ok(())
     }
 
-    /// Calls the registered handler for `action_name` with `arg`.
-    ///
-    /// Returns `true` if an action with that name was found and called,
-    /// `false` if no plugin registered it.
-    /// Handler errors are logged at `debug` level and do not propagate.
-    // clippy: dead_code — API consumed in Phase 9 UI
-    #[allow(dead_code)]
-    pub fn fire_action(&self, action_name: &str, arg: &str) -> bool {
-        for (name, key) in &self.registered_action_keys {
-            if name == action_name {
-                let func: Result<Function, _> = self.lua.registry_value(key);
-                match func {
-                    Ok(f) => {
-                        if let Err(e) = f.call::<_, ()>(arg.to_owned()) {
-                            tracing::debug!("action handler '{action_name}' error: {e}");
-                        }
-                    }
-                    Err(e) => tracing::debug!("action registry lookup error: {e}"),
-                }
-                return true;
-            }
-        }
-        false
+    // ── Calling into Lua ────────────────────────────────────────────────────
+
+    /// Runs `func` as `plugin`, with the read surface lent over `state` and the
+    /// budget armed. The heart of the engine; every call below goes through it.
+    fn invoke<'lua>(
+        &'lua self,
+        state: &AppState,
+        plugin: &str,
+        func: Function<'lua>,
+        args: MultiValue<'lua>,
+    ) -> mlua::Result<MultiValue<'lua>> {
+        self.set_current(plugin)?;
+        let lua = &self.lua;
+        let trail: Table = lua.globals().get("trail")?;
+        lua.scope(|scope| {
+            trail.set(
+                "selection",
+                scope.create_function(|lua, ()| read::selection(lua, state))?,
+            )?;
+            trail.set(
+                "entries",
+                scope.create_function(|lua, ()| read::entries(lua, state))?,
+            )?;
+            trail.set(
+                "cwd",
+                scope.create_function(|lua, ()| read::cwd(lua, state))?,
+            )?;
+            trail.set(
+                "config",
+                scope.create_function(|lua, key: String| read::config(lua, state, &key))?,
+            )?;
+            trail.set(
+                "tabs",
+                scope.create_function(|lua, ()| read::tabs(lua, state))?,
+            )?;
+            trail.set(
+                "mode",
+                scope.create_function(|_, ()| Ok(read::mode(state)))?,
+            )?;
+
+            self.deadline.set(Some(Instant::now() + self.budget));
+            let result = func.call::<_, MultiValue>(args);
+            self.deadline.set(None);
+            api::install_read_stubs(lua, &trail)?;
+            result
+        })
     }
 
-    /// Returns an iterator over the names of all registered custom actions.
-    ///
-    /// Used by the command parser to offer tab-completion for plugin actions.
-    // clippy: dead_code — API consumed in Phase 9 UI
-    #[allow(dead_code)]
-    pub fn action_names(&self) -> impl Iterator<Item = &str> {
-        self.registered_action_keys
+    /// Collects the functions of a hook list, releasing the registry borrow
+    /// before any of them runs — a hook may register another, which needs it.
+    fn hooks(&self, pick: impl Fn(&Registry) -> &Vec<Hook>) -> Vec<(String, Function<'_>)> {
+        let Some(r) = self.lua.app_data_ref::<Registry>() else {
+            return Vec::new();
+        };
+        pick(&r)
             .iter()
-            .map(|(name, _)| name.as_str())
+            .filter_map(|h| {
+                self.lua
+                    .registry_value::<Function>(&h.key)
+                    .ok()
+                    .map(|f| (h.plugin.clone(), f))
+            })
+            .collect()
     }
 
-    /// Returns `true` if no plugins have registered any hooks or actions.
-    // clippy: dead_code — API consumed in Phase 9 UI
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.on_select_keys.is_empty()
-            && self.on_enter_dir_keys.is_empty()
-            && self.registered_action_keys.is_empty()
+    fn fire<'lua>(
+        &'lua self,
+        state: &AppState,
+        event: &str,
+        hooks: Vec<(String, Function<'lua>)>,
+        args: impl Fn(&'lua Lua) -> mlua::Result<MultiValue<'lua>>,
+    ) {
+        for (plugin, func) in hooks {
+            let result = args(&self.lua).and_then(|a| self.invoke(state, &plugin, func, a));
+            if let Err(e) = result {
+                self.report(&plugin, event, &e);
+            }
+        }
+    }
+
+    /// Queues an error for the status bar, attributed to `plugin`.
+    fn report(&self, plugin: &str, what: &str, error: &mlua::Error) {
+        let message = format!("plugin {plugin}: {what}: {}", brief(error));
+        tracing::warn!("{message}");
+        self.queue(PluginRequest::Error(message));
+    }
+
+    fn queue(&self, request: PluginRequest) {
+        if let Some(mut q) = self.lua.app_data_mut::<Queue>() {
+            q.0.push(request);
+        }
+    }
+
+    /// Fires every `on_select` hook for `entry`.
+    ///
+    /// Hooks receive the path string, as they always have, and the entry
+    /// table as a second argument. Errors are queued, never propagated.
+    pub fn fire_on_select(&self, state: &AppState, entry: &Entry) {
+        let hooks = self.hooks(|r| &r.on_select);
+        if hooks.is_empty() {
+            return;
+        }
+        let path = crate::pathfmt::display(&entry.path);
+        self.fire(state, "on_select", hooks, |lua| {
+            (path.as_str(), read::entry_table(lua, entry)?).into_lua_multi(lua)
+        });
+    }
+
+    /// Fires every `on_enter_dir` hook for `dir`, with the `trail.cwd()` table
+    /// as the second argument.
+    pub fn fire_on_enter_dir(&self, state: &AppState, dir: &Path) {
+        let hooks = self.hooks(|r| &r.on_enter_dir);
+        if hooks.is_empty() {
+            return;
+        }
+        let path = crate::pathfmt::display(dir);
+        self.fire(state, "on_enter_dir", hooks, |lua| {
+            (path.as_str(), read::cwd(lua, state)?).into_lua_multi(lua)
+        });
+    }
+
+    /// Fires every `on_fs_change` hook for `dir`.
+    pub fn fire_on_fs_change(&self, state: &AppState, dir: &Path) {
+        let hooks = self.hooks(|r| &r.on_fs_change);
+        if hooks.is_empty() {
+            return;
+        }
+        let path = crate::pathfmt::display(dir);
+        self.fire(state, "on_fs_change", hooks, |lua| {
+            path.as_str().into_lua_multi(lua)
+        });
+    }
+
+    /// Runs the action registered as `name` with `arg`, and says how it went.
+    ///
+    /// The handler's return value is the outcome: nothing or `true` succeeds
+    /// silently, a string succeeds with a notice, `false` (optionally followed
+    /// by a reason) fails, and so does a Lua error.
+    pub fn fire_action(&self, state: &AppState, name: &str, arg: &str) -> ActionOutcome {
+        let found = {
+            let Some(r) = self.lua.app_data_ref::<Registry>() else {
+                return ActionOutcome::NotFound;
+            };
+            r.actions.iter().find(|(n, _)| n == name).map(|(_, h)| {
+                (
+                    h.plugin.clone(),
+                    self.lua.registry_value::<Function>(&h.key),
+                )
+            })
+        };
+        let Some((plugin, func)) = found else {
+            return ActionOutcome::NotFound;
+        };
+        let result = func
+            .and_then(|f| {
+                let args = arg.into_lua_multi(&self.lua)?;
+                self.invoke(state, &plugin, f, args)
+            })
+            .map(|values| outcome(values.into_vec()));
+        match result {
+            Ok(outcome) => outcome,
+            Err(e) => ActionOutcome::Failed(brief(&e)),
+        }
+    }
+
+    /// Calls the `on_exit` callback of job `id` with its result, if it had one.
+    pub fn fire_job(&self, state: &AppState, id: u64, result: &JobResult) {
+        let hook = self
+            .lua
+            .app_data_mut::<Jobs>()
+            .and_then(|mut jobs| jobs.callbacks.remove(&id));
+        let Some(hook) = hook else {
+            return;
+        };
+        let call = self
+            .lua
+            .registry_value::<Function>(&hook.key)
+            .and_then(|f| {
+                let t = self.lua.create_table()?;
+                t.set("ok", result.ok)?;
+                t.set("code", result.code)?;
+                t.set("stdout", result.stdout.as_str())?;
+                t.set("stderr", result.stderr.as_str())?;
+                t.set("id", id)?;
+                let args = t.into_lua_multi(&self.lua)?;
+                self.invoke(state, &hook.plugin, f, args)
+            });
+        if let Err(e) = call {
+            self.report(&hook.plugin, "job callback", &e);
+        }
+        let _ = self.lua.remove_registry_value(hook.key);
+    }
+
+    // ── What the host reads back ────────────────────────────────────────────
+
+    /// Takes every request queued since the last call, in order.
+    pub fn take_requests(&self) -> Vec<PluginRequest> {
+        self.lua
+            .app_data_mut::<Queue>()
+            .map(|mut q| std::mem::take(&mut q.0))
+            .unwrap_or_default()
+    }
+
+    /// Names of all registered actions, for `:plugin` completion.
+    pub fn action_names(&self) -> Vec<String> {
+        self.lua
+            .app_data_ref::<Registry>()
+            .map(|r| r.actions.iter().map(|(n, _)| n.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Every key binding plugins asked for, in load order.
+    pub fn bindings(&self) -> Vec<Binding> {
+        self.lua
+            .app_data_ref::<Registry>()
+            .map(|r| r.bindings.clone())
+            .unwrap_or_default()
+    }
+
+    /// The action and argument bound to `keys`, if a plugin bound it.
+    pub fn binding_for(&self, keys: &str) -> Option<(String, String)> {
+        let r = self.lua.app_data_ref::<Registry>()?;
+        r.bindings
+            .iter()
+            .find(|b| b.keys == keys)
+            .map(|b| (b.action.clone(), b.arg.clone()))
+    }
+
+    /// Whether `ch` starts a multi-key sequence a plugin bound.
+    pub fn is_binding_prefix(&self, ch: char) -> bool {
+        self.lua.app_data_ref::<Registry>().is_some_and(|r| {
+            r.bindings.iter().any(|b| {
+                b.keys.len() > ch.len_utf8()
+                    && b.keys.starts_with(ch)
+                    && !crate::input::keymap::is_named_key(&b.keys)
+            })
+        })
+    }
+
+    /// Every previewer plugins registered, in load order.
+    pub fn previewer_rules(&self) -> Vec<PreviewerRule> {
+        self.lua
+            .app_data_ref::<Registry>()
+            .map(|r| r.previewers.clone())
+            .unwrap_or_default()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn new_engine_is_empty() {
-        let engine = PluginEngine::new().expect("engine");
-        assert!(engine.is_empty());
+/// Reads an action handler's return values as its outcome.
+fn outcome(values: Vec<Value>) -> ActionOutcome {
+    let mut it = values.into_iter();
+    match it.next() {
+        None | Some(Value::Nil) | Some(Value::Boolean(true)) => ActionOutcome::Done(None),
+        Some(Value::String(s)) => ActionOutcome::Done(Some(s.to_string_lossy().into_owned())),
+        Some(Value::Boolean(false)) => ActionOutcome::Failed(match it.next() {
+            Some(Value::String(s)) => s.to_string_lossy().into_owned(),
+            _ => "failed".to_owned(),
+        }),
+        Some(_) => ActionOutcome::Done(None),
     }
+}
 
-    #[test]
-    fn on_select_hook_fires() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str(
-                "test_select",
-                r#"
-trail.on_select(function(path)
-    trail.log("selected: " .. path)
-end)
-"#,
-            )
-            .expect("load");
-        assert_eq!(engine.on_select_keys.len(), 1);
-        // Fire should not panic.
-        engine.fire_on_select(Path::new("/tmp/test.txt"));
-    }
-
-    #[test]
-    fn on_enter_dir_hook_fires() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str(
-                "test_enter",
-                r#"
-trail.on_enter_dir(function(dir)
-    trail.log("entered: " .. dir)
-end)
-"#,
-            )
-            .expect("load");
-        assert_eq!(engine.on_enter_dir_keys.len(), 1);
-        engine.fire_on_enter_dir(Path::new("/tmp"));
-    }
-
-    #[test]
-    fn register_action_hook_fires() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str(
-                "test_action",
-                r#"
-trail.register_action("my_action", function(arg)
-    trail.log("action with: " .. arg)
-end)
-"#,
-            )
-            .expect("load");
-        assert_eq!(engine.registered_action_keys.len(), 1);
-        assert!(engine.fire_action("my_action", "hello"));
-        assert!(!engine.fire_action("nonexistent", ""));
-    }
-
-    #[test]
-    fn action_names_iterator() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str(
-                "test_names",
-                r#"
-trail.register_action("foo", function() end)
-trail.register_action("bar", function() end)
-"#,
-            )
-            .expect("load");
-        let names: Vec<_> = engine.action_names().collect();
-        assert_eq!(names, vec!["foo", "bar"]);
-    }
-
-    #[test]
-    fn multiple_plugins_accumulate_hooks() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str("p1", r#"trail.on_select(function(p) end)"#)
-            .expect("p1");
-        engine
-            .load_plugin_str("p2", r#"trail.on_select(function(p) end)"#)
-            .expect("p2");
-        assert_eq!(engine.on_select_keys.len(), 2);
-    }
-
-    #[test]
-    fn hook_error_does_not_panic() {
-        let mut engine = PluginEngine::new().expect("engine");
-        engine
-            .load_plugin_str(
-                "bad_hook",
-                r#"
-trail.on_select(function(path)
-    error("intentional test error")
-end)
-"#,
-            )
-            .expect("load");
-        // Fire should not panic even when the Lua hook errors.
-        engine.fire_on_select(Path::new("/tmp"));
-    }
-
-    #[test]
-    fn register_action_unknown_returns_false() {
-        let engine = PluginEngine::new().expect("engine");
-        assert!(!engine.fire_action("ghost", "arg"));
-    }
-
-    #[test]
-    fn trail_log_emits_info_log() {
-        let mut engine = PluginEngine::new().expect("engine");
-        let result = engine.load_plugin_str(
-            "test_log",
-            r#"
-trail.log("hello from plugin log test")
-"#,
-        );
-        assert!(result.is_ok());
+/// One line saying what went wrong, without mlua's traceback.
+///
+/// Callback errors wrap the error the Rust side raised in layers of context;
+/// the status bar has room for the innermost message and nothing else.
+pub fn brief(error: &mlua::Error) -> String {
+    match error {
+        mlua::Error::CallbackError { cause, .. } => brief(cause),
+        mlua::Error::RuntimeError(message) | mlua::Error::SyntaxError { message, .. } => {
+            message.lines().next().unwrap_or("").trim().to_owned()
+        }
+        other => other.to_string().lines().next().unwrap_or("").to_owned(),
     }
 }

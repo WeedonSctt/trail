@@ -17,6 +17,10 @@ use crate::input::InputCtx;
 /// non-text fallbacks such as arrows, Enter, and Backspace are then checked.
 /// Multi-key sequences are represented by compact strings such as `gg`, `ya`,
 /// and `dd`.
+///
+/// Keys bound by plugins (`trail.bind`) are consulted **last**, after the
+/// built-in fallbacks: a plugin can claim a key Trail does not use, but it
+/// cannot take one over.
 pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
     if state.pending_delete {
         return match key.code {
@@ -28,7 +32,8 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
 
     if let Some(pending) = state.pending_nav_key {
         if let Some(sequence) = append_to_sequence(pending, key) {
-            return nav_action_for_sequence(&state.config.keymap, &sequence);
+            return nav_action_for_sequence(&state.config.keymap, &sequence)
+                .or_else(|| plugin_action(state, &sequence));
         }
         return None;
     }
@@ -41,6 +46,66 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
         return Some(Action::SetPendingNavKey(prefix));
     }
 
+    if let Some(action) = builtin_nav_action(key) {
+        return Some(action);
+    }
+
+    let key_text = key_to_config_string(key)?;
+    if let Some(action) = plugin_action(state, &key_text) {
+        return Some(action);
+    }
+    match key.code {
+        KeyCode::Char(ch)
+            if !key.modifiers.contains(KeyModifiers::CONTROL)
+                && state
+                    .plugin_engine
+                    .as_ref()
+                    .is_some_and(|e| e.is_binding_prefix(ch)) =>
+        {
+            Some(Action::SetPendingNavKey(ch))
+        }
+        _ => None,
+    }
+}
+
+/// The action a plugin bound to `keys`, as the `:plugin` command it runs.
+fn plugin_action(state: &AppState, keys: &str) -> Option<Action> {
+    let (name, arg) = state.plugin_engine.as_ref()?.binding_for(keys)?;
+    Some(Action::ExecuteCommand(
+        crate::input::command_parser::ParsedCommand::Plugin { name, arg },
+    ))
+}
+
+/// Keys Navigation Mode handles itself when the keymap does not bind them.
+///
+/// Spelled as `key_to_config_string` spells them, so [`shadowed_by`] can tell
+/// a plugin that one of these is taken. Must list exactly what
+/// [`builtin_nav_action`] matches; a test holds the two together.
+const BUILTIN_NAV_KEYS: &[&str] = &[
+    "shift-down",
+    "shift-up",
+    "down",
+    "up",
+    // Enter, Backspace and the horizontal arrows match on the key alone, so
+    // their shifted forms are taken too.
+    "enter",
+    "shift-enter",
+    "right",
+    "shift-right",
+    "backspace",
+    "shift-backspace",
+    "left",
+    "shift-left",
+    "ctrl-c",
+    "ctrl-t",
+    "ctrl-w",
+    "shift-tab",
+    "tab",
+];
+
+/// Navigation Mode's built-in keys: arrows, Enter, Backspace and the tab
+/// chords, which work whatever the keymap says.
+fn builtin_nav_action(key: KeyEvent) -> Option<Action> {
     match key.code {
         // Shift+arrow scrolls the preview — checked before the bare arrows,
         // which match on the key code alone and would otherwise swallow it and
@@ -62,6 +127,8 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
             Some(Action::CloseTab)
         }
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::SwitchTabPrev),
+        // Some terminals (Windows among them) report Shift+Tab as BackTab.
+        KeyCode::BackTab => Some(Action::SwitchTabPrev),
         KeyCode::Tab => Some(Action::SwitchTabNext),
         KeyCode::Esc => None,
         _ => None,
@@ -170,12 +237,47 @@ const NAMED_KEYS: &[&str] = &[
     "end",
 ];
 
+/// Why a plugin binding for `keys` could never fire, or `None` if it can.
+///
+/// Mirrors the order [`navigation`] resolves a key in: the configured keymap,
+/// its sequence prefixes, then the built-in keys all come before a plugin's.
+pub fn shadowed_by(keys: &str, keymap: &KeymapConfig) -> Option<String> {
+    if let Some((action, _)) = keymap.navigation.iter().find(|(_, b)| b.as_str() == keys) {
+        return Some(format!("Trail binds it to `{action}`"));
+    }
+    if BUILTIN_NAV_KEYS.contains(&keys) {
+        return Some("Trail handles it itself".to_owned());
+    }
+    if is_named_key(keys) {
+        return None;
+    }
+    let mut chars = keys.chars();
+    let first = chars.next()?;
+    let is_sequence = chars.next().is_some();
+    if is_sequence {
+        let single = first.to_string();
+        if let Some((action, _)) = keymap.navigation.iter().find(|(_, b)| **b == single) {
+            return Some(format!(
+                "`{first}` is bound to `{action}` on its own, so it never waits for a second key"
+            ));
+        }
+    } else if keymap
+        .navigation
+        .values()
+        .filter(|b| !is_named_key(b))
+        .any(|b| b.len() > first.len_utf8() && b.starts_with(first))
+    {
+        return Some(format!("`{first}` starts Trail's own key sequences"));
+    }
+    None
+}
+
 /// Whether `binding` names a single key — `tab`, `ctrl-r`, `shift-end` — as
 /// opposed to a sequence of typed characters.
 ///
 /// Matches exactly the spellings [`key_to_config_string`] produces: a bare key
 /// name, or one prefixed with `ctrl-` or `shift-`.
-fn is_named_key(binding: &str) -> bool {
+pub fn is_named_key(binding: &str) -> bool {
     let base = binding
         .strip_prefix("ctrl-")
         .or_else(|| binding.strip_prefix("shift-"))
@@ -330,6 +432,56 @@ mod tests {
                 Some(ch),
                 "`{ch}` starts a default sequence"
             );
+        }
+    }
+
+    /// `BUILTIN_NAV_KEYS` is what `shadowed_by` tells plugins is taken; it
+    /// must name exactly the keys `builtin_nav_action` handles, or a plugin is
+    /// either told a free key is taken or silently loses one.
+    #[test]
+    fn the_builtin_key_list_matches_the_builtin_keys() {
+        let codes = [
+            KeyCode::Enter,
+            KeyCode::Esc,
+            KeyCode::Backspace,
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Home,
+            KeyCode::End,
+            KeyCode::Char('c'),
+            KeyCode::Char('t'),
+            KeyCode::Char('w'),
+            KeyCode::Char('x'),
+        ];
+        let mods = [
+            KeyModifiers::NONE,
+            KeyModifiers::SHIFT,
+            KeyModifiers::CONTROL,
+        ];
+        for code in codes {
+            for modifiers in mods {
+                let event = KeyEvent {
+                    modifiers,
+                    ..key(code)
+                };
+                let Some(name) = key_to_config_string(event) else {
+                    continue;
+                };
+                // Crossterm reports Shift+letter as the capital; a lowercase
+                // letter with SHIFT never arrives, so it cannot be compared.
+                if matches!(code, KeyCode::Char(_)) && modifiers == KeyModifiers::SHIFT {
+                    continue;
+                }
+                assert_eq!(
+                    builtin_nav_action(event).is_some(),
+                    BUILTIN_NAV_KEYS.contains(&name.as_str()),
+                    "`{name}`"
+                );
+            }
         }
     }
 

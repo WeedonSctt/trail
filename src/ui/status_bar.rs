@@ -112,10 +112,23 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    // ── Center section: the filter query ──────────────────────────────────────
+    // ── Center section: the filter query, or the plugin segment ───────────────
+    //
+    // The two never compete: the query only exists in Search Mode, and the
+    // plugin segment is standing information that can wait while the user
+    // types one.
     if let Mode::Search { query, .. } = &state.mode {
         let center = Paragraph::new(Line::from(Span::styled(format!("/{query}"), styles.search)));
         frame.render_widget(center, sections[1]);
+    } else if let Some(text) = &state.plugin_status {
+        let text = elide(
+            &crate::preview::provider::sanitize(text),
+            usize::from(sections[1].width),
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(text, styles.status))),
+            sections[1],
+        );
     }
 
     // ── Right section: entry count + git branch ───────────────────────────────

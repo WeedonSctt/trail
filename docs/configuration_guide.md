@@ -315,7 +315,8 @@ Overrides keybindings for Search Mode.
 
 #### `[plugins]`
 Enables specific Lua plugins to load at startup.
-- `enabled` (Array of Strings): Names of the plugins to load. (e.g., `enabled = ["example_bookmarks"]`).
+- `enabled` (Array of Strings): Names of the plugins to load, in order — hooks run in this order. A name is looked for as a built-in plugin (`"bookmarks"`), then as `<name>.lua` in Trail's config directory. A plugin that fails to load is named in the status bar at startup. See [`plugins.md`](plugins.md). (e.g., `enabled = ["bookmarks", "git_line"]`).
+- `budget_ms` (Positive Integer): How long one call into a plugin may run before Trail stops it and reports the plugin. Plugin hooks run on the UI thread, so this bounds how long a plugin can hold up a keystroke. It cannot interrupt a single blocking call such as `os.execute` — use `trail.spawn` for slow work, which runs off the UI thread and is not budgeted. Loading a plugin gets ten times this. (Default: `50`)
 
 ## 2. Runtime Configuration (`:set`)
 
@@ -346,6 +347,9 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 - `:set dirs_first false`
 - `:set entry_details both`
 - `:set scroll_margin 5` (read at render time, so it applies on the next frame)
+
+**Plugin Properties:**
+- `:set budget_ms 200` (or `:set plugins.budget_ms 200`) — applies to the next call into a plugin
 
 The three sort keys change the **active tab only**, the same as `:sort` and the `s` bindings;
 they do not reach the other tabs or the config file. `entry_details` applies to the whole

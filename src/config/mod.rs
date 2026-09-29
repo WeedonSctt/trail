@@ -327,12 +327,16 @@ impl KeymapOverrides {
 #[serde(deny_unknown_fields)]
 struct PluginsOverrides {
     enabled: Option<Vec<String>>,
+    budget_ms: Option<u64>,
 }
 
 impl PluginsOverrides {
     fn apply_to(self, plugins: &mut PluginsConfig) {
         if let Some(enabled) = self.enabled {
             plugins.enabled = enabled;
+        }
+        if let Some(budget_ms) = self.budget_ms {
+            plugins.budget_ms = budget_ms;
         }
     }
 }

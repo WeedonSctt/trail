@@ -385,7 +385,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             let plugin_actions: Vec<String> = state
                 .plugin_engine
                 .as_ref()
-                .map(|e| e.action_names().map(|s| s.to_string()).collect())
+                .map(|e| e.action_names())
                 .unwrap_or_default();
             let plugin_action_refs: Vec<&str> = plugin_actions.iter().map(|s| s.as_str()).collect();
 
@@ -730,7 +730,7 @@ fn configured_delete_mode(state: &AppState) -> fs_ops::DeleteMode {
 /// rejects one at load and `:set` rejects one at runtime -- so falling back to
 /// waiting is the conservative answer for a config that somehow got past both:
 /// output kept is recoverable, output erased is not.
-fn configured_pause(state: &AppState) -> shell_exec::ShellPause {
+pub(crate) fn configured_pause(state: &AppState) -> shell_exec::ShellPause {
     shell_exec::ShellPause::parse(&state.config.general.shell_pause)
         .unwrap_or(shell_exec::ShellPause::Always)
 }
@@ -754,7 +754,7 @@ const LAST_TAB_HINT: &str = "the last tab stays open — q quits Trail";
 /// keeps the status bar honest on machines with no reachable clipboard
 /// (headless servers, bare TTYs) while still reporting the failure, rather
 /// than silently doing nothing.
-fn record_yank(state: &mut AppState, text: Result<String, clipboard::ClipboardError>) {
+pub(crate) fn record_yank(state: &mut AppState, text: Result<String, clipboard::ClipboardError>) {
     match text {
         Ok(s) => {
             if let Err(e) = clipboard::set_clipboard(&s) {
@@ -902,6 +902,14 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 ) {
                     state.set_sort(state.config.navigation.sort_settings());
                 }
+                // The budget lives on the engine, not in the config it came
+                // from, so it has to be handed over or `:set` does nothing.
+                if matches!(key.as_str(), "plugins.budget_ms" | "budget_ms") {
+                    let budget = std::time::Duration::from_millis(state.config.plugins.budget_ms);
+                    if let Some(engine) = state.plugin_engine.as_mut() {
+                        engine.set_budget(budget);
+                    }
+                }
                 state.clear_notice();
                 state.dirty = true;
             }
@@ -963,14 +971,25 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
         },
 
         ParsedCommand::Plugin { name, arg } => {
-            if let Some(engine) = &state.plugin_engine {
-                if engine.fire_action(&name, &arg) {
-                    state.clear_notice();
-                } else {
+            use crate::plugin::ActionOutcome;
+            let outcome = match &state.plugin_engine {
+                Some(engine) => engine.fire_action(state, &name, &arg),
+                None => ActionOutcome::NotFound,
+            };
+            // What the handler queued is applied by the event loop's plugin
+            // settle once this returns; only its own verdict is reported here.
+            match outcome {
+                ActionOutcome::Done(None) => {}
+                ActionOutcome::Done(Some(message)) => state.notify(message),
+                ActionOutcome::Failed(reason) => {
+                    state.set_error(format!("plugin {name}: {reason}"));
+                }
+                ActionOutcome::NotFound if state.plugin_engine.is_none() => {
+                    state.set_error(format!("plugin action '{name}' failed: no plugins loaded"));
+                }
+                ActionOutcome::NotFound => {
                     state.set_error(format!("plugin action '{name}' not found"));
                 }
-            } else {
-                state.set_error(format!("plugin action '{name}' failed: no plugins loaded"));
             }
         }
     }

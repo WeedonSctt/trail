@@ -152,7 +152,19 @@ async fn main() -> Result<()> {
     let mut engine = plugin::PluginEngine::new()
         .map_err(|e| anyhow::anyhow!("failed to init plugin engine: {e}"))?;
 
-    plugin::load_enabled_plugins(&mut engine, &state.config.plugins.enabled);
+    engine.set_budget(std::time::Duration::from_millis(
+        state.config.plugins.budget_ms,
+    ));
+    // A plugin that failed to load, or a key it bound that can never fire, is
+    // reported in the status bar: an enabled plugin that silently is not there
+    // looks like one that does nothing, which is harder to diagnose.
+    let mut plugin_problems =
+        plugin::load_enabled_plugins(&mut engine, &state.config.plugins.enabled);
+    plugin_problems.extend(plugin::dead_bindings(&engine, &state.config.keymap));
+    if !plugin_problems.is_empty() {
+        state.set_error(plugin_problems.join("; "));
+    }
+    let plugin_previewers = engine.previewer_rules();
     state.plugin_engine = Some(engine);
 
     // Resolve the terminal's inline-image protocol before the first preview is
@@ -168,6 +180,14 @@ async fn main() -> Result<()> {
     // Build the preview registry once at startup. All providers are registered
     // here; the main loop calls registry.preview_for on every selection change.
     let mut registry = PreviewRegistry::new();
+    // Plugin previewers first: the first provider that can handle an entry
+    // wins, and a plugin that registers a previewer for `.json` means it.
+    if !plugin_previewers.is_empty() {
+        registry.register(Box::new(plugin::previewer::CommandPreviewProvider::new(
+            plugin_previewers,
+            state.config.general.shell.clone(),
+        )));
+    }
     preview::register_defaults(&mut registry);
 
     // Set up the worker channel (single mpsc, drained once per UI tick).
@@ -178,6 +198,7 @@ async fn main() -> Result<()> {
 
     // Compute the initial preview for whatever is selected at startup.
     refresh_preview(&mut state, &registry, &worker_tx);
+    settle_plugins(&mut state, &registry, &worker_tx);
 
     // Spawn the initial git status worker for the starting directory.
     let initial_cwd = state.cwd.clone();
@@ -319,7 +340,7 @@ fn load_configured(source: &config::ConfigSource) -> Result<(config::TrailConfig
 fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::Sender<WorkerMsg>) {
     if let Some(entry) = state.selected_entry().cloned() {
         if let Some(engine) = &state.plugin_engine {
-            engine.fire_on_select(&entry.path);
+            engine.fire_on_select(state, &entry);
         }
         // Bumps the generation, and resets the scroll position only when this is
         // a different entry — a re-preview of the same path (filesystem watch,
@@ -407,6 +428,7 @@ async fn run_event_loop(
         // merge() and must NOT trigger another refresh_preview call — doing so
         // would overwrite the just-merged content with `Loading` again.
         let mut needs_preview_refresh = false;
+        let drain_start_cwd = state.cwd.clone();
         while let Ok(msg) = worker_rx.try_recv() {
             let is_listing_change =
                 matches!(&msg, WorkerMsg::Git { .. } | WorkerMsg::FsChanged { .. });
@@ -431,6 +453,17 @@ async fn run_event_loop(
         // already applied by merge() and must not be re-requested here.
         if needs_preview_refresh {
             refresh_preview(state, registry, &worker_tx);
+        }
+        if worker_drained {
+            after_worker_msgs(
+                terminal,
+                state,
+                registry,
+                &worker_tx,
+                &git_cache,
+                fs_watch_handle,
+                &drain_start_cwd,
+            );
         }
 
         if !worker_drained {
@@ -487,6 +520,15 @@ async fn run_event_loop(
                     handle_worker_msg(
                         msg,
                         state,
+                        &worker_tx,
+                        &git_cache,
+                        fs_watch_handle,
+                        &prev_cwd,
+                    );
+                    after_worker_msgs(
+                        terminal,
+                        state,
+                        registry,
                         &worker_tx,
                         &git_cache,
                         fs_watch_handle,
@@ -577,6 +619,9 @@ fn handle_key_event(
         if state.selected != old_selected || state.cwd != old_cwd || forces_preview_refresh {
             refresh_preview(state, registry, worker_tx);
         }
+        // What plugins asked for while that ran: an action's handler, or a
+        // hook the action or the preview fired.
+        settle_plugins(state, registry, worker_tx);
     } else if key.kind == crossterm::event::KeyEventKind::Press && state.pending_nav_key.is_some() {
         // A keypress while a prefix was pending but produced no action —
         // cancel the sequence. Release/Repeat events are intentionally
@@ -588,24 +633,74 @@ fn handle_key_event(
         state.dirty = true;
     }
 
-    // If the directory changed, re-subscribe the watcher and spawn git.
     if state.cwd != old_cwd {
-        resubscribe_fswatch(
-            state.cwd.clone(),
-            worker_tx,
-            fs_watch_handle,
-            state.config.general.fs_watch_debounce_ms,
-        );
-        if state.config.general.git_status_enabled {
-            workers::git::spawn_git_status(state.cwd.clone(), worker_tx.clone(), git_cache.clone());
-        }
-        // Clear stale git state immediately so the old branch doesn't linger.
-        state.git = None;
+        on_cwd_changed(state, worker_tx, git_cache, fs_watch_handle);
     }
+    run_pending_external(terminal, state, registry, worker_tx);
+}
 
-    // Phase 6: drain any pending external action (editor-open or !shell).
-    // run_external is synchronous (blocks until the child exits) but we must
-    // call it here on the UI thread because it manipulates terminal state.
+/// Applies every request plugins queued, re-running the preview after each
+/// round that may have changed it. See [`plugin::host::settle`].
+fn settle_plugins(
+    state: &mut AppState,
+    registry: &PreviewRegistry,
+    worker_tx: &mpsc::Sender<WorkerMsg>,
+) {
+    plugin::host::settle(state, worker_tx, &mut |state| {
+        refresh_preview(state, registry, worker_tx)
+    });
+}
+
+/// What a worker message can set in motion once it has been merged: plugin
+/// requests from a job callback or an `on_fs_change` hook, and whatever those
+/// requests do, such as a navigation or a command to run in the terminal.
+fn after_worker_msgs(
+    terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    registry: &PreviewRegistry,
+    worker_tx: &mpsc::Sender<WorkerMsg>,
+    git_cache: &GitCache,
+    fs_watch_handle: &mut Option<FsWatchHandle>,
+    old_cwd: &std::path::Path,
+) {
+    settle_plugins(state, registry, worker_tx);
+    if state.cwd != old_cwd {
+        on_cwd_changed(state, worker_tx, git_cache, fs_watch_handle);
+    }
+    run_pending_external(terminal, state, registry, worker_tx);
+}
+
+/// Points the watcher and the git worker at the new directory.
+fn on_cwd_changed(
+    state: &mut AppState,
+    worker_tx: &mpsc::Sender<WorkerMsg>,
+    git_cache: &GitCache,
+    fs_watch_handle: &mut Option<FsWatchHandle>,
+) {
+    resubscribe_fswatch(
+        state.cwd.clone(),
+        worker_tx,
+        fs_watch_handle,
+        state.config.general.fs_watch_debounce_ms,
+    );
+    if state.config.general.git_status_enabled {
+        workers::git::spawn_git_status(state.cwd.clone(), worker_tx.clone(), git_cache.clone());
+    }
+    // Clear stale git state immediately so the old branch doesn't linger.
+    state.git = None;
+}
+
+/// Runs the pending external action (editor-open, `!shell`, `trail.run`), if
+/// any.
+///
+/// `run_external` is synchronous (blocks until the child exits) but must run
+/// here on the UI thread because it manipulates terminal state.
+fn run_pending_external(
+    terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
+    state: &mut AppState,
+    registry: &PreviewRegistry,
+    worker_tx: &mpsc::Sender<WorkerMsg>,
+) {
     if let Some(Action::RunExternal { argv, cwd, pause }) = state.pending_external.take() {
         let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
         if let Err(e) = shell_exec::run_external(&argv_refs, &cwd, pause) {
@@ -682,6 +777,10 @@ fn handle_worker_msg(
                         worker_tx.clone(),
                         git_cache.clone(),
                     );
+                }
+
+                if let Some(engine) = &state.plugin_engine {
+                    engine.fire_on_fs_change(state, &changed_path);
                 }
 
                 tracing::debug!(?changed_path, "refreshed after FsChanged");

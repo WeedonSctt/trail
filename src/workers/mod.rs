@@ -48,6 +48,18 @@ pub fn channel() -> (mpsc::Sender<WorkerMsg>, mpsc::Receiver<WorkerMsg>) {
 /// event loop `select!` simple and avoid priority inversion.
 #[derive(Debug)]
 pub enum WorkerMsg {
+    /// A job a plugin started with `trail.spawn` has finished.
+    ///
+    /// Not generation-guarded: a job belongs to the plugin that started it,
+    /// not to the selection, and the plugin's callback decides whether the
+    /// result is still relevant.
+    PluginJob {
+        /// The id `trail.spawn` returned.
+        id: u64,
+        /// What the command produced.
+        result: crate::plugin::request::JobResult,
+    },
+
     /// Git repository state for `path` has been computed.
     ///
     /// `file_statuses` maps entry filenames to their git status for the
@@ -130,6 +142,15 @@ pub enum WorkerMsg {
 /// worker channel.
 pub fn merge(msg: WorkerMsg, state: &mut AppState) {
     match msg {
+        WorkerMsg::PluginJob { id, result } => {
+            if let Some(engine) = &state.plugin_engine {
+                engine.fire_job(state, id, &result);
+            }
+            // The callback's requests are applied by the caller's plugin
+            // settle, like any hook's.
+            state.dirty = true;
+        }
+
         WorkerMsg::Git {
             path,
             state: git_state,

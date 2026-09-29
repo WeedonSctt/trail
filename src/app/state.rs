@@ -471,6 +471,20 @@ pub struct AppState {
     pub bookmark_store: Option<BookmarkStore>,
     /// Phase 8 plugin engine for firing hooks on navigation.
     pub plugin_engine: Option<crate::plugin::PluginEngine>,
+    /// The status-bar segment plugins set with `trail.set_status`, if any.
+    ///
+    /// Unlike a notice it stays until a plugin clears it: it is for standing
+    /// information (a build state, the last commit's subject), not for
+    /// reporting that something happened.
+    pub plugin_status: Option<String>,
+    /// The directory plugins were last told they entered.
+    ///
+    /// `on_enter_dir` fires from [`crate::plugin::host::settle`] whenever `cwd`
+    /// differs from this, so it fires for every way of changing directory —
+    /// `l`, `h`, `u`, `:jump`, a tab switch, a plugin's own `navigate` — from
+    /// one place, instead of from each of them. `None` until the first settle,
+    /// which is what makes the start directory count as entered.
+    pub plugin_announced_dir: Option<PathBuf>,
     /// Recent directories tracker.
     pub recent_dirs: crate::session::RecentDirs,
 }
@@ -542,6 +556,8 @@ impl AppState {
             tab_manager: TabManager::new(cwd.clone(), sort),
             bookmark_store: None,
             plugin_engine: None,
+            plugin_status: None,
+            plugin_announced_dir: None,
             recent_dirs: crate::session::RecentDirs::default(),
         };
 
@@ -805,9 +821,6 @@ impl AppState {
         let res = self.load_dir(&self.cwd.clone());
 
         self.recent_dirs.visit(path.clone());
-        if let Some(engine) = &self.plugin_engine {
-            engine.fire_on_enter_dir(&path);
-        }
 
         res
     }

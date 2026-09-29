@@ -1,41 +1,29 @@
 -- Trail bookmarks example plugin
 --
--- Demonstrates the `register_action` hook by implementing `:bookmark` and
--- `:jump <name>` as plugin-registered actions that delegate to Trail's
--- built-in bookmark store.
+-- A thin plugin over Trail's built-in bookmark store, loaded when "bookmarks"
+-- is in `[plugins] enabled`. `:bookmark` and `:jump` already exist as
+-- commands; what this adds is keys for them, and a way to see the list.
 --
--- This plugin is loaded automatically when the `bookmarks` entry is present
--- in `[plugins].enabled` in the user's `trail.toml`.
+--   `:plugin bookmark_add [name]`  bookmark the current directory
+--   `:plugin bookmark_jump <name>` go to a bookmark
+--   `b`                            bookmark the current directory, named
+--                                  after it
 --
--- Actions registered by this plugin:
---   `:plugin bookmark [name]`  — add a bookmark at the current directory.
---   `:plugin jump <name>`      — navigate to a previously added bookmark.
+-- The names `bookmark_add` and `bookmark_jump` are kept from the first
+-- version of this plugin, which only logged; they now do what they say.
 --
--- Note: In v1 the plugin receives the path as a string argument from Trail.
--- Full two-way interaction (e.g. reading AppState, navigating) is a v2 goal.
+-- Demonstrates: `trail.command` (reusing a Trail command rather than
+-- reimplementing it), `trail.bind`, an action returning `false, reason`.
 
-trail.log("bookmarks plugin loaded")
-
--- Track the current directory via on_enter_dir so actions can use it.
-local current_dir = ""
-
-trail.on_enter_dir(function(dir)
-    current_dir = dir
-    trail.log("bookmarks: entered " .. dir)
+trail.register_action("bookmark_add", function(name)
+    trail.command("bookmark " .. (name or ""))
 end)
 
-trail.on_select(function(path)
-    -- on_select fires on every selection change; nothing to do for bookmarks.
+trail.register_action("bookmark_jump", function(name)
+    if name == nil or name == "" then
+        return false, "which bookmark? `:plugin bookmark_jump <name>`"
+    end
+    trail.command("jump " .. name)
 end)
 
--- register_action registers a named verb that the command parser will
--- dispatch when the user types `:plugin <name> [arg]`.
-trail.register_action("bookmark_add", function(arg)
-    -- arg is the bookmark name; current_dir is where we are.
-    trail.log("bookmark_add: name=" .. arg .. " dir=" .. current_dir)
-end)
-
-trail.register_action("bookmark_jump", function(arg)
-    -- arg is the bookmark name to jump to.
-    trail.log("bookmark_jump: name=" .. arg)
-end)
+trail.bind("b", "bookmark_add")

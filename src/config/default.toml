@@ -188,3 +188,10 @@ delete_char = "backspace"
 
 [plugins]
 enabled = []
+# How long, in milliseconds, one call into a plugin may run before Trail stops
+# it and reports the plugin.  Hooks run on the UI thread, so this bounds how
+# long a plugin can hold up a keystroke; raising it trades responsiveness for
+# plugins that do more work per event.  Slow work belongs in `trail.spawn`,
+# which runs off the UI thread and is not budgeted.  Loading a plugin gets ten
+# times this.
+budget_ms = 50
