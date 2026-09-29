@@ -468,18 +468,66 @@ async fn the_full_path_is_drawn_once_and_the_title_names_the_directory() {
     let subdir = state.cwd.join("alpha_dir");
     state.enter_dir(subdir).unwrap();
 
-    // Wide enough that the status bar's half is not what truncates the path.
+    // Wide enough that the panel's share is not what truncates the path.
     let rendered = render_to_string(&mut state, 300, 30).await;
     let full_path = state.status.cwd_display.clone();
 
     assert_eq!(
         rendered.matches(&full_path).count(),
         1,
-        "the full path belongs in the status bar only:\n{rendered}"
+        "the full path is drawn once — on the navigation panel's bottom border \
+         since v1.8.3, and nowhere else:\n{rendered}"
     );
     assert!(
         rendered.contains("╭ alpha_dir "),
         "the panel title should name the directory:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_path_survives_command_mode() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let full_path = state.status.cwd_display.clone();
+
+    // The regression this guards: the path used to live in the status bar's
+    // left section, and `status_bar::draw` returns before laying its sections
+    // out in Command Mode — so the path vanished exactly while a `:mv`
+    // destination was being typed relative to it.
+    state.mode = trail::app::mode::Mode::Command {
+        buffer: "mv ".to_owned(),
+        cursor: 3,
+        history_index: None,
+    };
+
+    let rendered = render_to_string(&mut state, 300, 30).await;
+    assert!(
+        rendered.contains(&full_path),
+        "the path must still be on screen while a command is typed:\n{rendered}"
+    );
+    assert!(
+        rendered.contains(":mv"),
+        "and the command line must still own the status bar:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn a_path_too_deep_for_the_panel_keeps_its_tail() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let subdir = state.cwd.join("alpha_dir");
+    state.enter_dir(subdir).unwrap();
+
+    // 40% of 40 columns is 16 — a temp path does not fit, so it is cut from the
+    // front. The end is the part that answers "where am I".
+    let rendered = render_to_string(&mut state, 40, 24).await;
+    assert!(
+        rendered.contains('…'),
+        "a path that does not fit should be marked as cut:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("alpha_dir"),
+        "the directory you are in must survive the cut:\n{rendered}"
     );
 }
 

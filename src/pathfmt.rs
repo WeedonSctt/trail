@@ -74,6 +74,52 @@ pub fn display(path: &Path) -> String {
 /// whose plain form would name something else, or nothing at all.
 ///
 /// A no-op on non-Windows platforms.
+/// Fits an already-[`display`]ed path into `width` columns by dropping
+/// components from the **front**, marking the cut with `…`.
+///
+/// The opposite end from ordinary text elision, and deliberately: the tail of a
+/// path is where you are, and the head is the part you can usually infer. A
+/// deep path cut from the right leaves `C:\Users\weedo\proj\it\u…`, which says
+/// everything except the one thing being asked.
+///
+/// The cut snaps forward to the next component boundary when there is one in
+/// range, so the result reads as a path (`…\util\trail`) rather than as a
+/// fragment (`…til\trail`). Both separators are honoured, because a path
+/// rendered on Windows contains `\` and one from a Unix box contains `/`.
+///
+/// Returns the path unchanged when it already fits, and an empty string for a
+/// zero width.
+///
+/// ```
+/// use trail::pathfmt::elide_front;
+/// assert_eq!(elide_front("/home/me/project", 40), "/home/me/project");
+/// assert_eq!(elide_front("/home/me/deep/project", 12), "…/project");
+/// ```
+pub fn elide_front(path: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    if path.chars().count() <= width {
+        return path.to_owned();
+    }
+
+    // One column is spent on the marker.
+    let keep = width.saturating_sub(1);
+    let tail: String = path
+        .chars()
+        .skip(path.chars().count().saturating_sub(keep))
+        .collect();
+
+    // Snap forward to a component boundary so the result starts with a
+    // separator rather than in the middle of a directory name.
+    let snapped = tail
+        .find(['/', '\\'])
+        .map(|i| &tail[i..])
+        .unwrap_or(tail.as_str());
+
+    format!("…{snapped}")
+}
+
 pub fn simplified(path: &Path) -> PathBuf {
     if !cfg!(windows) {
         return path.to_owned();
@@ -337,5 +383,52 @@ mod tests {
             !resolved.to_string_lossy().starts_with(VERBATIM_PREFIX),
             "a temp directory is short and ordinary — it should simplify: {resolved:?}"
         );
+    }
+
+    #[test]
+    fn elide_front_leaves_a_path_that_fits() {
+        assert_eq!(elide_front("/home/me/project", 40), "/home/me/project");
+        // Exactly the width is still a fit.
+        assert_eq!(elide_front("/home/me", 8), "/home/me");
+    }
+
+    #[test]
+    fn elide_front_drops_the_head_and_keeps_where_you_are() {
+        // The tail is the answer to "where am I"; the head is inferable.
+        let out = elide_front("/home/me/work/deep/project", 14);
+        assert!(out.starts_with('…'), "the cut must be visible: {out}");
+        assert!(out.ends_with("project"), "the tail must survive: {out}");
+        assert!(out.chars().count() <= 14, "over budget: {out}");
+    }
+
+    #[test]
+    fn elide_front_snaps_to_a_component_boundary() {
+        // Not `…rk/deep`: a path cut mid-component reads as a different name.
+        assert_eq!(elide_front("/home/me/work/deep", 10), "…/deep");
+    }
+
+    #[test]
+    fn elide_front_honours_a_windows_separator() {
+        let out = elide_front(r"C:\Users\weedo\proj\it\util\trail", 16);
+        assert!(out.starts_with('…'));
+        assert!(out.ends_with("trail"), "{out}");
+        assert!(
+            out.contains('\\'),
+            "a Windows path should snap on its own separator: {out}"
+        );
+        assert!(out.chars().count() <= 16, "over budget: {out}");
+    }
+
+    #[test]
+    fn elide_front_of_a_component_with_no_separator_still_fits() {
+        // Nothing to snap to, so it is cut bluntly rather than not at all.
+        let out = elide_front("averylongsinglecomponent", 10);
+        assert!(out.starts_with('…'));
+        assert!(out.chars().count() <= 10, "over budget: {out}");
+    }
+
+    #[test]
+    fn elide_front_of_zero_width_is_empty() {
+        assert_eq!(elide_front("/home/me", 0), "");
     }
 }

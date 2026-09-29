@@ -196,7 +196,9 @@ work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work 
 - **Editing**: The command line takes the whole status bar and shows the cursor where your
   next keystroke will land. `←`/`→` move it, `Home`/`End` jump to either end, `Backspace`
   and `Delete` remove either side of it. A command longer than the terminal scrolls to keep
-  the cursor in view.
+  the cursor in view. The current directory stays visible on the navigation panel's bottom
+  border throughout, so a relative `:mv` or `:cp` destination can be typed against
+  something you can still see.
 - **History**: Use `↑` and `↓` arrows to scroll through previously executed commands.
 - **Auto-completion**: Press `Tab` to cycle through command completions. Command verbs (e.g. `mkdir`, `mv`) and file paths (for `mv` and `cp` destinations) are auto-completed. A destination that is a whole route is completed against the directory that route names, not against the current directory, so `Tab` walks into `nested/`, `../dst/` or an absolute path you pasted in. Directory candidates come back with a trailing separator, so you can keep pressing `Tab` to descend.
 
@@ -204,7 +206,7 @@ work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work 
 
 `:mv` and `:cp` take either separator: `:mv ..\backup`, `:mv ../backup` and `:mv C:\Users\me\backup` all work, and completion answers in whichever one you typed.
 
-Trail shows and copies paths in the plain `C:\Users\me` form rather than the extended-length `\\?\C:\Users\me` form Windows returns internally — in the nav panel title, in the status bar, in `ya` (yank absolute path) and in the directory handed back to your shell on exit. The one exception is a path the plain form cannot address, such as one longer than 260 characters: there the `\\?\` prefix is kept, because dropping it would produce a path Windows rejects.
+Trail shows and copies paths in the plain `C:\Users\me` form rather than the extended-length `\\?\C:\Users\me` form Windows returns internally — on the nav panel's borders, in `ya` (yank absolute path) and in the directory handed back to your shell on exit. The one exception is a path the plain form cannot address, such as one longer than 260 characters: there the `\\?\` prefix is kept, because dropping it would produce a path Windows rejects.
 
 ## 5. Configuration
 

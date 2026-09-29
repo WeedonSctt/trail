@@ -297,6 +297,22 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         None => block,
     };
 
+    // The full path, on the panel's bottom border.
+    //
+    // It used to live in the status bar's left section, which Command Mode
+    // covers whole — `status_bar::draw` returns before laying its sections out —
+    // so the path was least visible exactly while a `:mv` destination was being
+    // typed relative to it. A border is not the status bar: nothing covers this.
+    // It is still drawn once, which is what the title gave it up for; it has
+    // simply moved to a surface that survives.
+    let inner_width = usize::from(area.width).saturating_sub(2);
+    let path = pathfmt::elide_front(&state.status.cwd_display, inner_width.saturating_sub(2));
+    let block = if path.is_empty() {
+        block
+    } else {
+        block.title_bottom(Line::from(Span::styled(format!(" {path} "), styles.status)))
+    };
+
     let list = List::new(items)
         .block(block)
         .highlight_style(styles.selection)

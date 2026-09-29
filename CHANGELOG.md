@@ -29,7 +29,23 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- The current directory has moved from the status bar to the **navigation
+  panel's bottom border**, and is elided from the front (`…\util\trail`) rather
+  than the back when it does not fit — the end of a path is the part that
+  answers "where am I". It is still drawn once; it has only changed surface. If
+  you had learned where to look, look lower and left.
+
+### Fixed
+
+- The path no longer disappears while you type a command. Command Mode takes
+  the whole status bar, which is where the path used to be, so it vanished
+  exactly when a relative `:mv` or `:cp` destination was being typed against it.
+  A border is not the status bar, so nothing covers it now.
+- The status bar's right section no longer cuts `  branch*  12 items ` on an
+  80-column terminal. Its share of the row grew from 20% to 45%, using the room
+  the path gave up.
 
 ## [1.8.2] - 2026-09-29
 

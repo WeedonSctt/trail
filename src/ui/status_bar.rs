@@ -44,9 +44,14 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     let sections = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(50), // left: mode + cwd
+            // The path moved to the navigation panel's bottom border, so the
+            // left section is now only the mode badge and the tab indicator and
+            // no longer needs half the row. The freed columns go to the right
+            // section, which at 20% of an 80-column terminal could not fit
+            // `  branch*  12 items ` and silently cut it.
+            Constraint::Percentage(25), // left: mode badge + tab indicator
             Constraint::Percentage(30), // center: filter query
-            Constraint::Percentage(20), // right: count / git branch
+            Constraint::Percentage(45), // right: count / git branch
         ])
         .split(area);
 
@@ -67,8 +72,6 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             .add_modifier(Modifier::BOLD),
     };
 
-    let cwd_str = &state.status.cwd_display;
-
     let mut left_spans = vec![
         Span::styled(format!(" {mode_label} "), mode_style),
         Span::raw(" "),
@@ -87,8 +90,6 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             styles.command,
         ));
     }
-    left_spans.push(Span::styled(cwd_str.as_str(), styles.normal));
-
     frame.render_widget(Paragraph::new(Line::from(left_spans)), sections[0]);
 
     // ── A message takes the rest of the row ───────────────────────────────────
