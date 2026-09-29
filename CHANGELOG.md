@@ -29,6 +29,10 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.8.2] - 2026-09-29
+
 ### Added
 
 - `[general] show_version` puts Trail's version on the preview pane's top
@@ -50,5 +54,6 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.2...HEAD
+[1.8.2]: https://github.com/WeedonSctt/trail/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/WeedonSctt/trail/compare/v1.8.0...v1.8.1
