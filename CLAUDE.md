@@ -343,7 +343,7 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
-- Released: **v1.8.2**, from `main`, which is current and pushed.
+- Released: **v1.8.3**, from `main`, which is current and pushed.
 - `t` and `c` are accidental prefix keys: `configured_nav_prefix` treats any binding
   longer than one character as a multi-key sequence, so `"tab"` makes `t` one and
   `"ctrl-r"` makes `c` one, and both swallow the following keystroke. Assessed in

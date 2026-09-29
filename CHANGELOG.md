@@ -29,6 +29,10 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.8.3] - 2026-09-29
+
 ### Changed
 
 - The current directory has moved from the status bar to the **navigation
@@ -70,6 +74,7 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.2...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.3...HEAD
+[1.8.3]: https://github.com/WeedonSctt/trail/compare/v1.8.2...v1.8.3
 [1.8.2]: https://github.com/WeedonSctt/trail/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/WeedonSctt/trail/compare/v1.8.0...v1.8.1
