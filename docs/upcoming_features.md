@@ -13,12 +13,19 @@ about it.
 followed; each has a commit of its own, and the entries below are kept as the reasoning
 behind them.
 
-**Second round (2026-09-29, items 13–16).** Two were built and shipped in v1.8.0 — the
+**Second round (2026-09-29, items 13–17).** Two were built and shipped in v1.8.0 — the
 listing's sort order and its details column. Two are assessed and not yet started: the
 scroll margin, which is a defect with a provable cause, and the plugin API, which is a
-scope decision rather than a fix. A third note from this round turned out to be
+scope decision rather than a fix. Item 17 was found while building the sort keys rather
+than reported. A further note from this round turned out to be
 [§5.2](#52-a-second-window-for-commands) resurfacing unchanged, and is recorded there
 rather than re-triaged.
+
+**Third round (2026-09-29, items 18–19).** Both are about what the frame tells you rather
+than what it does: which build you are looking at, and where you are while you type a
+command. Neither is started. They share a question — which surface carries standing
+information — and §2.17 is where the answer has to be decided, because it revisits
+[§2.8](#28-the-path-is-drawn-twice).
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -47,6 +54,8 @@ test itself).
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **planned** — §2.13 |
 | 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
 | 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **planned** — §2.15 |
+| 18 | An optional version indicator in the view | no way to tell which build a running session is | **planned** — §2.16 |
+| 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **planned** — §2.17 |
 
 ---
 
@@ -355,6 +364,98 @@ nothing, so a swallowed keystroke and a genuine `g`-waiting-for-`g` look
 identical. `state.pending_nav_key` is already on `AppState`, so the status bar
 could render it in the space the tab indicator uses.
 
+### 2.16 No way to tell which build you are looking at
+
+> "add an optional indicator to show the trail version inside the tool view. (it'd be
+> like a dev option, available at the config toml)"
+
+`trail --version` answers the question from outside, but a running session cannot be
+asked: nothing under `src/ui/` mentions the version, so two Trail windows side by side are
+indistinguishable however far apart their builds are.
+
+That is not a hypothetical. During the v1.8.1 session the maintainer had four Trail
+processes running **three different binaries** at once — 1.7.2, 1.8.0 and 1.8.1 — because
+Windows will not let a running `trail.exe` be overwritten, so each upgrade renames the old
+image aside and the open sessions keep it until they exit (see `CLAUDE.md` §8). Every one
+of those windows looked identical. A window that did not have the sort badge was on an old
+build, which is a diagnosis by absence, and only works while a feature is new.
+
+**Cost: almost none.** `src/cli.rs` already declares `#[command(version)]`, which clap
+fills from `CARGO_PKG_VERSION`, so the string is a compile-time constant already in the
+binary. There is nothing to plumb, no state to hold and nothing to recompute per frame.
+
+**Fix.** `[general] show_version = false`, a dev-facing diagnostic rather than chrome, so
+the default leaves the frame exactly as it is.
+
+Where it goes matters more than whether it exists, because the surfaces are full:
+
+- The **status bar's right section** is 20% of the row and already overflows at 80
+  columns — `  branch*  12 items ` is 20 characters in 16 columns. Adding to it pushes
+  the entry count off.
+- The **navigation panel's top border** now carries the directory name on the left and
+  the sort badge on the right (v1.8.1).
+- The **preview panel's top border** carries the selected file's name on the left and
+  **nothing on the right**. Its bottom-right holds the scroll footer; its top-right is
+  the one unoccupied surface in the frame.
+
+So: `title_top` on the preview panel, right-aligned, in the dim status style — the same
+call the scroll footer uses one border away. Costs no screen row and nothing at render
+time.
+
+Worth deciding at the same time: whether the indicator shows the version alone (`v1.8.1`)
+or is a general diagnostics slot that could later carry a frame counter or the resolved
+image protocol, which is the other thing that is invisible from inside and hard to
+diagnose from outside (§5.4). If the second, name the key for the slot rather than for the
+version.
+
+### 2.17 The command line covers the only copy of the path
+
+> "maybe the absolute path of trail may be shown on top, since the bottom part is undrew
+> when the command mode is used"
+
+Exactly right, and the code says why. `status_bar::draw` opens with:
+
+```rust
+if let Mode::Command { buffer, cursor, .. } = &state.mode {
+    draw_command_line(frame, area, buffer, *cursor, styles.command);
+    return;
+}
+```
+
+Command Mode returns before the three sections are laid out, so the left section — which
+is the only place the full `cwd` is drawn — is not rendered at all while a command is
+being typed. The navigation panel's border still shows the directory's *name*, so the leaf
+survives; the full path does not.
+
+This is [§2.8](#28-the-path-is-drawn-twice) coming back around, and worth stating plainly
+rather than treating as a new bug. §2.8 removed the path from the nav panel title because
+it was drawn twice, leaving the status bar as the single copy. §2.5 then gave Command Mode
+the whole status bar, because a `:mv` destination is longer than 30% of a terminal. Each
+decision was right on its own; together they put the only copy of the path on the one
+surface that Command Mode covers. The path is least visible exactly when a relative
+destination is being typed against it.
+
+**The fix is a choice about which surface carries standing information**, and it should be
+made once rather than per-feature:
+
+- **The navigation panel's bottom border.** Free today — `╰────╯` and nothing else — and
+  Command Mode does not touch it, so the path survives. `title_bottom` with a right- or
+  left-aligned `Line`, exactly as the preview panel's scroll footer already does. Costs no
+  screen row. The trade-off is width: the nav panel is 40% of the screen against the
+  status bar's 50%, so a deep path elides sooner. This is the recommendation.
+- **A dedicated row at the top**, as the note suggests. Full width, always legible, and
+  the only option that never elides. It costs a screen row permanently, which this project
+  has refused twice — §2.6 chose a `[2/3]` badge over a tab bar, §2.8 chose to recover
+  title width rather than a row. Refusing it a third time should be a decision, not a
+  reflex, but the reasoning has not changed.
+- **Re-split the status bar during Command Mode.** Cheapest to write and wrong: it undoes
+  §2.5 and puts a long `:mv` back into a third of a row.
+
+Whichever is chosen, the path should move rather than be duplicated — §2.8's point stands.
+If it moves to the nav panel's bottom border, the status bar's left section is left with
+the mode badge and the tab indicator, which frees room the right section currently does
+not have (§2.16).
+
 ---
 
 ## 3. Sequencing
@@ -390,6 +491,15 @@ that changes the current behaviour, so it leads the notes, with `0` documented a
 back). The plugin API is MINOR as long as it only adds functions; letting hooks run off
 the UI thread would change what the API promises about ordering and is the part that could
 turn it MAJOR, which is why §2.14 keeps it as a separate decision.
+
+The third round is MINOR too, and one of the two is a PATCH under a strict reading.
+§2.16's `show_version` is a new key defaulting to `false`, so it adds a capability and
+changes nothing — MINOR. §2.17 adds no key, binding, command or flag and restores
+something the frame used to show; by the §8 test of whether a user's configuration changes
+meaning, that is a PATCH, the same reading that made the v1.8.1 sort badge one. If the two
+ship together the release is MINOR, and the notes should say that the path has moved
+surface rather than merely reappeared — anyone who had learned where to look will find it
+somewhere else.
 
 ---
 
