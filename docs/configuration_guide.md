@@ -124,6 +124,7 @@ Controls how the navigation panel orders the listing and what it shows beside ea
 - `sort_reverse` (Boolean): Flip whichever order `sort_by` selected. (Default: `false`)
 - `dirs_first` (Boolean): Group directories ahead of files whatever `sort_by` says. This is an axis of its own — `sort_reverse` does *not* flip it, because reversing a listing is asking for the files in the other order, not for the directories to move to the bottom. A directory has no meaningful size, so directories keep name order inside a size sort whether or not they are grouped. (Default: `true`)
 - `entry_details` (String): What each row shows beside the name — `"none"`, `"size"`, `"modified"` or `"both"`. The navigation panel is 40% of the screen, which is 28 usable columns on an 80-column terminal, and `"both"` wants 26 of them; rather than crushing names, the column **stands down entirely** when it cannot leave at least 12 columns for a name, and `"both"` first drops the clock time and keeps the date. A directory shows `—` for its size, because a directory's byte length describes its directory record rather than its contents. (Default: `"none"`)
+- `scroll_margin` (Non-negative Integer): Rows kept between the selection and the top or bottom of the panel while you move through a listing, like vim's `scrolloff`. The margin gives way at the true ends of the list, so the first entry still reaches the top row and the last entry the bottom row. `0` lets the selection ride the edge of the panel; a value larger than half the panel keeps the selection centred. (Default: `3`)
 
 The default reproduces Trail's ordering before v1.8.0 exactly: directories first, then name,
 case-insensitive, with no details column.
@@ -344,6 +345,7 @@ You must use the section-qualified key (e.g., `theme.directory`), with the excep
 - `:set sort_reverse true`
 - `:set dirs_first false`
 - `:set entry_details both`
+- `:set scroll_margin 5` (read at render time, so it applies on the next frame)
 
 The three sort keys change the **active tab only**, the same as `:sort` and the `s` bindings;
 they do not reach the other tabs or the config file. `entry_details` applies to the whole

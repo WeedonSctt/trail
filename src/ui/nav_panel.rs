@@ -163,7 +163,10 @@ struct DetailsLayout {
 /// `state.filtered_entries()`. Otherwise renders `state.visible_entries()` in
 /// the active tab's sort order — see [`crate::app::sort`].
 ///
-/// The current selection is highlighted. Directories are colored blue;
+/// The current selection is highlighted, and the list is drawn from `offset`,
+/// the first visible row, which the caller computes with
+/// [`crate::app::scroll::NavScroll::update`] so that it persists across frames.
+/// Directories are colored blue;
 /// symlinks are colored cyan; hidden entries are dimmed.
 ///
 /// When `[navigation] entry_details` asks for one, each row also carries a
@@ -180,7 +183,7 @@ struct DetailsLayout {
 /// - `D` (red) — deleted
 /// - `?` (DarkGray) — untracked
 /// - `R` (cyan) — renamed
-pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
+pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, offset: usize) {
     let styles = theme::resolve(&state.config.theme);
     let title = format!(" {} ", panel_title(&state.cwd));
 
@@ -318,8 +321,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         .highlight_style(styles.selection)
         .highlight_symbol(HIGHLIGHT_SYMBOL);
 
-    // Drive the list widget's selection via ListState.
-    let mut list_state = ListState::default();
+    // Drive the list widget's selection and scroll via ListState. The offset
+    // always keeps the selection in view, so `List` draws from it as given
+    // rather than re-deriving a window from zero.
+    let mut list_state = ListState::default().with_offset(offset);
     if state.filtered_count() > 0 {
         list_state.select(Some(state.selected));
     }

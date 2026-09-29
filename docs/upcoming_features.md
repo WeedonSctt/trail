@@ -15,7 +15,7 @@ behind them.
 
 **Second round (2026-09-29, items 13–17).** Two were built and shipped in v1.8.0 — the
 listing's sort order and its details column. Two are assessed and not yet started: the
-scroll margin, which is a defect with a provable cause, and the plugin API, which is a
+scroll margin, which is a defect with a provable cause (since shipped in v1.9.0), and the plugin API, which is a
 scope decision rather than a fix. Item 17 was found while building the sort keys rather
 than reported. A further note from this round turned out to be
 [§5.2](#52-a-second-window-for-commands) resurfacing unchanged, and is recorded there
@@ -23,7 +23,7 @@ rather than re-triaged.
 
 **Third round (2026-09-29, items 18–19).** Both are about what the frame tells you rather
 than what it does: which build you are looking at, and where you are while you type a
-command. Neither is started. They share a question — which surface carries standing
+command. Both shipped, in v1.8.2 and v1.8.3. They share a question — which surface carries standing
 information — and §2.17 is where the answer has to be decided, because it revisits
 [§2.8](#28-the-path-is-drawn-twice).
 
@@ -51,11 +51,11 @@ test itself).
 | 12 | Run a command without leaving the view | wanted a second window | deferred — §5 |
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
-| 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **planned** — §2.13 |
+| 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
 | 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
 | 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **planned** — §2.15 |
-| 18 | An optional version indicator in the view | no way to tell which build a running session is | **planned** — §2.16 |
-| 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **planned** — §2.17 |
+| 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
+| 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 
 ---
 
@@ -281,6 +281,15 @@ Worth a `[navigation] scroll_margin` key, defaulting to 3, with 0 restoring toda
 behaviour for anyone who prefers it. Both parts are on the UI thread and cost nothing;
 the render tests can assert the selected row's position at a given viewport height, which
 makes this one of the more testable items in this file.
+
+**Shipped in v1.9.0**, with two departures from the plan above. The offset lives on
+`AppState` rather than `TabState`, keyed by the directory it was computed in
+(`src/app/scroll.rs`): comparing directories at render time catches navigation, tab
+switches and tab closes without each of them having to reset it, and a directory without
+a recorded offset centres its selection, which puts a remembered entry in context rather
+than on an edge. And `0` does not restore the old behaviour — the old behaviour was the
+bug. It means no margin: the selection may reach either edge, and stays where it is when
+you reverse direction.
 
 ### 2.14 A plugin can observe and nothing else
 

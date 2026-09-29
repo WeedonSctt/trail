@@ -374,6 +374,12 @@ pub struct AppState {
     pub entries: Vec<Entry>,
     /// Index into `entries` of the currently highlighted item.
     pub selected: usize,
+    /// Where the navigation panel was scrolled to on the last frame.
+    ///
+    /// Written by the renderer, which is the only thing that knows the pane
+    /// height, through [`crate::app::scroll::NavScroll::update`]. `None` until
+    /// the first frame.
+    pub nav_scroll: Option<crate::app::scroll::NavScroll>,
     /// Current interaction mode.
     pub mode: Mode,
     /// Navigation history for `u`/`Ctrl-r` back/forward.
@@ -515,6 +521,7 @@ impl AppState {
             launch_dir,
             entries: Vec::new(),
             selected: 0,
+            nav_scroll: None,
             mode: Mode::default(),
             history: NavigationHistory::new(),
             filter: None,

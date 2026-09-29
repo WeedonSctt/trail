@@ -190,6 +190,7 @@ struct NavigationOverrides {
     sort_reverse: Option<bool>,
     dirs_first: Option<bool>,
     entry_details: Option<String>,
+    scroll_margin: Option<usize>,
 }
 
 impl NavigationOverrides {
@@ -205,6 +206,9 @@ impl NavigationOverrides {
         }
         if let Some(entry_details) = self.entry_details {
             navigation.entry_details = entry_details;
+        }
+        if let Some(scroll_margin) = self.scroll_margin {
+            navigation.scroll_margin = scroll_margin;
         }
     }
 }
@@ -427,6 +431,7 @@ entry_details = "size"
         // becoming empty.
         assert!(!cfg.navigation.sort_reverse);
         assert!(cfg.navigation.dirs_first);
+        assert_eq!(cfg.navigation.scroll_margin, 3);
         assert_eq!(
             cfg.navigation.sort_settings(),
             crate::app::sort::SortSettings {

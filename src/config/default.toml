@@ -90,6 +90,13 @@ dirs_first = true
 # `none`: the name is what you navigate by, and the preview pane already shows
 # size and modification time for whatever is selected.
 entry_details = "none"
+# Rows kept between the selection and the top or bottom of the panel while
+# scrolling -- vim's `scrolloff`.  The margin gives up at the true ends of the
+# listing, so the first entry still reaches the top row and the last entry the
+# bottom one.  0 lets the selection ride the edge, which shows the least context
+# and scrolls the most.  A value larger than half the panel keeps the selection
+# centred.
+scroll_margin = 3
 
 [preview]
 # Inline-image protocol: auto | kitty | iterm2 | sixel | halfblocks | none

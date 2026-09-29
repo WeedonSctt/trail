@@ -29,7 +29,21 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `[navigation] scroll_margin` keeps rows between the selection and the top or
+  bottom of the navigation panel while you move, like vim's `scrolloff`.
+  Default `3`; `0` lets the selection ride the edge. The margin gives way at
+  the ends of the listing, so the first and last entries still reach the first
+  and last rows. `:set scroll_margin 5` applies on the next frame.
+
+### Fixed
+
+- In a listing longer than the panel, the selection no longer sticks to the
+  bottom row. Past the first screenful every entry was drawn on the last row,
+  and moving up scrolled the list under the selection instead of moving it.
+  The panel now remembers where it was scrolled to, so moving up moves the
+  selection. Entering a directory centres the entry it lands on.
 
 ## [1.8.3] - 2026-09-29
 

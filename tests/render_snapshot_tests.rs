@@ -833,3 +833,79 @@ async fn a_name_too_long_for_its_budget_is_elided_not_wrapped() {
         .count();
     assert_eq!(border_rows, 2, "the panel border moved:\n{rendered}");
 }
+
+// ── Scroll margin ─────────────────────────────────────────────────────────────
+
+/// A directory of `count` files named `f00`, `f01`, … so every row is findable.
+fn make_many_files_dir(count: usize) -> TempDir {
+    let dir = tempfile::tempdir().expect("tempdir");
+    for i in 0..count {
+        fs::write(dir.path().join(format!("f{i:02}")), b"x").unwrap();
+    }
+    dir
+}
+
+/// Renders `state` into `terminal` and returns the row, counted from the nav
+/// panel's first inner row, on which the selection marker is drawn.
+fn selected_row(terminal: &mut Terminal<TestBackend>, state: &mut AppState) -> usize {
+    trail::ui::render(terminal, state).expect("render failed");
+    let buf = terminal.backend().buffer().clone();
+    let area = buf.area;
+    (0..area.height)
+        .find(|&y| {
+            let line: String = (0..area.width)
+                .map(|x| buf[(x, y)].symbol().to_owned())
+                .collect();
+            line.contains(">  f")
+        })
+        .map(|y| usize::from(y) - 1)
+        .expect("a selected row is drawn")
+}
+
+/// The reported bug: once the selection was past the first screenful it was
+/// drawn on the bottom row, and moving *up* scrolled the list under it rather
+/// than moving it. With the offset persisted, moving up moves the selection.
+#[test]
+fn moving_up_from_deep_in_a_listing_moves_the_selection_not_the_list() {
+    let dir = make_many_files_dir(60);
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    // 14 rows: 13 for the panels, 11 inside the nav panel's border.
+    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    selected_row(&mut terminal, &mut state);
+
+    for _ in 0..40 {
+        state.move_down();
+        selected_row(&mut terminal, &mut state);
+    }
+    let low = selected_row(&mut terminal, &mut state);
+    assert_eq!(low, 10 - 3, "stops the default margin short of the bottom");
+
+    state.move_up();
+    assert_eq!(
+        selected_row(&mut terminal, &mut state),
+        low - 1,
+        "moving up moves the selection up a row"
+    );
+}
+
+#[test]
+fn the_last_entry_reaches_the_bottom_row_despite_the_margin() {
+    let dir = make_many_files_dir(60);
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    state.jump_bottom();
+    assert_eq!(selected_row(&mut terminal, &mut state), 10);
+}
+
+#[test]
+fn a_zero_scroll_margin_lets_the_selection_ride_the_edge() {
+    let dir = make_many_files_dir(60);
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.navigation.scroll_margin = 0;
+    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    for _ in 0..30 {
+        state.move_down();
+        selected_row(&mut terminal, &mut state);
+    }
+    assert_eq!(selected_row(&mut terminal, &mut state), 10);
+}

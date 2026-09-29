@@ -5,6 +5,7 @@
 
 pub mod history;
 pub mod mode;
+pub mod scroll;
 pub mod sort;
 pub mod state;
 pub mod tabs;

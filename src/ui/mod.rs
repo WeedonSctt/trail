@@ -70,7 +70,19 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
             ])
             .split(outer[0]);
 
-        nav_panel::draw(frame, inner[0], state);
+        // The panel's scroll position is decided here rather than inside the
+        // panel because it outlives the frame: the panel borrows `state` only
+        // to read, and this is where the pane height is first known.
+        let listed = state.filtered_count();
+        let nav_offset = crate::app::scroll::NavScroll::update(
+            &mut state.nav_scroll,
+            &state.cwd,
+            state.selected,
+            listed,
+            usize::from(inner[0].height.saturating_sub(2)),
+            state.config.navigation.scroll_margin,
+        );
+        nav_panel::draw(frame, inner[0], state, nav_offset);
         status_bar::draw(frame, outer[1], state);
         // Drawn last: it borrows `state` mutably, so the read-only panels above
         // must have finished with it.

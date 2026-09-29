@@ -119,6 +119,9 @@ impl TrailConfig {
                 crate::ui::nav_panel::ENTRY_DETAILS_REASON,
             ));
         }
+        // `navigation.scroll_margin` needs no range check: zero is "no margin",
+        // and a margin larger than half the pane is capped at render time, where
+        // the pane height is known, rather than rejected here, where it is not.
         if !self.preview.image_protocol.eq_ignore_ascii_case("auto")
             && crate::preview::graphics::ImageProtocol::parse(&self.preview.image_protocol)
                 .is_none()
@@ -232,6 +235,9 @@ impl TrailConfig {
                     ));
                 }
                 self.navigation.entry_details = value.trim().to_ascii_lowercase();
+            }
+            "navigation.scroll_margin" | "scroll_margin" => {
+                self.navigation.scroll_margin = parse_usize(key, value)?;
             }
             "preview.image_protocol" | "image_protocol" => {
                 if !value.trim().eq_ignore_ascii_case("auto")
@@ -361,6 +367,12 @@ pub struct NavigationConfig {
     /// keys this is not per tab — it describes the panel rather than a place
     /// you are working.
     pub entry_details: String,
+    /// Rows kept between the selection and the top or bottom of the pane
+    /// while scrolling, like vim's `scrolloff`.
+    ///
+    /// `0` lets the selection reach either edge. Any value is accepted: the
+    /// renderer caps it at half the pane, which keeps the selection centred.
+    pub scroll_margin: usize,
 }
 
 impl NavigationConfig {
@@ -499,6 +511,13 @@ fn parse_positive_usize(key: &str, value: &str) -> Result<usize, SetConfigError>
         return Err(invalid_value(key, value, "must be greater than zero"));
     }
     Ok(parsed)
+}
+
+fn parse_usize(key: &str, value: &str) -> Result<usize, SetConfigError> {
+    value
+        .trim()
+        .parse::<usize>()
+        .map_err(|_| invalid_value(key, value, "expected a non-negative integer"))
 }
 
 fn parse_u64(key: &str, value: &str) -> Result<u64, SetConfigError> {
