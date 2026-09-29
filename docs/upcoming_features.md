@@ -364,7 +364,7 @@ for reporting anything else sensibly. Then 4, 5, 6 and 8 — independent UI work
 control-character fix, which is what made it safe to drop the per-frame clear, and only
 then the rest of 3. Finally 7, 9 and 10, each of which adds a config key or a dependency.
 
-Every config key added here touches all six places in `CLAUDE.md` §4, and every new
+Every config key added here touches all six places in `CLAUDE.md` §5, and every new
 binding or command touches `keymap.rs`, `docs/user_guide.md` and the `README.md` key
 table.
 
@@ -448,7 +448,7 @@ because it depends on which terminal was in use — inline-image protocol detect
 floors at Halfblocks in Windows Terminal, which is safe, but resolves to iTerm2 in the
 VS Code terminal, whose base64 payload prints as garbage where it is unsupported. Settling
 it needs the terminal the artifacts were seen in; the image matrix is listed as
-untestable in `CLAUDE.md` §7 for exactly this reason.
+untestable in `CLAUDE.md` §9 for exactly this reason.
 
 ---
 

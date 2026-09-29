@@ -168,11 +168,16 @@ release checklist gates on no markers remaining for phases ≤ current.
    build, test, docs on new `pub` items, no new `unwrap`/`unsafe`, tests for new logic.
 2. Check `git status` for **untracked** files that belong to the change — a new module is
    invisible to CI until it is `git add`ed.
-3. Write the commit message in the repo's format (§6).
-4. Commit only when asked. If on `main`, branch first.
+3. Write the commit message in the repo's format (§7).
+4. Commit it. See §6 — git is yours to run, not the maintainer's.
+
+### After changing anything a user would notice
+Add the entry to `CHANGELOG.md` under `## [Unreleased]`, in the same change. Written at
+release time it becomes a summary of the commits; written now it is a note to whoever
+upgrades.
 
 ### Before cutting a release
-Follow §7 and `docs/release_checklist.md` in order. Do not tag until all five gates pass
+Follow §8 and `docs/release_checklist.md` in order. Do not tag until all five gates pass
 locally — a failing gate blocks the release workflow anyway, and a deleted tag is worse
 than a delayed one.
 
@@ -184,7 +189,64 @@ measurement on Windows.
 
 ---
 
-## 6. Commit messages
+## 6. Git is yours to manage
+
+**The maintainer does not use git.** They have said so plainly: they do not know the
+commands and will not run them. Nothing gets committed, merged, pushed, tagged or cleaned
+up unless the agent does it. Treat every git operation this file describes as part of the
+job, not as something to hand back.
+
+Two consequences, and they are the whole of this section:
+
+- **Never end a turn leaving work only in the working tree.** An uncommitted change is
+  work that no one else can save. If it passes the gates, commit it and push it. If it
+  does not, say so and either finish it or revert it — do not leave a half-edited tree
+  behind.
+- **Never leave a branch for someone else to merge.** There is no reviewer and no one to
+  click "Merge pull request". A branch that is not merged back is work that has been
+  thrown away with extra steps.
+
+### The branch model
+
+`main` is the trunk. It is always the newest thing, it is always what was released last,
+and every commit lands on it.
+
+- **Ordinary work commits straight to `main`** and pushes. There is no review gate to
+  protect, and a feature branch nobody merges is how this repository ended up with `main`
+  stranded at v1.2.0 while six releases shipped from a branch called `feat/preview-scroll`.
+- **Branch only when the work might not land** — a spike, something risky, or a change the
+  maintainer may want to see before it becomes real. Then, before the turn ends, either
+  fast-forward `main` onto it and delete the branch, or say plainly that the branch exists
+  and why it is still open.
+- **`git merge --ff-only` is the merge you want.** If it refuses, `main` has moved and the
+  branch needs rebasing onto it; do that rather than reaching for a merge commit. The
+  history here is linear and worth keeping that way.
+- **Delete a branch once it is merged.** `git branch -d` refuses unmerged work, which is
+  the safety net — if it refuses, find out why before forcing it.
+
+### Things that are never the agent's call
+
+- **Never force-push, and never rewrite history that has been pushed.** Not to tidy a
+  message, not to squash, not to drop a commit. Fix forward with another commit.
+- **Never delete or move a published tag.** `docs/release_process.md` says this and means
+  it: someone may have pinned it. A bad release is fixed by the next patch release.
+- **Never delete a remote branch or a tag without saying so first.** Local branch deletion
+  is recoverable from the reflog; a remote one is not, and it is the maintainer's
+  repository. Print the SHA before deleting anything, so it can be recovered from the
+  message alone.
+- **Never commit a secret, a token, or anything from `~/.claude`.** Check `git status`
+  rather than `git add -A` when the tree has files you did not create.
+
+### Keeping it clean
+
+At the end of a session the repository should look like someone tidy left it: `main`
+current and pushed, no stray local branches, no uncommitted changes, `git status` clean.
+If it does not, say what is outstanding and why, in plain words — not in git terminology
+the maintainer will have to look up.
+
+---
+
+## 7. Commit messages
 
 The format actually used in this repository:
 
@@ -209,7 +271,7 @@ history uses and what new commits should follow.
 
 ---
 
-## 7. Versioning and release naming
+## 8. Versioning and release naming
 
 ### Version numbers
 Semantic versioning, `MAJOR.MINOR.PATCH`, judged from the **user's** point of view — the
@@ -244,26 +306,52 @@ No codenames, no pre-release suffixes unless one is deliberately introduced — 
 use `X.Y.Z-rc.N` and keep it out of the package manifests.
 
 ### Release sequence
-1. All five gates pass locally.
-2. Bump `Cargo.toml` and the four package manifests to the new version, leaving SHA-256
-   digests as placeholders. Commit as `[~] release> bump version to vX.Y.Z`.
-3. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and push the tag — `release.yml` fires on it,
+
+**Release from `main`, and tag `main`.** Earlier releases were cut from feature branches
+and pushed to a `release/vX.Y.Z` branch; that is why `main` sat at v1.2.0 while v1.7.2
+shipped. The tag is what `release.yml` fires on and what pins the commit, so the release
+branch bought nothing and cost the trunk. Do not recreate it.
+
+1. All five gates pass locally, on `main`, with everything committed and pushed.
+2. Close the changelog: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, open a
+   fresh empty `[Unreleased]` above it, and update the link definitions at the foot.
+3. Bump `Cargo.toml` and the four package manifests, plus `pkg/aur/.SRCINFO`, which has to
+   agree with `PKGBUILD` or the AUR package breaks. Leave SHA-256 digests as placeholders.
+   Commit as `[~] release> bump version to vX.Y.Z` and push.
+4. `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and push the tag — `release.yml` fires on it,
    runs the gates, builds all five targets, generates `checksums.txt`, and opens a
    **draft** release.
-4. Review the draft: five archives plus `checksums.txt`, every archive containing the
-   binary, `shell/`, and the README. Publish.
-5. Fill the real digests from `checksums.txt` into the four manifests and commit as
+5. Review the draft: ten assets (five archives, `checksums.txt`, and the four install /
+   uninstall scripts), every archive containing the binary, `shell/`, the README and the
+   uninstallers. Verify a digest against `checksums.txt` rather than trusting the job.
+6. Set the title to `Trail vX.Y.Z` and write real release notes — `generate_release_notes`
+   produces a commit list, which is not what an upgrading user needs. Publish.
+7. Fill the real digests from `checksums.txt` into the four manifests and commit as
    `[~] release> fill vX.Y.Z sha256 digests into package manifests`.
-6. Push the manifests to their tap / AUR / bucket repositories.
+8. Push the manifests to their tap / AUR / bucket repositories.
+
+Installing the new release locally is not part of the release, but if asked: on Windows
+`install.ps1` **fails when Trail is running**, because it force-copies over a locked
+`trail.exe`. Rename the running binary aside (`trail.exe.inuse-<stamp>.tmp` — Windows
+permits renaming a running image, only not overwriting it) and copy the new one into
+place. Open sessions keep the old inode until they exit; nothing has to be killed.
 
 **Never delete or move a published tag** — it breaks anyone who pinned it. Fix forward
 with a patch release, and annotate the bad release's notes with a pointer to the fix.
 
 ---
 
-## 8. Current state and known traps
+## 9. Current state and known traps
 
-- Released: **v1.7.2**.
+- Released: **v1.8.0**, from `main`, which is current and pushed.
+- `t` and `c` are accidental prefix keys: `configured_nav_prefix` treats any binding
+  longer than one character as a multi-key sequence, so `"tab"` makes `t` one and
+  `"ctrl-r"` makes `c` one, and both swallow the following keystroke. Assessed in
+  `docs/upcoming_features.md` §2.15, not yet fixed.
+- Three `// TODO(phase-N):` markers outlive their phases (`phase-4` in
+  `command_parser.rs`, `phase-5` in `tests/fixtures/.keep`, two `phase-something` in
+  `history.rs`). The release checklist gates on these; they have shipped unfixed since
+  before v1.7.2.
 - `ratatui-image` must resolve against the **same** `ratatui` the crate uses (0.28). Its
   dependency range also admits ratatui 0.30, and a `cargo update` will happily re-split
   the graph into two ratatui versions — at which point `StatefulImage` no longer matches

@@ -19,7 +19,7 @@ wrapper contract are the public API.
   binding that controls it.
 - On release, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and open a fresh
   `[Unreleased]` above it. This is step 2 of the release sequence in
-  `CLAUDE.md` §7, alongside the version bump.
+  `CLAUDE.md` §8, alongside the version bump.
 
 This file starts at v1.8.0. Earlier releases are described in their GitHub
 release notes and in `docs/upcoming_features.md` §6, which records what each
