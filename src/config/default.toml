@@ -50,6 +50,15 @@ text_sync_threshold_kb = 256
 # for the old behaviour, and read the confirmation prompt: it says which one is
 # about to happen.
 delete_mode = "trash"
+# Show Trail's version on the preview pane's top border.
+#
+# A diagnostic, not decoration: `trail --version` cannot be asked of a session
+# that is already running, and on Windows an upgrade leaves older sessions alive
+# on the previous binary -- they cannot be overwritten, only renamed aside -- so
+# several windows can be running different builds and look identical.  Turn this
+# on when that matters; it costs the right-hand end of a border that is drawn
+# either way, and it is hidden when a long file name needs the room.
+show_version = false
 git_status_enabled = true
 fs_watch_debounce_ms = 200
 

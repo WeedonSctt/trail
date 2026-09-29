@@ -29,7 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `[general] show_version` puts Trail's version on the preview pane's top
+  border. Off by default. `trail --version` cannot be asked of a session that is
+  already running, and on Windows an upgrade cannot overwrite a running
+  `trail.exe` — it renames the old one aside — so open windows can be on
+  different builds and look identical. The badge stands down when a long file
+  name needs the whole border.
 
 ## [1.8.1] - 2026-09-29
 

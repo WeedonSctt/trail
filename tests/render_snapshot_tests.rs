@@ -505,6 +505,78 @@ async fn the_delete_prompt_says_where_the_entry_is_going() {
     );
 }
 
+// ── The version indicator ─────────────────────────────────────────────────────
+
+/// The version Trail was built as, spelled the way the badge spells it.
+fn expected_version_badge() -> String {
+    format!("v{}", env!("CARGO_PKG_VERSION"))
+}
+
+#[tokio::test]
+async fn the_version_is_hidden_by_default() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        !rendered.contains(&expected_version_badge()),
+        "show_version defaults off, so the frame must be unchanged:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_version_appears_when_switched_on() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("show_version", "true").unwrap();
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains(&expected_version_badge()),
+        "expected {} on the preview border:\n{rendered}",
+        expected_version_badge()
+    );
+}
+
+#[tokio::test]
+async fn the_file_name_keeps_the_border_when_the_version_will_not_fit() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    // A name long enough that it and the version cannot share the border.
+    // ratatui clips overlapping titles rather than reflowing them, so the
+    // version has to stand down or the two overwrite each other.
+    let name = "a-really-quite-long-file-name-that-fills-the-border.txt";
+    fs::write(dir.path().join(name), b"hello\n").unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("show_version", "true").unwrap();
+
+    let rendered = render_to_string(&mut state, 80, 24).await;
+    assert!(
+        !rendered.contains(&expected_version_badge()),
+        "the file name is what the pane is about:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("a-really-quite-long"),
+        "the name must survive:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_version_survives_command_mode() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("show_version", "true").unwrap();
+    state.mode = trail::app::mode::Mode::Command {
+        buffer: "mv somewhere".to_owned(),
+        cursor: 12,
+        history_index: None,
+    };
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains(&expected_version_badge()),
+        "a border is not the status bar; Command Mode must not cover it:\n{rendered}"
+    );
+}
+
 // ── The sort badge ────────────────────────────────────────────────────────────
 
 #[tokio::test]

@@ -202,6 +202,9 @@ impl TrailConfig {
             "general.text_sync_threshold_kb" | "text_sync_threshold_kb" => {
                 self.general.text_sync_threshold_kb = parse_positive_usize(key, value)?;
             }
+            "general.show_version" | "show_version" => {
+                self.general.show_version = parse_bool(key, value)?;
+            }
             "general.git_status_enabled" | "git_status_enabled" => {
                 self.general.git_status_enabled = parse_bool(key, value)?;
             }
@@ -324,6 +327,12 @@ pub struct GeneralConfig {
     ///
     /// Parsed by [`crate::actions::fs_ops::DeleteMode::parse`].
     pub delete_mode: String,
+    /// Whether the preview panel's top border carries Trail's version.
+    ///
+    /// A diagnostic rather than chrome: it answers "which build is this
+    /// window?" without leaving the session, which `trail --version` cannot do
+    /// for a process that is already running. Off by default.
+    pub show_version: bool,
     /// Whether git status workers should run.
     pub git_status_enabled: bool,
     /// Filesystem watcher debounce window in milliseconds.
