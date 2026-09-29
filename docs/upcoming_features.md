@@ -297,8 +297,14 @@ own comment says the API is "intentionally minimal for v1 — resist expanding i
 there is a reason; bookmarks, the one example plugin, works only because it was also built
 as a core module.
 
-**Fix.** The smallest set that makes a plugin able to do a job, in the order they are worth
-adding:
+**Fix.** Designed in full in [`plugin_api_plan.md`](plugin_api_plan.md), which settles the
+shape: a plugin cannot be handed `&mut AppState` — the engine lives *in* it, so reaching
+it borrows the whole struct — and so plugins request `Action`s onto a queue that is
+drained after the hook returns, the same deferral `pending_external` already uses for
+`RunExternal`. That makes the plugin write surface exactly the `Action` enum: a plugin can
+do what a keybinding can do and nothing else.
+
+The smallest set that makes a plugin able to do a job, in the order they are worth adding:
 
 - **Read the world.** `trail.selection()` and `trail.cwd()` returning a table
   (`path`, `name`, `kind`, `size`, `modified`, `is_hidden`) rather than a bare string.
