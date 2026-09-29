@@ -267,7 +267,9 @@ Sorting is **per tab** — a downloads tab can sit in `st` while the tab beside 
 source tree in `sn` — and a new tab inherits the order it was opened from. Set
 `[navigation] sort_by` in `trail.toml` for the order every session starts in, and
 `[navigation] entry_details` to show size or modification time in the listing. The details
-column stands down on a narrow panel rather than crushing names.
+column stands down on a narrow panel rather than crushing names. `[navigation] scroll_margin`
+keeps a few rows between the selection and the panel's edges while you move, like vim's
+`scrolloff` (default `3`; `0` for none).
 
 **Preview pane**
 
@@ -382,6 +384,7 @@ sort_by = "name"               # name | size | modified | extension — seeds th
 sort_reverse = false
 dirs_first = true              # group directories ahead of files
 entry_details = "none"         # none | size | modified | both
+scroll_margin = 3              # rows kept between the selection and the panel edge
 
 [theme]
 background   = "#1a1b26"

@@ -20,7 +20,7 @@ of listing:
       directory name            sort order    selected file        version (optional)
              │                       │              │                       │
              ▼                       ▼              ▼                       ▼
-     ╭ my-project ─────────── size↓ ╮╭ README.md ──────────────────── v1.8.3 ╮
+     ╭ my-project ─────────── size↓ ╮╭ README.md ──────────────────── v1.9.0 ╮
      │>  src/                      —││    1  # Trail                         │
      │   README.md          17.06 kB││    2                                  │
      │   Cargo.toml          3.22 kB││    3  A terminal-first workspace…     │
@@ -124,6 +124,12 @@ reports for a directory is the size of its own record and not of what is in it. 
 narrow panel the column stands down entirely rather than crush the names — widen the
 terminal and it comes back. Set `[navigation] entry_details` in `trail.toml` for the
 setting to persist across sessions.
+
+In a listing longer than the panel, the selection stays a few rows away from the top and
+bottom edges while you move, so you can see what is coming — vim calls this `scrolloff`.
+The margin gives way at the ends of the listing, so the first and last entries still reach
+the edges. `[navigation] scroll_margin` sets it (default `3`); `0` lets the selection ride
+the edge, and `:set scroll_margin 5` tries a value without restarting.
 
 **Which build am I running?** `[general] show_version = true` puts Trail's version on the
 preview pane's top border, or `:set show_version true` for the current session. It is off
