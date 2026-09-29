@@ -1,328 +1,297 @@
 # Trail — Plugin API Plan
 
-A design for widening the Lua plugin surface from "observe and log" to "read the
-session and change it". **Nothing here is built.** This document decides the shape
-so the implementation is a matter of typing, and records the two questions that
-have to be answered before it can start.
+The design for widening the Lua plugin surface from "observe and log" to "read the
+session, change it, and extend it". The earlier version of this document (at v1.8.3)
+settled the core mechanism — plugins *request* `Action`s rather than mutate state — and
+left two questions open. This version answers both, adds five capabilities the first
+draft did not cover, and is what the `feat/plugin-api` branch implements.
 
-Assessed against the code on 2026-09-29, at v1.8.3. Companion to
-[`upcoming_features.md`](upcoming_features.md) §2.14, which is the triage entry;
-this is the design behind it.
-
----
-
-## 1. What exists today
-
-Four functions, in `src/plugin/lua_api.rs`:
-
-| Call | Receives | Returns | Fired from |
-|---|---|---|---|
-| `trail.on_select(fn)` | the selected path, as a string | ignored | `main.rs:322`, on every selection change |
-| `trail.on_enter_dir(fn)` | the new directory, as a string | ignored | `state.rs:802`, on `enter_dir` |
-| `trail.register_action(name, fn)` | one argument string | **discarded** | `actions/mod.rs:967`, via `:plugin <name> [arg]` |
-| `trail.log(msg)` | a string | — | writes at `debug` level |
-
-So a plugin can be told where the user went, and write a line to a log file the
-user is not looking at. It cannot read the selection's size or kind, navigate
-anywhere, put a message on screen, read a config key, or report that an action
-failed. `PluginEngine`'s own comment says the surface is "intentionally minimal
-for v1 — resist expanding it until" there is a reason. There is now.
-
-The one shipped plugin, `example_bookmarks.lua`, works only because bookmarks
-were *also* built as a core Rust module (`src/plugin/bookmarks.rs`) that the
-command layer calls directly. It is a demonstration that the API exists, not
-that it is sufficient.
+User-facing reference: [`plugins.md`](plugins.md). Triage entry:
+[`upcoming_features.md`](upcoming_features.md) §2.14.
 
 ---
 
-## 2. The constraint that shapes everything
+## 1. Where it started
 
-A plugin cannot be handed `&mut AppState`. This is not a preference — it does
-not compile.
+Four functions: `trail.on_select(fn)`, `trail.on_enter_dir(fn)`,
+`trail.register_action(name, fn)` and `trail.log(msg)`. Hooks received a path string
+and returned nothing; an action's return value was discarded; errors went to a `debug`
+log line below the default filter. A plugin could be told where the user went and do
+nothing about it.
 
-```rust
-// actions/mod.rs:966
-if let Some(engine) = &state.plugin_engine {
-    if engine.fire_action(&name, &arg) { … }
-}
-```
+---
 
-The engine lives *in* `AppState`, so reaching it immutably borrows the whole
-struct for as long as Lua is running. `fire_action` is `&self` for that reason.
-Any design where a Lua callback calls `trail.navigate(...)` and something
-mutates state underneath is a borrow error, and working around it with
-`RefCell` or by moving the engine out and back buys a runtime panic instead of a
-compile error.
+## 2. Principles
 
-**The answer is already in the codebase.** `Action::RunExternal` has the same
-problem — it must leave the alternate screen, which `apply()` cannot do — and it
-is solved with a deferral field:
+Every decision below follows from these, so they come first.
 
-```rust
-/// Using a state field rather than a channel keeps `apply()` synchronous and
-/// testable without a running terminal.
-pub pending_external: Option<crate::actions::Action>,
-```
+1. **A plugin can do what the user can do, through the paths the user's keys take.**
+   Writes become `Action`s (or Trail commands) applied by `actions::apply`, so the
+   notice channel, the dirty flag, the selection anchoring and the per-tab bookkeeping
+   happen for free, and there is no second code path to keep correct.
+2. **Invariant 1 holds for plugins too.** The UI thread never blocks. Lua runs on it —
+   that is unavoidable while hooks can read `&AppState` — so Lua runs under a
+   **budget**, and anything slow has a way off the thread that is *easier* than doing it
+   inline.
+3. **Nothing a plugin does is invisible.** A failed load, a runtime error, a blown
+   budget and a returned failure all reach the status bar and the log, attributed to the
+   plugin.
+4. **Additive only.** Every existing plugin keeps working unchanged. Hooks gain a second
+   argument rather than changing the first.
+5. **Honest about trust.** See §6.1.
 
-`apply()` writes the request there; the event loop drains it afterwards, when
-the borrow is gone.
+---
 
-### The design follows from it
+## 3. The mechanism
 
-A plugin does not mutate Trail. It **requests `Action`s**, which are drained and
-applied after the hook returns.
+### 3.1 Reads: scoped functions over `&AppState`
+
+A plugin cannot be handed `&mut AppState` — the engine lives inside it. It *can* be
+handed `&AppState`: firing a hook borrows the engine immutably from the state, and a
+second immutable borrow of the same state is legal.
+
+`mlua::Lua::scope` makes that borrow available to Lua without copying anything. For the
+duration of one hook call, `trail.selection`, `trail.cwd`, `trail.entries`,
+`trail.config`, `trail.tabs` and `trail.mode` are scoped functions that close over
+`&AppState`; when the hook returns, the scope ends and they are replaced by stubs that
+raise a clear error ("only available inside a hook, action or job callback"). A plugin
+that stashes one in a global and calls it later gets that error rather than a dangling
+reference — which is what `scope` guarantees.
+
+This is lazy: `on_select` fires on every keystroke, and a hook that never calls
+`trail.entries()` never pays for a table per entry.
+
+### 3.2 Writes: a request queue on the engine
+
+Write functions push a `PluginRequest` onto a queue in the Lua state's app data. After
+the hook returns and the borrow ends, the host drains the queue and applies each request
+in order:
 
 ```
 Lua calls trail.navigate("/tmp")
-    → pushes Action::Navigate("/tmp") onto the engine's own queue
-    → hook returns, the &AppState borrow ends
-    → caller drains the queue and runs actions::apply(action, state) for each
+    → PluginRequest::Action(Action::Navigate("/tmp")) is queued
+    → the hook returns; the &AppState borrow ends
+    → plugin::host::drain applies it through actions::apply
 ```
 
-This is worth more than a workaround. `actions/mod.rs` already says *"Every
-user-initiated mutation flows through an `Action` value, keeping the state
-machine testable independently of input handling."* Routing plugins through the
-same funnel means:
+Requests that fire more hooks (`navigate` → `on_enter_dir`, a selection change →
+`on_select`) queue more requests, which the event loop drains in further rounds —
+**at most four per input event**. A plugin that navigates on every `on_enter_dir` stops
+after four hops with an error naming the loop, instead of freezing Trail.
 
-- a plugin can do exactly what a keybinding can do, and nothing else;
-- every plugin effect is already covered by the `Action` tests;
-- the notice, the dirty flag, the selection anchoring and the per-tab
-  bookkeeping all happen for free, because `apply()` does them;
-- nothing new can corrupt state, because nothing new writes to it.
+### 3.3 The budget
 
-The queue belongs on `PluginEngine` behind a `RefCell<Vec<Action>>` — interior
-mutability on the *engine*, which is not `AppState`, so the borrow is legal and
-its scope is one field rather than the world.
+Every call into Lua runs under an instruction-count hook that checks a deadline every
+1 000 instructions and aborts past `[plugins] budget_ms` (default 50 ms; loading a
+plugin gets ten times that). The abort is an ordinary Lua error, so it is caught and
+reported like any other.
 
----
-
-## 3. The read surface
-
-Hooks currently receive a bare string. They should receive a **table**, built
-once per call from state the UI thread already holds. No I/O: every field below
-is already in memory.
-
-### `trail.selection()` → table or `nil`
-
-| Key | Type | Source | Note |
-|---|---|---|---|
-| `path` | string | `Entry::path` | absolute, plainly spelled (no `\\?\`) |
-| `name` | string | `Entry::file_name` | |
-| `kind` | string | `Entry::kind` | `"file"`, `"dir"`, `"symlink"` |
-| `hidden` | boolean | `Entry::is_hidden` | |
-| `size` | integer or `nil` | `Entry::metadata` | `nil` for an unstat-able entry |
-| `modified` | integer or `nil` | `Entry::metadata` | Unix seconds, for Lua's `os.date` |
-| `git` | string or `nil` | `Entry::git_status` | `nil` until the worker reports |
-| `is_text` | boolean or `nil` | `Entry::is_text` | `nil` means "not yet classified" — see §7 |
-
-### `trail.cwd()` → table
-
-| Key | Type | Source |
-|---|---|---|
-| `path` | string | `AppState::cwd` |
-| `entry_count` | integer | `StatusBarState::entry_count` |
-| `show_hidden` | boolean | `AppState::show_hidden` |
-| `sort` | table | `{ by, reverse, dirs_first }` from `SortSettings` |
-| `git_branch` | string or `nil` | `GitDirState::branch` |
-| `git_dirty` | boolean or `nil` | `GitDirState::is_dirty` |
-
-### `trail.entries()` → array of selection tables
-
-The whole visible listing, in display order, each entry shaped as
-`trail.selection()`. Respects `show_hidden` and the active filter, so a plugin
-sees what the user sees. This is the expensive one — a table per entry — so it
-is a call rather than a hook argument, and a plugin that wants one field of one
-entry does not pay for the directory.
-
-### `trail.config(key)` → string, number, boolean or `nil`
-
-Read against the same key vocabulary `:set` accepts, section-qualified or
-aliased (`"general.editor"` or `"editor"`). One accessor rather than a dumped
-table, so the config struct can change shape without breaking plugins.
-
-### `trail.tabs()` → table
-
-`{ count, active }`. Enough to write "open this in a new tab if more than one is
-open"; not enough to inspect another tab's listing, which would mean exposing
-`TabManager` internals for no use case yet named.
-
-### `trail.version()` → string
-
-`CARGO_PKG_VERSION`, so a plugin can refuse to load against an older Trail than
-it needs.
+What the budget **cannot** bound is a single blocking C call — `os.execute("sleep 10")`
+or `io.popen(...)` blocks inside one instruction. That is documented rather than
+prevented, and it is why `trail.spawn` exists: the non-blocking way is also the easier
+one.
 
 ---
 
-## 4. The write surface — what a plugin may change
+## 4. The API
 
-**This is the list the design turns on.** Every entry maps to an `Action`, and
-anything not in this table cannot be changed by a plugin at all.
+### 4.1 Events
 
-| Lua call | `Action` | What changes |
+| Call | Fires | Arguments |
 |---|---|---|
-| `trail.navigate(path)` | `Navigate(PathBuf)` **(new)** | `cwd`, `entries`, `selected`, `history` |
-| `trail.select(path)` | `SelectPath(PathBuf)` **(new)** | `selected` |
-| `trail.move_selection(n)` | `MoveDown` / `MoveUp` | `selected` |
-| `trail.go_parent()` | `GoParent` | `cwd` and everything it implies |
-| `trail.back()` / `trail.forward()` | `HistoryBack` / `HistoryForward` | `cwd`, `history` |
-| `trail.refresh()` | `Refresh` | `entries`, preserving the selection by path |
-| `trail.set_sort{by, reverse, dirs_first}` | `SetSortBy` / `ToggleSortReverse` / `ToggleDirsFirst` | the **active tab's** `sort` |
-| `trail.set_hidden(bool)` | `ToggleHidden` | `show_hidden` |
-| `trail.set_filter(query)` | `SetFilter(String)` **(new)** | `filter`, `selected` |
-| `trail.notify(msg)` / `trail.error(msg)` | — direct, see §5 | `notice` |
-| `trail.yank(text)` | `CopyText(String)` **(new)** | the OS clipboard, `last_yank` |
-| `trail.set_config(key, value)` | `ExecuteCommand(Set{…})` | one config key, for this session |
-| `trail.open_tab(path)` / `trail.close_tab()` | `NewTab` / `CloseTab` | `tab_manager` |
-| `trail.run(cmd)` | `RunExternal{…}` | suspends Trail, runs a command — **gated, see §6** |
+| `trail.on_select(fn)` | the selection changes | `path` (string), `entry` (table, §4.2) |
+| `trail.on_enter_dir(fn)` | a directory is entered | `path`, `dir` (the `trail.cwd()` table) |
+| `trail.on_fs_change(fn)` **(new)** | the watcher reports a change in the current directory | `path` |
+| `trail.on(event, fn)` **(new)** | alias: `"select"`, `"enter_dir"`, `"fs_change"` | as above |
 
-Five new `Action` variants. Each is a thin wrapper over a method `AppState`
-already has (`enter_dir`, `apply_filter`, `set_sort`, `restore_selection`), so
-the cost is the enum arm and the dispatch, not new logic.
+Hooks run in load order (`[plugins] enabled` order), which is a promise.
 
-### What a plugin may *not* change, and why
+### 4.2 Reads — inside a hook, action, or job callback
 
-| Field | Why not |
+| Call | Returns |
 |---|---|
-| `entries` directly | It is a projection of the filesystem. A plugin that could write it could make Trail show files that do not exist. Mutate the filesystem and `refresh()`. |
-| `preview.*` | Owned by the generation guard (invariant 2). A plugin writing `content` without the matching `generation` reintroduces exactly the stale-preview bug the guard exists to stop. Scroll actions are fine; the content is not. |
-| `git` | Worker-owned and invalidated on fs events. A plugin write would be overwritten unpredictably. |
-| `dirty` | Render bookkeeping. `apply()` sets it. |
-| `selection_memory` | Internal to `load_dir`'s re-anchoring. |
-| `pending_delete` | A confirmation in flight. A plugin that could set it could put a "delete?" prompt on screen that the user did not ask for and that `y` would then confirm. |
-| `pending_external`, `pending_nav_key`, `command_history`, `tab_state` | Input-layer mechanics; a plugin reaching them is a plugin injecting keystrokes. |
-| `plugin_engine` | Reentrancy. A plugin loading a plugin during a hook is a borrow error and a support problem. |
-| `launch_dir` | Fixed at startup; `yr` is defined relative to it. |
-| `mode` | See §6 — this one is a judgement call rather than a flat no. |
+| `trail.selection()` | entry table or `nil` |
+| `trail.entries()` | array of entry tables — the visible listing, in display order, respecting hidden files and an active search |
+| `trail.cwd()` | `{ path, entry_count, show_hidden, sort = {by, reverse, dirs_first}, git_branch, git_dirty }` |
+| `trail.config(key)` | the value of any key `:set` accepts (`"editor"` or `"general.editor"`), or `nil` |
+| `trail.tabs()` | `{ count, active }` (1-based) |
+| `trail.mode()` | `"navigation"`, `"search"` or `"command"` |
+| `trail.version()` | Trail's version — available everywhere, including at load time |
+
+An **entry table** is `{ path, name, kind, hidden, size, modified, git, is_text }`:
+`kind` is `"file"`, `"dir"` or `"symlink"`; `size` is `nil` for a directory (its byte
+length describes its record, not its contents — the same rule as the details column);
+`modified` is Unix seconds, for `os.date`; `git` is `nil` until the git worker reports;
+`is_text` is `nil` until something has previewed the file. Paths are spelled through
+`pathfmt::display`, so no `\\?\` reaches a plugin on Windows.
+
+### 4.3 Writes — queued, applied after the call returns
+
+| Call | Effect |
+|---|---|
+| `trail.navigate(path)` | enter a directory (a relative path resolves against the current one) |
+| `trail.select(path_or_name)` | move the selection to an entry in the current listing |
+| `trail.move(n)` | move the selection `n` rows (negative is up) |
+| `trail.go_parent()`, `trail.back()`, `trail.forward()` | as `h`, `u`, `Ctrl-r` |
+| `trail.refresh()` | re-read the listing, keeping the selection |
+| `trail.set_sort{by=, reverse=, dirs_first=}` | the active tab's order; omitted fields are kept |
+| `trail.set_hidden(bool)` | show or hide hidden files |
+| `trail.yank(text)` | put text on the clipboard |
+| `trail.set_config(key, value)` | as `:set key value`, for this session |
+| `trail.command(line)` | run a Trail command line, as if typed after `:` — `mkdir`, `mv`, `bookmark`, `jump`, `git`, `sort`, … |
+| `trail.open_tab(path?)`, `trail.close_tab()` | as `Ctrl-t`, `Ctrl-w` |
+| `trail.run(cmd, opts?)` | suspend Trail and run a command in the terminal, as `!`; `cmd` is a string (through `[general] shell`) or an argv table; `opts.pause` overrides `shell_pause` |
+| `trail.notify(msg)`, `trail.error(msg)` | the status bar and the log |
+| `trail.set_status(text)` **(new)** | a persistent segment in the status bar; `nil` clears it |
+
+### 4.4 Returning from an action
+
+`trail.register_action(name, fn)` handlers receive the argument string. What they return
+is the outcome:
+
+| Return | Result |
+|---|---|
+| nothing, `nil`, `true` | success, silent |
+| a string | success, shown as a notice |
+| `false` or `false, "reason"` | failure, shown as `plugin <name>: reason` |
+| a Lua error | failure, shown the same way |
+
+### 4.5 Keys — `trail.bind(keys, action, arg?)` **(new)**
+
+Binds a Navigation Mode key or sequence to a registered action: `trail.bind("gv",
+"open_in_code")`, `trail.bind("ctrl-g", "git_log")`. Keys use the `[keymap]` spelling.
+
+**A plugin can claim keys Trail does not use; it cannot take one over.** The configured
+keymap (defaults included) is consulted first, so `trail.bind("j", …)` never fires.
+Multi-character bindings join the prefix machinery, so `gv` makes `g` wait for a second
+key exactly as `gg` does. A binding that can never fire is reported at startup.
+
+### 4.6 Previewers — `trail.register_previewer{...}` **(new)**
+
+```lua
+trail.register_previewer{
+  name = "json",
+  extensions = { "json" },
+  command = { "jq", "-C", ".", "{path}" },
+}
+```
+
+A previewer is **declarative**: a match (`extensions`, and/or exact `names`) and a
+command, where `{path}` is replaced by the selected file's path. It never runs Lua on the
+preview path. Trail runs the command on the worker pool, captures stdout, strips ANSI
+colour, bounds it by `[preview] max_lines`, and delivers it through the generation guard
+like every other preview — so a slow command shows `Loading…` and a stale result is
+dropped, and invariant 1 and invariant 2 both hold by construction. A command that fails
+or times out (`timeout_ms`, default 5 000) shows its error in the pane instead.
+
+Plugin previewers are consulted before the built-in ones, in load order.
+
+The earlier draft deferred Lua previewers because a provider must answer synchronously
+or defer to a worker, and Lua can do neither safely. A declarative previewer sidesteps
+the question: Lua runs once, at load time, to *describe* the previewer, and Rust runs it.
+
+### 4.7 Jobs — `trail.spawn{...}` **(new)**
+
+```lua
+trail.spawn{
+  cmd = { "git", "log", "-1", "--format=%s", "--", path },
+  cwd = trail.cwd().path,        -- optional
+  on_exit = function(result)     -- { ok, code, stdout, stderr }
+    trail.set_status(result.stdout)
+  end,
+}
+```
+
+Runs a command on the worker pool and calls `on_exit` back on the UI thread, with the
+read and write surface available, when it finishes. This is the non-blocking way to do
+anything slow, and the answer to "may hooks leave the UI thread?" (§6.2): the hook
+doesn't — the *work* does. `trail.spawn` returns a job id. A result for a selection the
+user has already left is the plugin's to check (`trail.selection()` is right there),
+and the shipped examples show how.
+
+### 4.8 Utilities
+
+`trail.log(msg)` (now at `info`, attributed), `trail.version()`.
 
 ---
 
-## 5. Reporting, and the return value
+## 5. What a plugin may *not* change, and why
 
-`fire_action` currently returns `bool` meaning *"was an action of this name
-registered"*, and throws the Lua return value away. A plugin action that fails
-has nowhere to say so: `tracing::debug!` is off by default.
+Unchanged from the first draft, and enforced by construction — there is no API that
+reaches these:
 
-- **`trail.notify(msg)` and `trail.error(msg)`** write through `AppState::notify`
-  and `set_error`, the channel built for exactly this in `upcoming_features.md`
-  §2.1 — which means a plugin message also reaches the log, in the same format
-  as everything else.
-- **A handler's return value becomes the outcome.** Returning nothing or `true`
-  is success; returning `false` or `false, "reason"` is a failure the status bar
-  reports as `plugin <name>: reason`. A Lua runtime error is caught and reported
-  the same way, rather than being swallowed.
-
-These two are worth building first and shipping alone, because they turn the
-existing API from unusable into merely narrow.
+| State | Why not |
+|---|---|
+| `entries` directly | A projection of the filesystem. Change the filesystem and `refresh()`. |
+| `preview.*` | Owned by the generation guard (invariant 2). Previewers go through the guard. |
+| `git` | Worker-owned; a write would be overwritten unpredictably. |
+| `pending_delete` | A plugin that could raise the delete prompt could get `y` to confirm a delete the user never asked for. |
+| `mode` | A hook that moved the user into Search or Command Mode would change where their next keystroke lands. |
+| `pending_*`, `command_history`, `tab_state` | Input-layer mechanics; reaching them is injecting keystrokes. |
+| `plugin_engine` | Re-entrancy. |
 
 ---
 
-## 6. Two things that need a decision
+## 6. The two decisions
 
-### 6.1 May a plugin touch the filesystem?
+### 6.1 May a plugin touch the filesystem? — **Yes, and it always could.**
 
-Everything in §4 is navigation and display. `trail.move`, `trail.copy`,
-`trail.delete`, `trail.mkdir` are a different class: the blast radius is the
-user's disk, and a buggy loop in a Lua file the user copied off the internet is
-not recoverable by pressing `Esc`.
+The first draft proposed an `allow_fs` gate. It would have been theatre: plugins run in
+a full Lua with `io` and `os`, so `os.remove` and `io.open(path, "w")` already exist.
+Trail loads only plugins the user names in `[plugins] enabled`, from their own config
+directory — the same trust model as vim, Neovim and every shell's rc file. A gate on
+Trail's own helpers would restrict the polite path and leave the direct one open.
 
-If they are added, then:
+So: **plugins are trusted code**, and the documentation says so on its first page. What
+Trail adds is the *integrated* path — `trail.command("mkdir build")`, `trail.command("mv
+...")` — which goes through `fs_ops`, reports through the notice channel, and refreshes
+the listing. There is deliberately no `trail.delete`: deleting through Trail means the
+confirmation prompt, and a plugin must not be able to raise it (§5).
 
-- they must route through `actions::fs_ops`, so `[general] delete_mode` applies
-  and a plugin delete goes to the recycle bin like `dd` does;
-- `[plugins] allow_fs = false` should gate them, defaulting off, so enabling a
-  plugin and granting it write access are two decisions rather than one;
-- they belong behind the same confirmation the user gets, or the user finds out
-  what happened afterwards.
+### 6.2 May hooks leave the UI thread? — **No. Work may.**
 
-**Recommendation: not in the first version.** `trail.run(cmd)` reaches the same
-capability through a shell the user can see, with `shell_pause` already holding
-the screen, and it is honest about what it is.
+Of the three options — document a budget, a watchdog, move hooks to the worker pool —
+this takes the second and adds the escape hatch the third was reaching for:
 
-### 6.2 May hooks leave the UI thread?
-
-Today they cannot. `fire_on_select` is called synchronously from the event loop,
-so a hook that sleeps, reads a large file or makes a network call freezes the
-frame. That is invariant 1 — "the UI thread never blocks" — and every other
-variable-latency thing in Trail was moved off it for exactly this reason.
-
-Three options:
-
-1. **Leave it, and document a budget.** Hooks are for decisions, not work; a
-   plugin that needs to do work calls `trail.run`. Cheapest, and honest, but
-   nothing enforces it and the failure mode is a frozen file manager.
-2. **A watchdog.** Run the hook with a Lua instruction-count hook that aborts
-   past a threshold and reports it as a plugin error. Bounded damage, no
-   threading change, and it makes the budget real instead of documented. This is
-   the recommendation.
-3. **Move hooks to the worker pool.** Correct, and the largest change: `mlua`'s
-   `Lua` needs the `send` feature, plugin state stops being shareable with
-   anything non-`Send`, and hook *ordering* stops being guaranteed — which
-   changes what the API can promise and is what would make this MAJOR rather
-   than MINOR.
-
-Note that option 3 conflicts with §4: a hook running off the UI thread cannot
-read `&AppState` at all, so the read surface would have to become an owned
-snapshot taken before dispatch. That is a bigger design than it looks, and it is
-why this question has to be answered *before* the read surface is built, not
-after.
-
-**`mode`, from §4, belongs to this decision too.** Letting a plugin push the user
-into Search or Command mode means a hook can change where the next keystroke
-goes — which is fine from a `:plugin` invocation the user typed, and hostile
-from an `on_select` hook that fires as they arrow through a directory. If it is
-allowed at all, it should be allowed only from a registered action.
+- **Hooks stay on the UI thread, under the budget** (§3.3). They keep their ordering
+  guarantee and their read access to `&AppState`, which moving them off-thread would
+  have cost (it would have needed an owned snapshot per call and `mlua`'s `send`
+  feature, and turned this into a MAJOR release).
+- **Slow work moves off-thread through `trail.spawn`** and declarative previewers, both
+  of which run on the existing worker pool and come back over the existing channel.
 
 ---
 
-## 7. Details that will bite
+## 7. Details that bite, and what was done
 
-- **`is_text` is `nil` most of the time.** It is populated by the highlight
-  worker, so it is unknown until something previews the file. A plugin that
-  branches on it will behave differently on the second visit to a directory than
-  the first. Either document it plainly or leave it out of v2.
-- **Paths must go out through `pathfmt::display`.** A raw `cwd` on Windows can
-  carry `\\?\`, and a plugin that pastes it into a shell command produces
-  something the shell rejects. This is `pathfmt`'s whole reason for existing.
-- **Hook order is load order** (`on_select_keys` is a `Vec`), which is the
-  `[plugins] enabled` order. That is a promise worth stating, because plugins
-  will come to depend on it.
-- **A queued action can be stale.** If `on_select` queues `trail.select(path)`
-  and the user has already moved on, the action applies to a listing that
-  changed. `restore_selection` handles a missing path by falling back, so the
-  failure is benign — but it should be a documented promise, not luck.
-- **Queue ordering and re-entrancy.** Actions drain in the order they were
-  queued; an action that itself fires a hook (`Navigate` → `on_enter_dir`) must
-  append to the queue rather than recurse, or a plugin that navigates on
-  `on_enter_dir` loops forever. A depth counter, or draining only what was
-  queued before the drain started.
+- **Hook arguments.** Hooks keep the path string as the first argument; the entry table
+  is the second. Changing the first would have broken every `"x: " .. path` in the wild.
+- **Stale queued actions.** `select(path)` on a listing that changed falls back through
+  `restore_selection`, so it is benign. Documented.
+- **Re-entrancy.** Four drain rounds per input event, then an error (§3.2).
+- **Load errors.** Collected at startup and shown in the status bar, not just logged.
+- **Key conflicts.** Reported at startup (§4.5).
+- **`is_text` is usually `nil`.** Documented in the entry-table reference.
 
 ---
 
-## 8. Phasing
+## 8. What this does not do
 
-Each step is independently shippable and MINOR.
+- **Mode changes and search filters.** §5.
+- **Persistent plugin storage.** A plugin can write its own file with `io`; a Trail-owned
+  store is a product decision (where it lives, when it is written) for when two plugins
+  need one.
+- **Plugin actions in `[keymap]`.** `trail.bind` covers it from the plugin side. Letting
+  the user rebind a plugin's action from `trail.toml` means teaching the keymap validator
+  about names that only exist after plugins load.
+- **A plugin manager.** `[plugins] enabled` and a `.lua` file remain the whole story.
+- **Other scripting languages.** Lua only; WASM stays deferred in the Decision Log.
 
-| Step | Contents | Why here |
-|---|---|---|
-| 1 | `trail.notify`, `trail.error`, handler return values, Lua errors surfaced | Makes the *existing* API usable. No new architecture. |
-| 2 | Structured `trail.selection()`, `trail.cwd()`, `trail.config()`, `trail.version()`; hooks receive the table | Pure reads, no queue needed, no decision blocked. |
-| 3 | The action queue plus the five new `Action` variants; §4's write surface | The real change. Needs 6.2 answered first. |
-| 4 | `trail.entries()`, `trail.tabs()`, the watchdog | Rounding out, once the shape is proven. |
-| 5 | Filesystem access behind `[plugins] allow_fs` | Only if 6.1 is answered yes. |
+---
 
-Steps 1 and 2 need no decision and could start now.
+## 9. Version impact
 
-## 9. Things this plan does not cover
-
-- **Preview providers from Lua.** The architecture doc lists it under
-  extensibility, and it is a different shape: a provider must answer
-  `can_handle`/`preview` synchronously on the UI thread, or return `Deferred`
-  and run in a worker — which lands straight back in 6.2, harder.
-- **Keybindings from Lua.** `register_action` plus a `[keymap]` entry pointing
-  at it would cover most of the want, and needs the keymap to accept plugin
-  action names — a small change, but it belongs with the keymap fix in
-  `upcoming_features.md` §2.15 rather than here.
-- **A plugin manager.** Installing, versioning and updating plugins is a
-  separate product question; today `[plugins] enabled` plus a `.lua` file in the
-  config directory is the whole story, and it is adequate until there are
-  plugins to manage.
+MINOR throughout. Every function is new, hook signatures only gain arguments, and the one
+new config key (`[plugins] budget_ms`) defaults to a value no existing plugin plausibly
+exceeds. The behaviour change worth a line in the notes: plugin errors that used to be
+silent now reach the status bar.
