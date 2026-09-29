@@ -74,8 +74,11 @@ src/
   actions/         mod.rs (dispatch), fs_ops, shell_exec, clipboard
   config/          schema.rs (serde structs), mod.rs (overrides + merge), default.toml,
                    last_used.rs
-  plugin/          mod.rs, lua_api.rs, bookmarks.rs
+  plugin/          mod.rs (loading), lua_api.rs (engine + budget), api.rs (the `trail`
+                   table), read.rs, request.rs, host.rs (applies requests), previewer.rs,
+                   bookmarks.rs
 tests/             state_, preview_, command_parser_, render_snapshot_, test_gg_sequence
+examples/plugins/  example Lua plugins; `tests/plugin_api_tests.rs` loads every one
 pkg/               homebrew/ aur/ scoop/ packaging manifests
 shell/             trail.bash|zsh|fish|ps1 — cd-on-exit wrappers, shipped in every archive
 ```

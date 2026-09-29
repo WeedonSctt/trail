@@ -2,7 +2,7 @@
 //!
 //! Plugins are Lua files named in `[plugins] enabled`. They can react to
 //! events, read the session, request changes, bind keys, run background jobs
-//! and register previewers — see `docs/plugins.md` for the reference and
+//! and register previewers — see `docs/plugin_guide.md` for the reference and
 //! `docs/plugin_api_plan.md` for the design. The modules split along the
 //! mechanism:
 //!

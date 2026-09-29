@@ -1,294 +1,253 @@
 # Trail Plugin Guide
 
-Trail includes a lightweight, event-driven Lua scripting engine (v1) powered by `mlua` and Lua 5.4. This allows you to extend Trail's functionality, register custom Command Mode actions, and automate workflows in response to user navigation without compiling or modifying Trail's Rust source code.
-
-This guide covers:
-1. **Where Trail loads plugins from**
-2. **How to enable a plugin**
-3. **What a plugin can do**
-4. **How to use a plugin**
-5. **A complete end-to-end example (`activity_logger`) followed step-by-step**
-
----
-
-## 1. Where Trail Loads Plugins From
-
-When Trail initializes during application startup (Phase 8 of startup in `main.rs`), it resolves each entry in the configured `enabled` plugin list using a strict lookup order:
-
-```
-[plugins.enabled list in trail.toml]
-                 │
-                 ▼
-     ┌───────────────────────┐
-     │ Is it "bookmarks"?    │──Yes──► Load embedded Lua source code
-     └───────────────────────┘         (compiled into binary via include_str!)
-                 │
-                 │ No
-                 ▼
-     ┌────────────────────────────────────────────────────────┐
-     │ Look in OS-specific user configuration directory:      │
-     │ - Linux/macOS: ~/.config/trail/<name>.lua              │
-     │ - Windows:     %APPDATA%\trail\config\<name>.lua       │
-     └────────────────────────────────────────────────────────┘
-                 │
-                 │ Fallback (if OS config dir is unavailable)
-                 ▼
-     ┌────────────────────────────────────────────────────────┐
-     │ Look relative to current working directory:            │
-     │ - ./<name>.lua                                         │
-     └────────────────────────────────────────────────────────┘
-```
-
-### OS-Specific Load Directories
-To load a custom plugin named `my_plugin`, Trail searches for a file named `my_plugin.lua` inside the OS config folder:
-- **Windows**: `%APPDATA%\trail\config\my_plugin.lua`  
-  *(e.g., `C:\Users\<Username>\AppData\Roaming\trail\config\my_plugin.lua`)*
-- **Linux**: `~/.config/trail/my_plugin.lua` *(or `$XDG_CONFIG_HOME/trail/my_plugin.lua`)*
-- **macOS**: `~/Library/Application Support/trail/my_plugin.lua` *(or `~/.config/trail/my_plugin.lua` depending on system standard directories)*
-- **Relative Fallback**: `./my_plugin.lua` *(relative to the working directory where Trail was launched)*
-
-> [!NOTE]
-> The filename extension must be strictly `.lua`. In `trail.toml`, you only specify the plugin basename (e.g., `"my_plugin"` without `.lua`).
-
-### Built-in Embedded Plugins
-Trail also supports built-in plugins compiled directly into the binary. Currently, Trail includes the `"bookmarks"` plugin as an embedded plugin string. When `"bookmarks"` is listed in `enabled`, Trail loads it directly from binary memory without reading any external file from disk.
-
-### Loading & Fault Tolerance
-Plugin scripts are evaluated top-to-bottom exactly once during Trail startup. If a plugin file is missing, cannot be read, or contains Lua syntax/compile errors:
-- Trail catches the error, logs a debug diagnostic trace (`tracing::debug!`), and skips that single plugin.
-- Trail **will not crash** and will continue loading any remaining enabled plugins normally.
-
----
-
-## 2. How to Enable a Plugin
-
-Plugins are enabled by adding their name (the file basename without `.lua`) to the `[plugins]` section in your `trail.toml` configuration file.
-
-### Step 1: Edit `trail.toml`
-Add the `[plugins]` block with the `enabled` array containing string names:
-
-```toml
-# trail.toml
-
-[general]
-editor = "nvim"
-
-[plugins]
-# Enable built-in plugins or custom Lua scripts placed in the config folder
-enabled = [
-    "bookmarks",        # Built-in embedded bookmarks plugin
-    "activity_logger"   # Loads activity_logger.lua from config dir
-]
-```
-
-### Step 2: Launch Trail with `--config`
-Because Trail requires an explicit configuration path flag to apply settings from disk, launch Trail using the `--config` option:
-
-```bash
-trail --config /path/to/trail.toml
-```
-
-When Trail boots up, it reads `[plugins].enabled` from the TOML file and initializes each specified plugin.
-
----
-
-## 3. What a Plugin Can Do
-
-Plugins run inside an embedded Lua 5.4 interpreter state (`mlua`) shared across all plugins. Trail exposes a global table named `trail` to all plugin scripts during evaluation.
-
-### Available Lua API (`trail` Table)
-
-| Function | Signature | Description |
-| :--- | :--- | :--- |
-| `trail.log` | `trail.log(message: string)` | Writes an info log message to Trail's internal logging framework (`tracing::info!`). |
-| `trail.on_select` | `trail.on_select(fn: function(path: string))` | Registers a callback that fires whenever the user highlights a new file or directory entry in the navigation tree. |
-| `trail.on_enter_dir` | `trail.on_enter_dir(fn: function(dir: string))` | Registers a callback that fires whenever the user enters a new directory. |
-| `trail.register_action` | `trail.register_action(name: string, fn: function(arg: string))` | Registers a custom Command Mode action. Users invoke it via `:plugin <name> [arg]`. |
-
-### Plugin Capabilities & Use Cases
-Plugins can:
-- **Track Navigation State**: React automatically to directory changes and cursor movement.
-- **Extend Command Mode**: Add custom interactive commands (`:plugin <action_name> [arg]`) for user-triggered workflows.
-- **Perform Custom File/System Operations**: Standard Lua 5.4 functions (e.g., `io.open`, `os.date`, string manipulation, math) are available to write logs, process paths, or store custom state.
-- **Provide Auto-Completion**: Actions registered via `trail.register_action` automatically register their names in Command Mode tab-completion.
-
-### Fault Isolation & Safety
-Trail guarantees application stability when running third-party Lua code:
-- **Sandbox Safety**: Callbacks are executed within Rust error-handling wrappers (`fire_on_select`, `fire_on_enter_dir`, `fire_action`).
-- **No Crash Guarantee**: If a callback throws a Lua runtime error (or calls `error()`), Trail catches the exception, logs the error details, and continues running the TUI seamlessly.
-
----
-
-## 4. How to Use a Plugin
-
-Plugins operate in two distinct modes once loaded:
-
-### A. Automatic / Background Event Hooks
-Hooks registered using `trail.on_select` and `trail.on_enter_dir` run **automatically** in the background:
-- **Selection Event (`on_select`)**: Fires instantly whenever the user presses `j`, `k`, `Up`, `Down`, or uses jump keys to change the highlighted row. The callback receives the absolute path of the selected item.
-- **Directory Change Event (`on_enter_dir`)**: Fires whenever the user presses `Enter` or `l` to navigate inside a directory. The callback receives the absolute path of the entered directory.
-
-### B. Interactive Command Mode Actions (`:plugin`)
-Actions registered using `trail.register_action` are invoked manually by the user in **Command Mode**:
-1. Press `:` to enter Command Mode.
-2. Type `:plugin <action_name> [argument]` and press `Enter`.
-
-#### Command Mode Features for Plugins:
-- **Tab Completion**: When you type `:plugin ` and press `Tab`, Trail automatically suggests all action names registered by loaded plugins.
-- **Arguments**: Any text typed after `:plugin <action_name> ` is passed as a single string argument `arg` to your Lua callback function (or an empty string `""` if no argument was provided).
-
----
-
-## 5. End-to-End Example: Building & Using `activity_logger`
-
-Let's build a complete custom plugin named `activity_logger` and follow it through creation, installation, configuration, and execution.
-
-### Objective
-We want a plugin that:
-1. Logs file selections and directory entries to a local log file `activity.log`.
-2. Registers a custom command `:plugin log_note [text]` allowing the user to append custom notes to `activity.log` directly from Trail's Command Mode.
-
----
-
-### Step 1: Write the Lua Script (`activity_logger.lua`)
-
-Create a file named `activity_logger.lua` with the following code:
+A Trail plugin is a Lua file. It can react to what you do, read what Trail is showing,
+change it, bind keys, run commands in the background and add previewers.
 
 ```lua
--- activity_logger.lua
--- A Trail plugin that records navigation activity and custom notes to a log file.
-
-trail.log("Initializing activity_logger plugin...")
-
--- Helper function to append text to activity.log in the user's home/temp folder
-local function append_log(line)
-    local log_path = "activity.log"
-    local f = io.open(log_path, "a")
-    if f then
-        local timestamp = os.date("%Y-%m-%d %H:%M:%S")
-        f:write("[" .. timestamp .. "] " .. line .. "\n")
-        f:close()
-    end
-end
-
--- 1. Hook into directory entrance events
-trail.on_enter_dir(function(dir)
-    trail.log("activity_logger: Entered directory -> " .. dir)
-    append_log("ENTERED DIR: " .. dir)
+-- hello.lua, in the config directory (§1)
+trail.register_action("hello", function()
+    local s = trail.selection()
+    return "hello from " .. (s and s.name or "nowhere")
 end)
-
--- 2. Hook into item selection events
-trail.on_select(function(path)
-    trail.log("activity_logger: Selected item -> " .. path)
-    append_log("SELECTED: " .. path)
-end)
-
--- 3. Register custom action: :plugin log_note <text>
-trail.register_action("log_note", function(arg)
-    if arg == "" then
-        trail.log("activity_logger: Note creation skipped (empty argument)")
-        append_log("NOTE: [Empty note]")
-    else
-        trail.log("activity_logger: Custom note recorded -> " .. arg)
-        append_log("NOTE: " .. arg)
-    end
-end)
-
-trail.log("activity_logger plugin successfully loaded.")
+trail.bind("gh", "hello")
 ```
-
----
-
-### Step 2: Install the Plugin File
-
-Move `activity_logger.lua` into your platform's Trail configuration directory:
-
-- **Windows**: Copy to `%APPDATA%\trail\config\activity_logger.lua`  
-  *(e.g., `C:\Users\Alice\AppData\Roaming\trail\config\activity_logger.lua`)*
-- **Linux**: Copy to `~/.config/trail/activity_logger.lua`
-- **macOS**: Copy to `~/Library/Application Support/trail/activity_logger.lua`
-
----
-
-### Step 3: Enable `activity_logger` in `trail.toml`
-
-Open your `trail.toml` configuration file and add `"activity_logger"` to `[plugins].enabled`:
 
 ```toml
 # trail.toml
-
-[general]
-editor = "nvim"
-
 [plugins]
-enabled = [
-    "bookmarks",
-    "activity_logger"
-]
+enabled = ["hello"]
 ```
+
+Press `gh` and the status bar says `hello from README.md`.
 
 ---
 
-### Step 4: Launch Trail and Use the Plugin
+## 1. Loading
 
-Launch Trail with your configuration file:
+`[plugins] enabled` lists plugin names, in order. Each is looked for as a built-in
+plugin (only `"bookmarks"` today), then as `<name>.lua` in Trail's config directory:
 
-```bash
-trail --config trail.toml
-```
+| Platform | Directory |
+|---|---|
+| Windows | `%APPDATA%\trail\config\` |
+| Linux | `~/.config/trail/` (or `$XDG_CONFIG_HOME/trail/`) |
+| macOS | `~/Library/Application Support/trail/` |
 
-#### What Happens at Startup:
-1. Trail initializes the embedded Lua 5.4 engine.
-2. Trail loads `"bookmarks"` (built-in).
-3. Trail locates `activity_logger.lua` in your config directory and executes it.
-4. `activity_logger.lua` calls `trail.on_enter_dir`, `trail.on_select`, and `trail.register_action("log_note", ...)` to register callbacks.
+If the platform names no home directory, `<name>.lua` is looked for in the directory
+Trail was started from. Plugins load in the order listed, and their hooks run in that
+order.
 
-#### Interacting with the Plugin at Runtime:
+A plugin that fails to load is named in the status bar at startup, with the error. It
+keeps nothing it registered before failing: a broken plugin is absent, not half there.
 
-1. **Automatic Logging via Navigation**:
-   - Move the selection cursor down with `j` or `Down`:  
-     `trail.on_select` fires automatically for each selected file.
-   - Enter a subfolder by pressing `Enter` or `l`:  
-     `trail.on_enter_dir` fires automatically for the new folder path.
+### Plugins are trusted code
 
-2. **Using the Interactive Command Mode Action**:
-   - Press `:` to open Command Mode.
-   - Type `:plugin log_` and press `Tab`:  
-     Trail's autocompletion fills in `:plugin log_note `.
-   - Type `Finished reviewing project documentation` and press `Enter`:
-     ```text
-     :plugin log_note Finished reviewing project documentation
-     ```
-   - Trail executes the registered `log_note` callback in Lua, writing `[2026-08-01 12:00:00] NOTE: Finished reviewing project documentation` into `activity.log`.
+Trail does not sandbox plugins. Lua's `io` and `os` libraries are available, so a
+plugin can read and write any file you can. Enable only plugins you have read or whose
+author you trust, as you would for a vim plugin or a line in your shell's rc file.
 
----
+### The budget
 
-### Step 5: Check Log Output
+Plugin code runs on the same thread that draws the screen, so a slow hook would freeze
+Trail. Every call into a plugin is therefore given `[plugins] budget_ms` (default 50 ms)
+and stopped with an error if it runs longer. Loading a plugin gets ten times that.
 
-If you open `activity.log`, you will see entries generated by both automatic hooks and manual commands:
-
-```text
-[2026-08-01 12:00:01] ENTERED DIR: /home/alice/projects/trail
-[2026-08-01 12:00:03] SELECTED: /home/alice/projects/trail/Cargo.toml
-[2026-08-01 12:00:05] SELECTED: /home/alice/projects/trail/docs
-[2026-08-01 12:00:06] ENTERED DIR: /home/alice/projects/trail/docs
-[2026-08-01 12:00:10] NOTE: Finished reviewing project documentation
-```
+The budget can stop a Lua loop, but not a single blocking call — `os.execute("sleep
+5")` or `io.popen(...)` blocks until it returns. **Use `trail.spawn` for anything that
+waits on a process or the disk**: it runs off the UI thread and is not budgeted.
 
 ---
 
-## 6. Built-in Example: The `bookmarks` Plugin
+## 2. Events
 
-Trail includes an embedded `"bookmarks"` plugin. To use it, simply include `"bookmarks"` in `[plugins].enabled`:
-
-```toml
-[plugins]
-enabled = ["bookmarks"]
+```lua
+trail.on_select(function(path, entry) ... end)     -- the selection changed
+trail.on_enter_dir(function(path, dir) ... end)    -- the current directory changed
+trail.on_fs_change(function(path) ... end)         -- files changed in the current directory
+trail.on("select", fn)                             -- the same, by name
 ```
 
-### Registered Actions:
-- `:plugin bookmark [name]` — Saves the current directory as a named bookmark.
-- `:plugin jump <name>` — Navigates directly to a previously saved bookmark.
+- `on_select` gets the selected path as a string and its [entry table](#entry-tables).
+- `on_enter_dir` fires once for every change of directory, however it happened — `l`,
+  `h`, `u`, `:jump`, a tab switch, a plugin's `navigate` — and once for the directory
+  Trail starts in. `dir` is the [`trail.cwd()`](#reads) table.
+- `on_fs_change` fires after Trail re-reads the listing because something on disk
+  changed.
 
-The `bookmarks` plugin demonstrates how Lua plugins interact with Trail: it registers `bookmark` and `jump` actions via `trail.register_action` and hooks into `on_enter_dir` to track directory state.
+An error in a hook is shown in the status bar as `plugin <name>: <event>: <error>`.
 
+---
+
+## 3. Actions
+
+```lua
+trail.register_action("name", function(arg) ... end)
+```
+
+Runs on `:plugin name [arg]`, or from a key bound with `trail.bind`. What it returns is
+the outcome:
+
+| Return | Status bar |
+|---|---|
+| nothing, `nil`, `true` | nothing |
+| `"text"` | `text` |
+| `false` / `false, "why"` | `plugin name: why` (error) |
+| an error | `plugin name: <error>` (error) |
+
+`:plugin ` followed by Tab completes action names.
+
+---
+
+## 4. Keys
+
+```lua
+trail.bind("gv", "open_in_editor")          -- a two-key sequence
+trail.bind("ctrl-g", "git_log", "--oneline") -- a named key, with an argument for the action
+```
+
+Keys use the `[keymap]` spelling: one or two characters, or a key name (`enter`,
+`ctrl-x`, `shift-end`, …). Navigation Mode only.
+
+**A plugin can claim keys Trail does not use; it cannot take one over.** Trail's own
+keymap is consulted first, so `trail.bind("j", …)` never fires. A two-key binding joins
+Trail's prefixes: `gv` works alongside `gg`. A binding that can never fire — because
+Trail uses the key, or because the action does not exist — is reported at startup.
+
+Free in the default keymap: `a`, `b`, `c`, `e`, `f`, `i`, `n`, `p`, `r`, `t`, `v`, `w`,
+`x`, `z`, every capital except `G`, `J`, `K` and `R`, and any `g` sequence other than `gg`.
+(The built-in `bookmarks` plugin takes `b`; the examples take `gs`, `gv`, `gV` and `g-`.)
+
+### Plugins written for Trail before 1.10
+
+Keep working unchanged. Hooks still receive the path string first — the entry table is a
+new second argument — and an action that returns nothing still succeeds silently. What
+changes is that their errors, which used to go only to a debug log, now appear in the
+status bar.
+
+---
+
+## 5. Reads
+
+Available inside a hook, an action or a job callback — not at the top level of the
+file, where there is nothing to read yet.
+
+| Call | Returns |
+|---|---|
+| `trail.selection()` | the selected [entry](#entry-tables), or `nil` in an empty directory |
+| `trail.entries()` | every entry on screen, in display order — hidden files only while shown, only the matches during a search |
+| `trail.cwd()` | `{ path, entry_count, show_hidden, sort = { by, reverse, dirs_first }, git_branch, git_dirty }` — the `git_` fields are `nil` outside a repository |
+| `trail.config(key)` | any key `:set` accepts, as `"editor"` or `"general.editor"`; `nil` if there is no such key |
+| `trail.tabs()` | `{ count, active }`, 1-based |
+| `trail.mode()` | `"navigation"`, `"search"` or `"command"` |
+| `trail.version()` | Trail's version, e.g. `"1.10.0"` — available everywhere |
+
+### Entry tables
+
+| Field | |
+|---|---|
+| `path` | absolute path |
+| `name` | file name |
+| `kind` | `"file"`, `"dir"` or `"symlink"` |
+| `hidden` | boolean |
+| `size` | bytes; `nil` for a directory, whose size on disk says nothing about its contents |
+| `modified` | Unix seconds, for `os.date` |
+| `git` | `"modified"`, `"added"`, `"deleted"`, `"renamed"`, `"untracked"`, or `nil` for clean or not yet known |
+| `is_text` | `true`/`false` once Trail has previewed the file, `nil` before |
+
+---
+
+## 6. Writes
+
+Writes are **requests**: they take effect after your function returns, in the order you
+made them. Reading after writing in the same call sees the old state.
+
+| Call | Does |
+|---|---|
+| `trail.navigate(path)` | go to a directory; relative paths resolve against the current one |
+| `trail.select(name_or_path)` | select an entry in the current listing |
+| `trail.move(n)` | move the selection `n` rows; negative is up |
+| `trail.go_parent()`, `trail.back()`, `trail.forward()` | as `h`, `u`, `Ctrl-r` |
+| `trail.refresh()` | re-read the listing |
+| `trail.set_sort{ by = "size", reverse = true, dirs_first = false }` | the current tab's order; leave out what should not change |
+| `trail.set_hidden(true)` | show or hide hidden files |
+| `trail.yank(text)` | copy to the clipboard |
+| `trail.set_config(key, value)` | as `:set key value`, for this session |
+| `trail.command("mkdir build")` | run a Trail command, as if typed after `:` |
+| `trail.open_tab(path)`, `trail.close_tab()` | as `Ctrl-t`, `Ctrl-w`; `path` is optional |
+| `trail.run(cmd, { pause = "never" })` | leave the screen and run a command in the terminal, as `!` does |
+| `trail.notify(text)`, `trail.error(text)` | a message in the status bar |
+| `trail.set_status(text)` | a lasting segment in the middle of the status bar; `nil` clears it |
+| `trail.log(text)` | a line in Trail's log file |
+
+A command (`cmd` in `run` and `spawn`) is either a **string**, run through
+`[general] shell` like `!`, or a **table** `{ "program", "arg", … }`, run directly —
+safer whenever an argument is a path that may contain spaces.
+
+`trail.command` is how a plugin changes files through Trail: `mkdir`, `touch`,
+`rename`, `mv`, `cp` behave exactly as typed, report the same way, and refresh the
+listing. There is no `trail.delete` — deleting through Trail means its confirmation
+prompt, and a plugin cannot raise that on your behalf.
+
+A plugin cannot change the mode, the search query or the preview contents, and cannot
+press keys for you.
+
+If hooks keep triggering each other — `on_enter_dir` navigating, which fires
+`on_enter_dir` — Trail stops after four rounds and says so.
+
+---
+
+## 7. Background jobs
+
+```lua
+local id = trail.spawn{
+    cmd = { "git", "log", "-1", "--format=%s" },
+    cwd = trail.cwd().path,          -- optional; the current directory by default
+    on_exit = function(result)       -- optional
+        -- result = { ok, code, stdout, stderr, id }
+        trail.set_status(result.stdout)
+    end,
+}
+```
+
+The command runs off the UI thread; `on_exit` runs back on it when the command finishes,
+with the reads and writes available. By then the user may have moved on — if the result
+is about the selection, check the selection is still the one you asked about. See
+`examples/plugins/git_line.lua`.
+
+---
+
+## 8. Previewers
+
+```lua
+trail.register_previewer{
+    name = "jq",                          -- optional; shown in errors
+    extensions = { "json" },              -- and/or
+    names = { "Pipfile.lock" },           -- exact file names, case-insensitive
+    command = { "jq", ".", "{path}" },    -- {path} is the selected file
+    timeout_ms = 3000,                    -- optional; default 5000
+}
+```
+
+A previewer is a *description*: Trail runs the command itself, off the UI thread, and
+shows its output in the preview pane, numbered like any text file. `Loading…` shows
+while it runs; if you move on first, its result is thrown away. Colour escape codes are
+stripped. If the command fails or times out, the pane says why.
+
+Plugin previewers take precedence over Trail's own, in load order.
+
+---
+
+## 9. Examples
+
+In [`examples/plugins/`](../examples/plugins). Copy one into your config directory and
+add its name to `[plugins] enabled`.
+
+| Plugin | Shows |
+|---|---|
+| `dir_summary.lua` | `gs` counts files and adds up sizes — an action that returns its message |
+| `git_line.lua` | the last commit for the selected file in the status bar — `spawn` with a stale-result check |
+| `open_in_editor.lua` | `gv` / `gV` open the selection or directory in VS Code — binding keys, background launch |
+| `json_preview.lua` | pretty-printed JSON — a previewer |
+| `jump_back.lua` | `g-` toggles between the last two directories — plugin state across events |
+
+The built-in `bookmarks` plugin binds `b` to bookmark the current directory.

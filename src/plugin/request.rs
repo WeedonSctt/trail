@@ -2,7 +2,7 @@
 //!
 //! A plugin never mutates `AppState`: the engine lives inside it, so a hook
 //! runs while the state is borrowed. Instead every write function in the Lua
-//! API pushes a [`PluginRequest`], and [`crate::plugin::host::drain`] applies
+//! API pushes a [`PluginRequest`], and [`crate::plugin::host::settle`] applies
 //! the queue once the hook has returned and the borrow has ended. See
 //! `docs/plugin_api_plan.md` §3.2.
 

@@ -2,10 +2,10 @@
 //!
 //! Every function here is `'static` — it closes over nothing but the Lua state
 //! and talks to the engine through Lua app data: registrations land in
-//! [`Registry`], write requests in [`Queue`], job callbacks in [`Jobs`]. The
+//! `Registry`, write requests in `Queue`, job callbacks in `Jobs`. The
 //! read functions (`trail.selection` and friends) need `&AppState` and are
 //! installed per call by the engine instead; outside a call they are the stubs
-//! [`install_read_stubs`] puts back. See `docs/plugin_api_plan.md` §3 and §4.
+//! `install_read_stubs` puts back. See `docs/plugin_api_plan.md` §3 and §4.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

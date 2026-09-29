@@ -29,7 +29,42 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A plugin API that can do things.** Plugins could only watch and log; they can
+  now read the selection, the listing and the config (`trail.selection()`,
+  `trail.entries()`, `trail.cwd()`, `trail.config()`), navigate, select, sort and
+  run Trail commands (`trail.navigate`, `trail.select`, `trail.command`, …), put
+  messages and a standing segment in the status bar (`trail.notify`,
+  `trail.set_status`), and run commands in the terminal (`trail.run`). The full
+  reference is `docs/plugin_guide.md`.
+- `trail.bind(keys, action)` gives a plugin action a key. A plugin can claim keys
+  Trail does not use but cannot take one over; a binding that can never fire is
+  reported at startup.
+- `trail.spawn{ cmd, on_exit }` runs a command in the background and calls back
+  with its output, so a plugin can do slow work without freezing Trail.
+- `trail.register_previewer{ extensions, command }` previews matching files with
+  a command's output — `jq` for JSON, for example. It runs off the UI thread with
+  a timeout, like Trail's own previews.
+- `trail.on_fs_change` fires when files change in the current directory.
+- `[plugins] budget_ms` (default `50`): how long one call into a plugin may run
+  before Trail stops it and says which plugin it was.
+- Five example plugins in `examples/plugins/`.
+
+### Changed
+
+- Plugin errors — a plugin that fails to load, a hook that raises, an action that
+  fails — now appear in the status bar, named after the plugin. They used to go
+  only to a debug-level log line, so a broken plugin looked like one that did
+  nothing.
+- `on_enter_dir` now fires for every change of directory — `h`, `u`, `Ctrl-r`,
+  `:jump`, tab switches — and for the directory Trail starts in. It used to fire
+  only for `l`/`Enter` into a directory.
+- Hooks receive an entry table as a second argument; the first is still the path.
+  Existing plugins keep working.
+- The built-in `bookmarks` plugin's `bookmark_add` and `bookmark_jump` actions now
+  add and jump rather than only logging, and `b` bookmarks the current directory
+  when the plugin is enabled.
 
 ## [1.9.1] - 2026-09-29
 

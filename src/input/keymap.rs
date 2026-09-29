@@ -275,7 +275,7 @@ pub fn shadowed_by(keys: &str, keymap: &KeymapConfig) -> Option<String> {
 /// Whether `binding` names a single key — `tab`, `ctrl-r`, `shift-end` — as
 /// opposed to a sequence of typed characters.
 ///
-/// Matches exactly the spellings [`key_to_config_string`] produces: a bare key
+/// Matches exactly the spellings `key_to_config_string` produces: a bare key
 /// name, or one prefixed with `ctrl-` or `shift-`.
 pub fn is_named_key(binding: &str) -> bool {
     let base = binding

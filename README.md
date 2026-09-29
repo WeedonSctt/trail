@@ -76,8 +76,10 @@ It is not a fuzzy finder and not a file picker. Trail is built around one princi
   cancel with `Ctrl-c` and it stays put.
 - **Strictly validated config** — TOML for theme, keybindings and editor, type-checked at load,
   with the same validation applied to runtime `:set` changes.
-- **Lua plugins** — an embedded Lua 5.4 runtime (`mlua`) with `on_select`, `on_enter_dir` and
-  custom `:plugin` actions. A misbehaving plugin is caught and skipped, never taking down the TUI.
+- **Lua plugins** — an embedded Lua 5.4 runtime (`mlua`). Plugins react to navigation, read
+  the listing, navigate and run commands, bind keys, set a status-bar segment, run background
+  jobs and add command-backed previewers. Each call runs under a time budget, so a slow plugin
+  is stopped instead of freezing the UI, and its errors are shown rather than swallowed.
 
 ### Platform support
 
@@ -415,24 +417,30 @@ Trail embeds a Lua 5.4 runtime. Plugins are loaded from your OS config directory
 name in `trail.toml`.
 
 ```lua
--- ~/.config/trail/activity_logger.lua
-trail.on_enter_dir(function(dir)
-  trail.log("entered " .. dir)
+-- dir_summary.lua: `gs` counts the files on screen and adds up their sizes
+trail.register_action("dir_summary", function()
+  local files, bytes = 0, 0
+  for _, e in ipairs(trail.entries()) do
+    if e.kind == "file" then files, bytes = files + 1, bytes + (e.size or 0) end
+  end
+  return files .. " files, " .. bytes .. " bytes"   -- shown in the status bar
 end)
-
-trail.register_action("note", function(arg)
-  local f = io.open(os.getenv("HOME") .. "/notes.txt", "a")
-  f:write(os.date("%F %T ") .. arg .. "\n")
-  f:close()
-end)
--- invoke with:  :plugin note some text
+trail.bind("gs", "dir_summary")
 ```
 
-The API surface is `trail.log`, `trail.on_select`, `trail.on_enter_dir` and
-`trail.register_action`. Runtime errors in plugin code are caught and logged — they never take
-down the TUI.
+```lua
+-- json_preview.lua: pretty-printed JSON, run off the UI thread
+trail.register_previewer{ extensions = { "json" }, command = { "jq", ".", "{path}" } }
+```
 
-Full guide with a worked end-to-end example: **[docs/plugin_guide.md](docs/plugin_guide.md)**.
+A plugin can read the selection, the listing and the config; navigate, select, sort and run
+Trail commands; claim keys Trail does not use; put standing text in the status bar; run
+commands in the background with a callback; and register previewers. Every call runs under
+`[plugins] budget_ms`, and anything slow goes through `trail.spawn`, off the UI thread. Plugins
+are trusted code — Trail does not sandbox them.
+
+Five working examples are in [`examples/plugins/`](examples/plugins). Full API reference:
+**[docs/plugin_guide.md](docs/plugin_guide.md)**.
 
 ---
 
@@ -443,7 +451,7 @@ Full guide with a worked end-to-end example: **[docs/plugin_guide.md](docs/plugi
 | [User guide](docs/user_guide.md) | Every mode, key and command in detail |
 | [Installation](docs/installation.md) | All install methods, per-platform shell wrapper setup |
 | [Configuration guide](docs/configuration_guide.md) | Full TOML schema, `:set` keys, config resolution |
-| [Plugin guide](docs/plugin_guide.md) | Lua API, plugin load order, worked example |
+| [Plugin guide](docs/plugin_guide.md) | The Lua API: events, reads, writes, keys, jobs, previewers |
 | [Product spec](docs/trail.md) | What Trail is, and the design philosophy behind it |
 | [Architecture](docs/trail_architecture.md) | Tech stack, UI thread / worker pool split, program logic |
 | [Coding standard](docs/coding_standard.md) | Conventions every PR is held to |

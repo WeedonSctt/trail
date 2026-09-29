@@ -6,7 +6,7 @@ settled the core mechanism — plugins *request* `Action`s rather than mutate st
 left two questions open. This version answers both, adds five capabilities the first
 draft did not cover, and is what the `feat/plugin-api` branch implements.
 
-User-facing reference: [`plugins.md`](plugins.md). Triage entry:
+User-facing reference: [`plugin_guide.md`](plugin_guide.md). Triage entry:
 [`upcoming_features.md`](upcoming_features.md) §2.14.
 
 ---

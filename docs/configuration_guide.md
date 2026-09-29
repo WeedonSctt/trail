@@ -315,7 +315,7 @@ Overrides keybindings for Search Mode.
 
 #### `[plugins]`
 Enables specific Lua plugins to load at startup.
-- `enabled` (Array of Strings): Names of the plugins to load, in order — hooks run in this order. A name is looked for as a built-in plugin (`"bookmarks"`), then as `<name>.lua` in Trail's config directory. A plugin that fails to load is named in the status bar at startup. See [`plugins.md`](plugins.md). (e.g., `enabled = ["bookmarks", "git_line"]`).
+- `enabled` (Array of Strings): Names of the plugins to load, in order — hooks run in this order. A name is looked for as a built-in plugin (`"bookmarks"`), then as `<name>.lua` in Trail's config directory. A plugin that fails to load is named in the status bar at startup. See [`plugin_guide.md`](plugin_guide.md). (e.g., `enabled = ["bookmarks", "git_line"]`).
 - `budget_ms` (Positive Integer): How long one call into a plugin may run before Trail stops it and reports the plugin. Plugin hooks run on the UI thread, so this bounds how long a plugin can hold up a keystroke. It cannot interrupt a single blocking call such as `os.execute` — use `trail.spawn` for slow work, which runs off the UI thread and is not budgeted. Loading a plugin gets ten times this. (Default: `50`)
 
 ## 2. Runtime Configuration (`:set`)

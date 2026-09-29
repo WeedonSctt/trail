@@ -4,7 +4,7 @@
 //! called only from the scoped functions [`crate::plugin::lua_api`] installs
 //! for the duration of one hook, so building a table costs nothing until a
 //! plugin asks for it. Field meanings are documented for plugin authors in
-//! `docs/plugins.md`; `docs/plugin_api_plan.md` §4.2 has the reasoning.
+//! `docs/plugin_guide.md`; `docs/plugin_api_plan.md` §4.2 has the reasoning.
 
 use std::time::UNIX_EPOCH;
 

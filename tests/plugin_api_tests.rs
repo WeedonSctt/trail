@@ -1,7 +1,7 @@
 //! The plugin API end to end: a real `PluginEngine` inside a real `AppState`,
 //! driven the way the event loop drives it — fire, then settle.
 //!
-//! Each test names the promise it protects from `docs/plugins.md`. The engine's
+//! Each test names the promise it protects from `docs/plugin_guide.md`. The engine's
 //! internals have unit tests of their own; these are about what a plugin
 //! author can rely on.
 

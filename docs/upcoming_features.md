@@ -52,7 +52,7 @@ test itself).
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
-| 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
+| 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **in progress** — built on the `feat/plugin-api` branch, §2.14 |
 | 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **done** — v1.9.1; the pending-key indicator is still open, §2.15 |
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
@@ -292,6 +292,14 @@ bug. It means no margin: the selection may reach either edge, and stays where it
 you reverse direction.
 
 ### 2.14 A plugin can observe and nothing else
+
+> **Built on the `feat/plugin-api` branch (2026-09-29), not yet merged.** Both open
+> questions below were decided: plugins *may* touch the filesystem, because Lua's `io` and
+> `os` already let them and an `allow_fs` gate would restrict only the polite path; and
+> hooks stay on the UI thread under a time budget (`[plugins] budget_ms`), with
+> `trail.spawn` and declarative previewers as the way off it. The design grew past this
+> entry — key bindings, background jobs, previewers, a status segment — and is recorded in
+> full in [`plugin_api_plan.md`](plugin_api_plan.md). What follows is the original triage.
 
 > "for minor release, expand the trail API for plugins"
 
