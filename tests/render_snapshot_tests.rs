@@ -13,6 +13,7 @@ use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 use tempfile::TempDir;
 
+use trail::app::sort::{SortBy, SortSettings};
 use trail::app::state::AppState;
 use trail::preview;
 use trail::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
@@ -501,6 +502,97 @@ async fn the_delete_prompt_says_where_the_entry_is_going() {
     assert!(
         rendered.contains("Delete 'alpha_dir'?"),
         "a permanent delete must not read as recoverable:\n{rendered}"
+    );
+}
+
+// ── The sort badge ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn the_panel_border_shows_the_current_sort() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // The default order, reported rather than assumed: name, ascending.
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("name↑"),
+        "the default sort should be on the border:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_sort_badge_follows_the_sort() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: false,
+        dirs_first: true,
+    });
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("size↓"),
+        "size sorts largest-first, so the arrow points down:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("name↑"),
+        "the previous badge must not linger:\n{rendered}"
+    );
+
+    // Reversing flips the arrow without changing the key.
+    state.set_sort(SortSettings {
+        by: SortBy::Size,
+        reverse: true,
+        dirs_first: true,
+    });
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("size↑"),
+        "reversed size should read as ascending:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_sort_badge_is_per_tab() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.set_sort(SortSettings {
+        by: SortBy::Modified,
+        reverse: false,
+        dirs_first: true,
+    });
+
+    // A second tab, re-sorted: the badge must report the tab you are looking at.
+    state.open_tab(None).unwrap();
+    state.set_sort(SortSettings {
+        by: SortBy::Name,
+        reverse: false,
+        dirs_first: true,
+    });
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(rendered.contains("name↑"), "second tab:\n{rendered}");
+    assert!(!rendered.contains("time↓"), "second tab:\n{rendered}");
+
+    state.switch_tab_prev().unwrap();
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("time↓"),
+        "switching back should restore the first tab's badge:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn the_directory_name_keeps_the_border_when_there_is_no_room() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // 40% of 30 columns is 12 — the temp directory's own name already fills it,
+    // so the badge has to stand down rather than overwrite the name.
+    let rendered = render_to_string(&mut state, 30, 24).await;
+    assert!(
+        !rendered.contains("name↑"),
+        "the badge should yield to the directory name:\n{rendered}"
     );
 }
 

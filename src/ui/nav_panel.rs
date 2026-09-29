@@ -10,6 +10,11 @@
 //! time, or both — selected by `[navigation] entry_details`. The panel is 40%
 //! of the screen, so the column is budgeted rather than assumed: see
 //! `EntryDetails::fit`.
+//!
+//! The top border carries the directory's name on the left and the active tab's
+//! sort order on the right (`size↓`), so the order in use is always on screen
+//! rather than something a keystroke has to reveal. Both are budgeted against
+//! the same border row: see `fit_badge`.
 
 use std::path::Path;
 
@@ -271,10 +276,26 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         .collect();
 
     let block = Block::default()
-        .title(title)
+        .title(title.clone())
         .borders(Borders::ALL)
         .border_style(styles.border)
         .border_type(BorderType::Rounded);
+
+    // The sort order, on the far end of the same border row. A border is drawn
+    // whether or not anything is written on it, so this costs no screen space —
+    // the same reasoning that put the directory name there instead of the full
+    // path. It is read from `state.sort`, which is the *active tab's*, so
+    // switching tabs changes it.
+    let block = match fit_badge(
+        state.sort,
+        title.chars().count(),
+        usize::from(area.width).saturating_sub(2),
+    ) {
+        Some(badge) => block.title_top(
+            Line::from(Span::styled(format!(" {badge} "), styles.status)).right_aligned(),
+        ),
+        None => block,
+    };
 
     let list = List::new(items)
         .block(block)
@@ -288,6 +309,53 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     frame.render_stateful_widget(list, area, &mut list_state);
+}
+
+/// The active tab's sort order, spelled for the panel's top border.
+///
+/// Reads `size↓`: the key, then the direction values run as the listing is read
+/// downwards — `↓` for largest, newest or Z-first, `↑` for the other end. The
+/// arrow comes from [`crate::app::sort::SortSettings::is_descending`], which is
+/// also what orders the listing, so the badge cannot claim a direction the
+/// entries do not have.
+///
+/// `mixed` is appended only when directories are *not* grouped first, because
+/// grouping them is the default and a badge that restates every default is
+/// noise.
+fn sort_badge(settings: crate::app::sort::SortSettings) -> String {
+    let arrow = if settings.is_descending() {
+        '↓'
+    } else {
+        '↑'
+    };
+    let mut out = format!("{}{arrow}", settings.by.short_label());
+    if !settings.dirs_first {
+        out.push_str(" mixed");
+    }
+    out
+}
+
+/// The badge, shortened or dropped to fit `inner_width` alongside `title`.
+///
+/// The badge shares the top border with the directory name, so it is budgeted
+/// the way the details column is: the informative part survives longest.
+/// `mixed` goes first, then the badge entirely — a border that wraps or
+/// overwrites the directory name would cost more than the badge is worth.
+fn fit_badge(
+    settings: crate::app::sort::SortSettings,
+    title_width: usize,
+    inner_width: usize,
+) -> Option<String> {
+    let full = sort_badge(settings);
+    // One space of padding on each side of the badge, plus one column between
+    // it and the title, so they never touch.
+    let room = inner_width.saturating_sub(title_width);
+    for candidate in [full.as_str(), full.split(' ').next().unwrap_or(&full)] {
+        if candidate.chars().count() + 3 <= room {
+            return Some(candidate.to_owned());
+        }
+    }
+    None
 }
 
 /// What `List` draws in front of the selected row, and reserves in front of
@@ -394,6 +462,66 @@ fn panel_title(cwd: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Settings with `by`, in its natural direction, directories grouped.
+    fn plain(by: crate::app::sort::SortBy) -> crate::app::sort::SortSettings {
+        crate::app::sort::SortSettings {
+            by,
+            reverse: false,
+            dirs_first: true,
+        }
+    }
+
+    #[test]
+    fn the_badge_names_the_key_and_the_direction() {
+        use crate::app::sort::SortBy;
+        // Name runs A–Z, so it ascends; size runs largest-first, so it descends.
+        assert_eq!(sort_badge(plain(SortBy::Name)), "name↑");
+        assert_eq!(sort_badge(plain(SortBy::Size)), "size↓");
+        assert_eq!(sort_badge(plain(SortBy::Modified)), "time↓");
+        assert_eq!(sort_badge(plain(SortBy::Extension)), "ext↑");
+    }
+
+    #[test]
+    fn reversing_flips_the_badge_arrow() {
+        use crate::app::sort::{SortBy, SortSettings};
+        let reversed = SortSettings {
+            reverse: true,
+            ..plain(SortBy::Size)
+        };
+        assert_eq!(sort_badge(reversed), "size↑");
+    }
+
+    #[test]
+    fn the_badge_says_mixed_only_when_directories_are_not_grouped() {
+        use crate::app::sort::{SortBy, SortSettings};
+        assert_eq!(sort_badge(plain(SortBy::Name)), "name↑");
+        let mixed = SortSettings {
+            dirs_first: false,
+            ..plain(SortBy::Name)
+        };
+        assert_eq!(sort_badge(mixed), "name↑ mixed");
+    }
+
+    #[test]
+    fn a_narrow_border_drops_mixed_before_it_drops_the_badge() {
+        use crate::app::sort::{SortBy, SortSettings};
+        let mixed = SortSettings {
+            dirs_first: false,
+            ..plain(SortBy::Size)
+        };
+        // Room for `size↓` (5) plus padding but not for ` mixed` as well.
+        let fitted = fit_badge(mixed, 8, 18).expect("the short form fits");
+        assert_eq!(fitted, "size↓");
+    }
+
+    #[test]
+    fn a_border_with_no_room_drops_the_badge_entirely() {
+        use crate::app::sort::SortBy;
+        // A long directory name leaves nothing: the name is what you navigate
+        // by, so it keeps the border.
+        assert!(fit_badge(plain(SortBy::Size), 20, 22).is_none());
+    }
 
     #[test]
     fn details_parse_round_trips_every_value() {

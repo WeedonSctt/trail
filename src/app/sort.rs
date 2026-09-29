@@ -59,6 +59,32 @@ impl SortBy {
             Self::Extension => "extension",
         }
     }
+
+    /// A short spelling for the navigation panel's sort badge.
+    ///
+    /// Four characters at most, because the badge shares the panel's top border
+    /// with the directory name.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Size => "size",
+            Self::Modified => "time",
+            Self::Extension => "ext",
+        }
+    }
+
+    /// Whether this key reads best from its high end down.
+    ///
+    /// Size and time do: you went looking for the biggest or the newest, so
+    /// that end belongs at the top, which is what `ls -S` and `ls -t` do. Name
+    /// and extension run A–Z.
+    ///
+    /// This is the single definition of the natural direction —
+    /// [`sort_entries`] orders by it and the badge reports it, so the two
+    /// cannot come to disagree about which way a listing runs.
+    pub fn descends_by_default(self) -> bool {
+        matches!(self, Self::Size | Self::Modified)
+    }
 }
 
 /// Explanation attached to a rejected `sort_by` value.
@@ -94,6 +120,15 @@ impl Default for SortSettings {
 }
 
 impl SortSettings {
+    /// Whether values descend as the listing is read downwards.
+    ///
+    /// The direction the badge's arrow reports: `true` means the largest, newest
+    /// or last-alphabetically entry is at the top. `reverse` flips whatever
+    /// [`SortBy::descends_by_default`] says.
+    pub fn is_descending(self) -> bool {
+        self.by.descends_by_default() != self.reverse
+    }
+
     /// A one-line description for the status bar, e.g. `sort: size, reversed`.
     pub fn describe(self) -> String {
         let mut out = format!("sort: {}", self.by.as_str());
@@ -175,9 +210,17 @@ fn compare(a: &Entry, b: &Entry, settings: SortSettings) -> Ordering {
     let key = match by {
         // The name is the tie-break below, so a name sort has no key of its own.
         SortBy::Name => Ordering::Equal,
-        SortBy::Size => size_of(a).cmp(&size_of(b)).reverse(),
-        SortBy::Modified => modified_of(a).cmp(&modified_of(b)).reverse(),
+        SortBy::Size => size_of(a).cmp(&size_of(b)),
+        SortBy::Modified => modified_of(a).cmp(&modified_of(b)),
         SortBy::Extension => extension_of(a).cmp(&extension_of(b)),
+    };
+
+    // Size and time read from their high end down; see
+    // `SortBy::descends_by_default`, which the panel's badge reads too.
+    let key = if by.descends_by_default() {
+        key.reverse()
+    } else {
+        key
     };
 
     let ord = key.then_with(|| a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()));
@@ -252,6 +295,60 @@ mod tests {
         assert_eq!(settings.by, SortBy::Name);
         assert!(!settings.reverse);
         assert!(settings.dirs_first);
+    }
+
+    #[test]
+    fn size_and_time_descend_by_default_and_the_others_do_not() {
+        assert!(SortBy::Size.descends_by_default());
+        assert!(SortBy::Modified.descends_by_default());
+        assert!(!SortBy::Name.descends_by_default());
+        assert!(!SortBy::Extension.descends_by_default());
+    }
+
+    #[test]
+    fn reverse_flips_the_reported_direction_for_every_key() {
+        for by in [
+            SortBy::Name,
+            SortBy::Size,
+            SortBy::Modified,
+            SortBy::Extension,
+        ] {
+            let forward = SortSettings {
+                by,
+                reverse: false,
+                dirs_first: true,
+            };
+            let flipped = SortSettings {
+                reverse: true,
+                ..forward
+            };
+            assert_eq!(
+                forward.is_descending(),
+                by.descends_by_default(),
+                "{by:?} unreversed should report its natural direction"
+            );
+            assert_ne!(
+                forward.is_descending(),
+                flipped.is_descending(),
+                "{by:?} reversed should report the other direction"
+            );
+        }
+    }
+
+    #[test]
+    fn short_labels_stay_inside_the_badge_budget() {
+        for by in [
+            SortBy::Name,
+            SortBy::Size,
+            SortBy::Modified,
+            SortBy::Extension,
+        ] {
+            let label = by.short_label();
+            assert!(
+                (1..=4).contains(&label.chars().count()),
+                "{by:?} label {label:?} does not fit the badge"
+            );
+        }
     }
 
     #[test]

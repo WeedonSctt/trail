@@ -86,6 +86,22 @@ has no lines to scroll, so the keys do nothing there.
 - `sr`: Flip the current order
 - `sd`: Toggle whether directories are grouped ahead of files
 
+The order in use is always shown on the right-hand end of the navigation panel's top
+border, so you never have to press a key to find out what you are looking at:
+
+```
+╭ my-project ─────────── size↓ ╮
+│>  src/                      —│
+│   README.md          17.06 kB│
+│   Cargo.toml          3.22 kB│
+╰──────────────────────────────╯
+```
+
+The arrow is the direction values run as you read *down* the list — `↓` for largest,
+newest or Z-first, `↑` for the other end. `mixed` is added when directories are not
+grouped ahead of files. The badge is per tab, like the sort itself, so it changes as you
+switch tabs; on a very narrow panel it gives up its room to the directory name.
+
 Size and time run largest-first and newest-first because that is the end of the range you
 usually went looking for — `ls -S` and `ls -t` read the same way — and `sr` flips whichever
 order is active. Directory grouping is separate: `sr` does not move directories to the

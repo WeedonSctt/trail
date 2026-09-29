@@ -29,6 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- The navigation panel now shows which sort order is in use, on the right-hand
+  end of its top border (`size↓`, `time↑ mixed`). v1.8.0 shipped six ways to
+  re-order a listing and no way to see which one was active — the notice that
+  confirmed the change aged out on the next keystroke, so the only way to find
+  out was to press a sort key and watch. The badge is per tab, like the sort
+  itself, and gives up its room to the directory name on a panel too narrow for
+  both.
 
 [Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.0...HEAD

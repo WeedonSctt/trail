@@ -240,6 +240,19 @@ newest-first, the way `ls -S` and `ls -t` do, and `sr` flips whichever is active
 | `sr` | Flip the current order |
 | `sd` | Toggle grouping directories ahead of files |
 
+The order in use is shown on the right of the panel's top border, so it is never a guess:
+
+```
+╭ my-project ─────────── size↓ ╮
+│>  src/                      —│
+│   README.md          17.06 kB│
+│   Cargo.toml          3.22 kB│
+╰──────────────────────────────╯
+```
+
+The arrow is the direction values run as you read down the list, and `mixed` appears when
+directories are not grouped first.
+
 Sorting is **per tab** — a downloads tab can sit in `st` while the tab beside it keeps a
 source tree in `sn` — and a new tab inherits the order it was opened from. Set
 `[navigation] sort_by` in `trail.toml` for the order every session starts in, and
