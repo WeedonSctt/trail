@@ -134,6 +134,13 @@ fn configured_search_action(key: KeyEvent, keymap: &KeymapConfig) -> Option<Acti
     })
 }
 
+/// Returns `ch` when it is the first key of a configured multi-key sequence
+/// such as `gg` or `ya`, so the dispatcher waits for the second key.
+///
+/// Named-key bindings are excluded before the prefix test. A binding like
+/// `tab` or `ctrl-r` is one key, not the letters it is spelled with; without
+/// the exclusion `t` and `c` became prefixes that nothing could complete, and
+/// each silently swallowed the keystroke after it.
 fn configured_nav_prefix(key: KeyEvent, keymap: &KeymapConfig) -> Option<char> {
     let KeyCode::Char(ch) = key.code else {
         return None;
@@ -144,8 +151,36 @@ fn configured_nav_prefix(key: KeyEvent, keymap: &KeymapConfig) -> Option<char> {
     keymap
         .navigation
         .values()
+        .filter(|binding| !is_named_key(binding))
         .any(|binding| binding.len() > ch.len_utf8() && binding.starts_with(ch))
         .then_some(ch)
+}
+
+/// Every key name [`key_to_config_string`] can produce without a modifier.
+const NAMED_KEYS: &[&str] = &[
+    "enter",
+    "esc",
+    "backspace",
+    "tab",
+    "left",
+    "right",
+    "up",
+    "down",
+    "home",
+    "end",
+];
+
+/// Whether `binding` names a single key — `tab`, `ctrl-r`, `shift-end` — as
+/// opposed to a sequence of typed characters.
+///
+/// Matches exactly the spellings [`key_to_config_string`] produces: a bare key
+/// name, or one prefixed with `ctrl-` or `shift-`.
+fn is_named_key(binding: &str) -> bool {
+    let base = binding
+        .strip_prefix("ctrl-")
+        .or_else(|| binding.strip_prefix("shift-"))
+        .unwrap_or(binding);
+    binding != base || NAMED_KEYS.contains(&base)
 }
 
 fn nav_action_for_sequence(keymap: &KeymapConfig, sequence: &str) -> Option<Action> {
@@ -269,6 +304,66 @@ fn key_to_config_string(key: KeyEvent) -> Option<String> {
 mod tests {
     use super::*;
     use crossterm::event::{KeyEventKind, KeyEventState};
+
+    /// The bug this guards: `tab` made `t` a prefix and `ctrl-r` made `c` one,
+    /// so each waited for a second key that could never complete a sequence
+    /// and swallowed it.
+    #[test]
+    fn a_named_key_binding_does_not_make_its_first_letter_a_prefix() {
+        let keymap = crate::config::load(None).unwrap().keymap;
+        assert_eq!(
+            configured_nav_prefix(key(KeyCode::Char('t')), &keymap),
+            None
+        );
+        assert_eq!(
+            configured_nav_prefix(key(KeyCode::Char('c')), &keymap),
+            None
+        );
+    }
+
+    #[test]
+    fn real_sequences_still_make_prefixes() {
+        let keymap = crate::config::load(None).unwrap().keymap;
+        for ch in ['g', 'y', 'd', 's'] {
+            assert_eq!(
+                configured_nav_prefix(key(KeyCode::Char(ch)), &keymap),
+                Some(ch),
+                "`{ch}` starts a default sequence"
+            );
+        }
+    }
+
+    /// `is_named_key` has to recognise every spelling the key translator can
+    /// produce, or a new named key would reintroduce the swallowed keystroke.
+    #[test]
+    fn every_translated_named_key_is_recognised() {
+        let codes = [
+            KeyCode::Enter,
+            KeyCode::Esc,
+            KeyCode::Backspace,
+            KeyCode::Tab,
+            KeyCode::BackTab,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Home,
+            KeyCode::End,
+        ];
+        for code in codes {
+            for modifiers in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
+                let event = KeyEvent {
+                    modifiers,
+                    ..key(code)
+                };
+                let name = key_to_config_string(event).expect("named key translates");
+                assert!(is_named_key(&name), "`{name}` is not recognised as named");
+            }
+        }
+        assert!(is_named_key("ctrl-r"));
+        assert!(!is_named_key("gg"));
+        assert!(!is_named_key("t"));
+    }
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent {

@@ -29,7 +29,13 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `t` and `c` no longer swallow the key pressed after them in the file list.
+  Trail mistook the `tab` and `ctrl-r` bindings for two-letter sequences
+  starting with `t` and `c`, so each letter waited for a second key that could
+  never complete one, and threw that key away. Both are now ordinary unbound
+  keys that do nothing, and the key after them works as usual.
 
 ## [1.9.0] - 2026-09-29
 

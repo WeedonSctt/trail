@@ -369,10 +369,10 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 ## 9. Current state and known traps
 
 - Released: **v1.9.0**, from `main`, which is current and pushed.
-- `t` and `c` are accidental prefix keys: `configured_nav_prefix` treats any binding
-  longer than one character as a multi-key sequence, so `"tab"` makes `t` one and
-  `"ctrl-r"` makes `c` one, and both swallow the following keystroke. Assessed in
-  `docs/upcoming_features.md` §2.15, not yet fixed.
+- A new key name in `keymap.rs`'s `key_to_config_string` must also go in `NAMED_KEYS`.
+  Otherwise its first letter becomes a prefix that swallows the next keystroke — how `t`
+  (from `tab`) and `c` (from `ctrl-r`) were dead keys until v1.9.1. A unit test enumerates
+  the translated names and will fail if one is missing.
 - Three `// TODO(phase-N):` markers outlive their phases (`phase-4` in
   `command_parser.rs`, `phase-5` in `tests/fixtures/.keep`, two `phase-something` in
   `history.rs`). The release checklist gates on these; they have shipped unfixed since

@@ -53,7 +53,7 @@ test itself).
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
 | 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
-| 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **planned** — §2.15 |
+| 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **done** — v1.9.1; the pending-key indicator is still open, §2.15 |
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 
@@ -378,6 +378,13 @@ a prefix is pending. Vim shows the partial sequence in the corner; Trail shows
 nothing, so a swallowed keystroke and a genuine `g`-waiting-for-`g` look
 identical. `state.pending_nav_key` is already on `AppState`, so the status bar
 could render it in the space the tab indicator uses.
+
+**Fixed in v1.9.1**, as described: `configured_nav_prefix` skips any binding
+`is_named_key` recognises — a bare key name from `NAMED_KEYS`, or one prefixed with
+`ctrl-` or `shift-` — before the prefix test. A unit test walks every key
+`key_to_config_string` can name and asserts `is_named_key` accepts it, so a named key
+added later cannot quietly reopen the bug. The pending-prefix indicator was not part of
+the patch; it adds something to the frame rather than fixing it, and is still open.
 
 ### 2.16 No way to tell which build you are looking at
 
