@@ -331,11 +331,35 @@ branch bought nothing and cost the trunk. Do not recreate it.
    `[~] release> fill vX.Y.Z sha256 digests into package manifests`.
 8. Push the manifests to their tap / AUR / bucket repositories.
 
-Installing the new release locally is not part of the release, but if asked: on Windows
-`install.ps1` **fails when Trail is running**, because it force-copies over a locked
-`trail.exe`. Rename the running binary aside (`trail.exe.inuse-<stamp>.tmp` — Windows
-permits renaming a running image, only not overwriting it) and copy the new one into
-place. Open sessions keep the old inode until they exit; nothing has to be killed.
+### After a release is published — mandatory, every time
+
+A release is not finished when the GitHub Release is published. Two more steps are part
+of it, and the turn does not end until both are done:
+
+1. **Update the documentation.** Anything that names the current version or describes
+   what is shipped: §9 of this file (`Released: vX.Y.Z`), the status column and
+   "shipped in" notes of `docs/upcoming_features.md`, and `README.md` /
+   `docs/user_guide.md` / `docs/configuration_guide.md` for anything the release added
+   that they do not yet describe. Commit as `[~] doc> ...` and push.
+2. **Replace the Trail binary on this machine.** The maintainer's PowerShell profile
+   dot-sources the wrapper at `%LOCALAPPDATA%\trail\bin\trail.ps1`, and that wrapper runs
+   the `trail.exe` beside it (found on `PATH`). Replace **only `trail.exe`** there, with
+   the one from the published `trail-vX.Y.Z-x86_64-pc-windows-msvc.zip` (verify its
+   digest against `checksums.txt` first). Then confirm with
+   `& "$env:LOCALAPPDATA\trail\bin\trail.exe" --version`.
+
+   - **Do not touch `trail.ps1`, and never rename its function.** The installed copy
+     defines `function tt`, not the repository's `function trail` — the maintainer
+     renamed it on purpose. Overwriting the file from `shell/trail.ps1` silently renames
+     the command they type back to `trail`. If a release changed `shell/trail.ps1`, merge
+     that change into the installed copy by hand and keep `function tt`.
+   - **Do not run `install.ps1` here** — it overwrites `trail.ps1` for exactly that
+     reason, and it also **fails when Trail is running**, because it force-copies over a
+     locked `trail.exe`.
+   - Trail is usually running. Rename the running binary aside
+     (`trail.exe.inuse-<stamp>.tmp` — Windows permits renaming a running image, only not
+     overwriting it) and copy the new one into place. Open sessions keep the old image
+     until they exit; nothing has to be killed.
 
 **Never delete or move a published tag** — it breaks anyone who pinned it. Fix forward
 with a patch release, and annotate the bad release's notes with a pointer to the fix.
