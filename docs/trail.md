@@ -28,7 +28,11 @@ Displays the contents of the current directory.
 
 Features:
 
-- Directories listed before files.
+- Directories listed before files, by default. The listing order is configurable — by
+  name, size, modification time or extension, reversed or not, with directory grouping as
+  a separate switch — and is held **per tab**, so two tabs may be ordered differently at
+  once.
+- Optional per-entry details: size, modification time, or both.
 - Keyboard selection.
 - Incremental filtering.
 - Visual indicators.
@@ -39,6 +43,11 @@ Features:
 - Automatic refresh after filesystem changes.
 
 The selected entry is always highlighted.
+
+The panel's borders carry the standing information — the directory's name and the active
+sort order above the listing, the full current path below it. A border is drawn whether or
+not anything is written on it, so none of this costs a row of listing, and unlike the
+status bar none of it is covered while a command is being typed.
 
 ---
 
@@ -104,12 +113,20 @@ Displayed at the bottom.
 
 Contains contextual information including:
 
-- Current path
 - Current mode
+- Which tab has focus, when more than one is open
 - Active filter
 - Current Git branch (when applicable)
 - Number of visible entries
+- Messages: one at a time, cleared on the next keystroke
 - Command input
+
+**The current path is not here.** It was, until Command Mode was given the whole row —
+a command and its destination need the width, and a destination is often longer than a
+third of a terminal. That left the path hidden exactly while a relative destination was
+being typed against it, so it moved to the navigation panel's bottom border, which nothing
+covers. The requirement is that the path is always legible; the status bar turned out not
+to be a surface that can promise it.
 
 ---
 

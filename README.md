@@ -48,7 +48,15 @@ It is not a fuzzy finder and not a file picker. Trail is built around one princi
 ## Features
 
 - **Three-panel interface** — directory listing on the left, type-aware preview on the right,
-  and a status bar reflecting path, mode, active filter, entry count and git branch.
+  and a status bar reflecting mode, active filter, entry count and git branch. The panel
+  borders carry the rest: the directory you are in and the sort order above the listing, the
+  full path below it, so none of it can be covered by the command line.
+- **Sort the way you are looking** — by name, size, modification time or extension, reversed
+  or not, directories grouped or mixed in. Per tab, so a downloads tab can sit in
+  most-recent-first while the tab beside it keeps a source tree alphabetical, and the order in
+  use is always shown on the panel border.
+- **Details in the listing** — optional size and modification time beside each name
+  (`[navigation] entry_details`), budgeted so a narrow panel keeps readable names instead.
 - **Type-aware previews** — syntax-highlighted text (via `syntect`), directory summaries with
   file and directory counts, image metadata and dimensions, and binary metadata. Images render
   inline when the terminal speaks Kitty, iTerm2 or Sixel.
@@ -60,9 +68,9 @@ It is not a fuzzy finder and not a file picker. Trail is built around one princi
   debounced so that a `git checkout` triggers one repaint instead of a hundred.
 - **Fuzzy search** — incremental filtering of the current directory with `nucleo`, results
   reordered by match score as you type.
-- **Command mode** — `mkdir`, `touch`, `rename`, `mv`, `cp`, `git`, `set`, `bookmark`, `jump`,
-  plus arbitrary shell commands with `!`. Includes history and Tab completion for command verbs
-  and destination paths.
+- **Command mode** — `mkdir`, `touch`, `rename`, `mv`, `cp`, `git`, `set`, `sort`, `bookmark`,
+  `jump`, plus arbitrary shell commands with `!`. Includes history and Tab completion for
+  command verbs and destination paths, and the current directory stays visible while you type.
 - **Tabs** — several directories open at once, each with its own selection and history.
 - **cd-on-exit** — quit with `q` and your shell follows you to the directory you were browsing;
   cancel with `Ctrl-c` and it stays put.
@@ -240,18 +248,20 @@ newest-first, the way `ls -S` and `ls -t` do, and `sr` flips whichever is active
 | `sr` | Flip the current order |
 | `sd` | Toggle grouping directories ahead of files |
 
-The order in use is shown on the right of the panel's top border, so it is never a guess:
+The order in use is shown on the right of the panel's top border, so it is never a guess,
+and the full path sits on the bottom border where the command line cannot cover it:
 
 ```
 ╭ my-project ─────────── size↓ ╮
 │>  src/                      —│
 │   README.md          17.06 kB│
 │   Cargo.toml          3.22 kB│
-╰──────────────────────────────╯
+╰ …\proj\it\util\trail ────────╯
 ```
 
 The arrow is the direction values run as you read down the list, and `mixed` appears when
-directories are not grouped first.
+directories are not grouped first. A path too deep for the panel is cut from the *front* —
+the end is the part that answers "where am I".
 
 Sorting is **per tab** — a downloads tab can sit in `st` while the tab beside it keeps a
 source tree in `sn` — and a new tab inherits the order it was opened from. Set
@@ -361,9 +371,17 @@ trail --no-config                      # built-in defaults, this run only
 ```toml
 [general]
 editor = "nvim"                # command used to open files
+delete_mode = "trash"          # `dd` goes to the recycle bin; "permanent" to unlink
+show_version = false           # show Trail's version on the preview border
 git_status_enabled = true
 text_sync_threshold_kb = 256   # larger text files are highlighted off-thread
 fs_watch_debounce_ms = 200
+
+[navigation]
+sort_by = "name"               # name | size | modified | extension — seeds the first tab
+sort_reverse = false
+dirs_first = true              # group directories ahead of files
+entry_details = "none"         # none | size | modified | both
 
 [theme]
 background   = "#1a1b26"

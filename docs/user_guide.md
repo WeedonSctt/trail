@@ -10,6 +10,49 @@ trail [<start-path>]
 ```
 **Tip:** If you have configured shell integration, exiting Trail will automatically change your shell's current directory to the directory you were browsing when you exited.
 
+### Reading the screen
+
+Trail is three panels, and the panel **borders** carry most of what you need to know. A
+border is drawn whether or not anything is written on it, so nothing here costs you a row
+of listing:
+
+```
+      directory name            sort order    selected file        version (optional)
+             │                       │              │                       │
+             ▼                       ▼              ▼                       ▼
+     ╭ my-project ─────────── size↓ ╮╭ README.md ──────────────────── v1.8.3 ╮
+     │>  src/                      —││    1  # Trail                         │
+     │   README.md          17.06 kB││    2                                  │
+     │   Cargo.toml          3.22 kB││    3  A terminal-first workspace…     │
+     ╰ …\proj\it\util\trail ────────╯╰───────────────────────────── 1–24/312 ╯
+                  ▲           ▲                                          ▲
+                  │           │                                          │
+            where you are   details column                     position in the file
+
+      NORMAL   [2/3]                         main *          3 items
+         ▲        ▲                            ▲                ▲
+        mode    which tab                  git branch      entry count
+```
+
+- **Top-left of the listing** — the directory you are in, by name.
+- **Top-right of the listing** — the sort order in use (`size↓`), per tab. See
+  [Sorting](#sorting).
+- **Bottom of the listing** — the full path. Cut from the front (`…\util\trail`) when it
+  does not fit, because the end is the part that answers "where am I".
+- **Right of each row** — optionally the size or modification time. Off by default; see
+  [Display Options](#display-options).
+- **Top-left of the preview** — the selected entry's name.
+- **Top-right of the preview** — Trail's version, if `[general] show_version` is on.
+- **Bottom-right of the preview** — how far through the file you are, with a trailing `+`
+  when the file continues past what was loaded.
+- **The bottom row** — mode, which tab has focus, the git branch, the entry count, and any
+  message Trail has for you.
+
+The one thing worth knowing about that last row: **Command Mode takes all of it**, so
+while you are typing a `:` command it is the command line and nothing else. That is why
+the path lives on a border rather than down there — you can read where you are while
+typing a destination relative to it.
+
 ## 2. Navigation Mode
 
 Navigation Mode is the primary interface for browsing directories. It uses Vim-like bindings by default, but fallback arrows and standard keys are also supported.
@@ -74,6 +117,20 @@ has no lines to scroll, so the keys do nothing there.
 - `R`: Refresh the current directory view
 - `.`: Toggle visibility of hidden files
 - `m`: Step the details column through none → size → modified → both → none
+
+The details column shows each entry's size, modification time, or both, right-aligned
+beside the name. A directory shows `—` rather than a size, because what the filesystem
+reports for a directory is the size of its own record and not of what is in it. On a
+narrow panel the column stands down entirely rather than crush the names — widen the
+terminal and it comes back. Set `[navigation] entry_details` in `trail.toml` for the
+setting to persist across sessions.
+
+**Which build am I running?** `[general] show_version = true` puts Trail's version on the
+preview pane's top border, or `:set show_version true` for the current session. It is off
+by default. This is worth turning on if you upgrade often: on Windows an upgrade cannot
+overwrite a running `trail.exe` — the installer renames the old one aside — so sessions
+you left open keep running the previous build and are otherwise indistinguishable from
+new ones.
 
 ### Sorting
 

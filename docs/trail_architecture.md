@@ -45,18 +45,18 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Component | Responsibility |
 |---|---|
 | State manager | Current directory, selection, mode, navigation history stack, tabs |
-| Navigation panel | Reads directory entries, renders the list, merges in git badges once workers report them, and draws the optional right-flushed details column (`[navigation] entry_details`), which stands down rather than crush names on a narrow panel |
+| Navigation panel | Reads directory entries, renders the list, merges in git badges once workers report them, and draws the optional right-flushed details column (`[navigation] entry_details`), which stands down rather than crush names on a narrow panel. Its **borders carry the standing information**: the directory name and the active sort order on top, the full `cwd` below. A border is drawn either way, so none of it costs a screen row, and unlike the status bar none of it is covered by Command Mode |
 | Listing order (`src/app/sort.rs`) | Orders the listing by name, size, modification time or extension, with directory grouping and reversal as separate axes. Held **per tab** on `TabState`, so each tab keeps the order it was left in. Every key comes from the `Entry::metadata` the listing already collected, so a re-sort performs no I/O |
 | Metadata formatter (`src/metafmt.rs`) | Single place that decides how a size and a timestamp are spelled for a person, shared by the details column and the binary/image previews so they cannot disagree about the same file |
-| Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation; owns the pane's scroll offset — it records the pane height and clamps the offset each frame, because nothing else knows the pane's size |
-| Status bar | Pure reflection of current state — path, mode, filter, branch, entry count |
+| Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation; owns the pane's scroll offset — it records the pane height and clamps the offset each frame, because nothing else knows the pane's size. Its top border carries the entry's name and, when `[general] show_version` asks for it, Trail's version |
+| Status bar | Pure reflection of current state — mode badge, tab indicator, filter, branch, entry count. **Not** the path: Command Mode takes the whole row, so anything that must stay visible while a command is typed cannot live here (see the navigation panel's borders) |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
 | Command mode parser | History, completion, validation for parameterized actions (rename, create, shell exec) |
 | Path formatter | Single place that decides how a path is spelled for a person versus for the OS (`src/pathfmt.rs`) |
 
 ### Path rendering
 
-`std::fs::canonicalize` returns absolute Windows paths in extended-length form — `\\?\C:\Users\me`, not `C:\Users\me`. Trail canonicalizes `cwd` at startup, so every path derived from it (entry paths, the nav panel title, the status bar, `ya`, the `--cwd-file` handoff, `trail --paths`) inherits that spelling unless something removes it.
+`std::fs::canonicalize` returns absolute Windows paths in extended-length form — `\\?\C:\Users\me`, not `C:\Users\me`. Trail canonicalizes `cwd` at startup, so every path derived from it (entry paths, the nav panel's borders, `ya`, the `--cwd-file` handoff, `trail --paths`) inherits that spelling unless something removes it.
 
 `src/pathfmt.rs` is the one place that does, and it draws a line the call sites used to blur:
 
