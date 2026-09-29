@@ -46,6 +46,7 @@ test itself).
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **planned** — §2.13 |
 | 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
+| 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **planned** — §2.15 |
 
 ---
 
@@ -310,6 +311,49 @@ anywhere but the UI thread — today they are called synchronously from it, so a
 blocks rendering, which invariant 1 forbids for everything else. A plugin that does real
 work will hit that ceiling, and moving hooks to the worker pool changes what the API can
 promise about ordering.
+
+### 2.15 `t` and `c` swallow the next keystroke
+
+Found while building §2.11's `s` prefix, and confirmed against the running
+binary rather than by reading: pressing `t` or `c` in Navigation Mode returns
+`SetPendingNavKey`, so Trail waits for a second key that can never complete a
+sequence, and the keystroke after it is discarded.
+
+`configured_nav_prefix` decides a character is a prefix like this:
+
+```rust
+binding.len() > ch.len_utf8() && binding.starts_with(ch)
+```
+
+which is right for `gg`, `ya` and `dd` and wrong for every **named-key**
+binding. The shipped defaults include `tab`, `ctrl-r`, `ctrl-t`, `ctrl-w`,
+`shift-tab`, `shift-home` and `shift-end` — so `t` is "the start of `tab`", `c`
+is "the start of `ctrl-r`", and both become prefixes. A probe over the default
+keymap returns:
+
+```text
+'t' -> Some(SetPendingNavKey('t'))     # from "tab"
+'c' -> Some(SetPendingNavKey('c'))     # from "ctrl-r" / "ctrl-t" / "ctrl-w"
+'s' -> Some(SetPendingNavKey('s'))     # from "shift-tab" before v1.8.0; now the sort prefix
+'g' -> Some(SetPendingNavKey('g'))     # correct: "gg"
+```
+
+This predates v1.8.0 — `s` behaved the same way because of `shift-tab`, which is
+why giving `s` a real meaning cost no keymap plumbing and broke nothing. What it
+means today is that two ordinary letters are dead keys that also eat the letter
+after them, with nothing on screen to say so.
+
+**Fix.** A binding is a multi-key sequence only when it is a run of single
+characters — i.e. it contains no `-` and is not one of the named keys
+`key_to_config_string` can produce. Reject the named ones before the prefix test
+rather than after. Cheap, and `keymap.rs` already has the list of names to
+check against.
+
+Worth pairing with the other half of the same gap: there is no visual sign that
+a prefix is pending. Vim shows the partial sequence in the corner; Trail shows
+nothing, so a swallowed keystroke and a genuine `g`-waiting-for-`g` look
+identical. `state.pending_nav_key` is already on `AppState`, so the status bar
+could render it in the space the tab indicator uses.
 
 ---
 
