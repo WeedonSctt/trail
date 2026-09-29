@@ -20,7 +20,7 @@ of listing:
       directory name            sort order    selected file        version (optional)
              │                       │              │                       │
              ▼                       ▼              ▼                       ▼
-     ╭ my-project ─────────── size↓ ╮╭ README.md ──────────────────── v1.9.0 ╮
+     ╭ my-project ─────────── size↓ ╮╭ README.md ──────────────────── v1.9.1 ╮
      │>  src/                      —││    1  # Trail                         │
      │   README.md          17.06 kB││    2                                  │
      │   Cargo.toml          3.22 kB││    3  A terminal-first workspace…     │
