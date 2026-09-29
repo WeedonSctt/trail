@@ -8,7 +8,7 @@ This document is for Trail **maintainers** and contributors. It describes how to
 
 The release workflow is fully automated once a version tag is pushed. The maintainer's job is:
 
-1. Prepare the release (update version, changelog).
+1. Prepare the release: close the `CHANGELOG.md` `[Unreleased]` section into `[X.Y.Z]`, and bump the version in `Cargo.toml` and the four package manifests.
 2. Push the tag — CI does the rest.
 3. Review the draft GitHub Release, fill in the notes, and publish.
 4. Update package manager formulas (Homebrew, AUR, Scoop).
@@ -31,7 +31,7 @@ cargo doc --workspace --no-deps --all-features
 
 All must pass. A failing CI quality gate will block the release workflow.
 
-### 2. Bump the version
+### 2. Bump the version and close the changelog
 
 Update the version in `Cargo.toml`:
 
@@ -40,9 +40,17 @@ Update the version in `Cargo.toml`:
 version = "X.Y.Z"
 ```
 
-Commit with message `[Phase 9] Bump version to vX.Y.Z`.
+Update `pkg/homebrew/trail.rb`, `pkg/aur/PKGBUILD`, `pkg/aur/.SRCINFO`, and `pkg/scoop/trail.json` to reference the new version. `.SRCINFO` has to agree with `PKGBUILD` or the AUR package breaks. *(SHA-256 values are filled in after the release archives exist — see step 4.)*
 
-Update `pkg/homebrew/trail.rb`, `pkg/aur/PKGBUILD`, `pkg/aur/.SRCINFO`, and `pkg/scoop/trail.json` to reference the new version. *(SHA-256 values are filled in after the release archives exist — see step 4.)*
+Then **close the changelog**, in the same commit:
+
+1. Rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`.
+2. Open a fresh, empty `## [Unreleased]` above it.
+3. Update the link definitions at the foot: `[Unreleased]` now compares `vX.Y.Z...HEAD`, and add a `[X.Y.Z]` link.
+
+The section should already describe every user-facing change, because entries are added as the work lands rather than reconstructed here — see `CLAUDE.md` §5. If it is empty and the release is not a pure packaging fix, something was missed; find it before tagging.
+
+Commit with message `[~] release> bump version to vX.Y.Z`, per `CLAUDE.md` §7. (The `[Phase N] ...` prefix this document used to specify is from the phased build-out and is no longer what the history uses.)
 
 ### 3. Push the tag
 
@@ -63,14 +71,16 @@ The release workflow:
 4. Generates `checksums.txt`.
 5. Creates a **draft** GitHub Release and uploads all assets.
 
-Watch the workflow in the **Actions** tab. If a build job fails, fix the issue, delete the tag, and restart from step 1.
+Watch the workflow in the **Actions** tab.
+
+If a build job fails, the tag has produced no published release, so it is safe to delete and re-push after fixing: `git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z`, then restart from step 1. **This is the only case in which a tag may be deleted.** Once the release is published (step 5), the tag is permanent — someone may have pinned it — and a bad release is fixed by the next patch release, not by moving the tag. See `CLAUDE.md` §6.
 
 ### 5. Publish the GitHub Release
 
 Once CI completes:
 
 1. Open the draft Release on GitHub.
-2. Review the auto-generated release notes; edit if needed.
+2. Set the title to `Trail vX.Y.Z` and write the notes **from the changelog section you closed in step 2**. The workflow sets `generate_release_notes: true`, which produces a list of commit subjects — that is a record of what changed in the code, not something an upgrading user can read. Replace it.
 3. Verify that all expected assets are attached:
    - `trail-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
    - `trail-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz`
@@ -78,8 +88,12 @@ Once CI completes:
    - `trail-vX.Y.Z-aarch64-apple-darwin.tar.gz`
    - `trail-vX.Y.Z-x86_64-pc-windows-msvc.zip`
    - `checksums.txt`
-4. Verify `checksums.txt` contains a line for every archive.
-5. Click **Publish release**.
+   - `install.sh`, `install.ps1`
+   - `uninstall.sh`, `uninstall.ps1`
+
+   Ten in total. The four scripts are attached as *assets*, not merely present in the repository, because the documented one-liners resolve against the release (`.../releases/latest/download/install.sh`). A missing one turns a documented command into a 404.
+4. Verify `checksums.txt` contains a line for every archive, and check one digest yourself rather than trusting the job.
+5. Click **Publish release**, and mark it as the latest release.
 
 ### 6. Update Homebrew formula
 

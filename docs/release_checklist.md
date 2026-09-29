@@ -22,8 +22,19 @@ Copy this list into the GitHub Release draft and check off items as you go.
 - [ ] `pkg/aur/.SRCINFO` — regenerated with `makepkg --printsrcinfo`
 - [ ] `pkg/scoop/trail.json` — `version` field updated
 
+### Changelog
+- [ ] `CHANGELOG.md` `## [Unreleased]` describes every user-facing change in this release
+- [ ] `[Unreleased]` renamed to `## [X.Y.Z] - YYYY-MM-DD`
+- [ ] A fresh, empty `## [Unreleased]` opened above it
+- [ ] Link definitions at the foot updated: `[Unreleased]` now compares `vX.Y.Z...HEAD`,
+      and a `[X.Y.Z]` link added
+
+This is a hard gate, not a "or release notes" one. It used to read "`CHANGELOG.md` (or
+release notes) describes all user-facing changes", and that escape hatch is why there was
+no changelog at all until v1.8.0 — every release took the second branch. The GitHub
+release notes are written *from* this section (step in §6 below), not instead of it.
+
 ### Content review
-- [ ] `CHANGELOG.md` (or release notes) describes all user-facing changes
 - [ ] No `// TODO(phase-N):` markers remain for phases ≤ current
 
 ---
