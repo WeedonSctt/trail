@@ -29,6 +29,10 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.8.1] - 2026-09-29
+
 ### Fixed
 
 - The navigation panel now shows which sort order is in use, on the right-hand
@@ -39,4 +43,5 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/WeedonSctt/trail/compare/v1.8.0...v1.8.1
