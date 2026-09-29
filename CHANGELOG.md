@@ -1,0 +1,34 @@
+# Changelog
+
+All notable user-facing changes to Trail are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+Trail follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
+`docs/release_process.md` §7 defines it — judged from the **user's** point of
+view, where the keybindings, the config file, the CLI flags and the shell
+wrapper contract are the public API.
+
+## How to use this file
+
+- Add to `## [Unreleased]` as the work lands, not at release time. A change that
+  is only described in a commit message is a change no user will ever read.
+- Group entries under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed` or
+  `Security`. Omit a heading rather than leaving it empty.
+- Write the entry for someone upgrading, not for someone reviewing the diff:
+  what they can now do, or what will behave differently, and the config key or
+  binding that controls it.
+- On release, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD` and open a fresh
+  `[Unreleased]` above it. This is step 2 of the release sequence in
+  `CLAUDE.md` §7, alongside the version bump.
+
+This file starts at v1.8.0. Earlier releases are described in their GitHub
+release notes and in `docs/upcoming_features.md` §6, which records what each
+assessed defect was and what was done about it; they are deliberately not
+back-filled here, because a changelog reconstructed after the fact says what
+the commits said rather than what the users saw.
+
+## [Unreleased]
+
+Nothing yet.
+
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.8.0...HEAD
