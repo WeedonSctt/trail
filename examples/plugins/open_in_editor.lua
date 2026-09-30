@@ -18,7 +18,10 @@ local EDITOR = "code"
 
 local function open(target)
     trail.spawn{
-        cmd = { EDITOR, target },
+        -- A command *string*, so it runs through `[general] shell`. Editors'
+        -- launchers are often scripts (`code.cmd` on Windows), which only a
+        -- shell finds; an argv table runs the program directly and would not.
+        cmd = EDITOR .. ' "' .. target .. '"',
         on_exit = function(result)
             if not result.ok then
                 trail.error("open_in_editor: " .. EDITOR .. " failed: " .. result.stderr)
