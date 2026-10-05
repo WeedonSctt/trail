@@ -39,9 +39,6 @@ const BEL: char = '\u{7}';
 /// assert_eq!(lines[0][1].fg, Some(Color::Red));
 /// assert!(lines[0][1].modifiers.contains(Modifier::BOLD));
 /// ```
-// clippy: dead_code — the binary has no caller until the external-preview
-// worker lands in the next commit; removed there.
-#[allow(dead_code)]
 pub fn parse(text: &str) -> Vec<HighlightedLine> {
     let mut out = Builder::default();
     let mut chars = text.chars().peekable();

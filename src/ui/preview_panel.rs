@@ -38,10 +38,15 @@ use crate::ui::theme;
 /// actions to clamp against.
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let styles = theme::resolve(&state.config.theme);
-    let title = if let Some(entry) = state.selected_entry() {
-        format!(" {} ", entry.file_name)
-    } else {
-        " Preview ".to_owned()
+    let title = match (
+        state.selected_entry(),
+        state.preview.content.external_tool(),
+    ) {
+        // Which preview is up must always be visible: `P` switches between
+        // two views of the same file, and they can look alike.
+        (Some(entry), Some(tool)) => format!(" {} ─ {tool} ", entry.file_name),
+        (Some(entry), None) => format!(" {} ", entry.file_name),
+        (None, _) => " Preview ".to_owned(),
     };
 
     let block = Block::default()
@@ -64,8 +69,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
 
     // Resolve the scroll offset before borrowing `content` below: the pane
     // height is only known here, and the clamp needs the whole slot.
-    let height = usize::from(block.inner(area).height);
+    let inner = block.inner(area);
+    let height = usize::from(inner.height);
     state.preview.viewport_height = height;
+    // Recorded for an external previewer's `{width}`, which is resolved before
+    // the next preview, not here.
+    state.preview.viewport_width = usize::from(inner.width);
     state.preview.clamp_scroll();
     let offset = state.preview.scroll;
     let block = match scroll_footer(&state.preview) {
@@ -150,22 +159,46 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
                 .iter()
                 .skip(offset)
                 .take(height)
-                .map(|l| {
-                    if l.is_empty() {
-                        Line::from("")
-                    } else if let Some((label, value)) = l.split_once(':') {
-                        // "  Key  : value" → bold label, normal value.
-                        Line::from(vec![
-                            Span::styled(
-                                format!("{label}:"),
-                                styles.command.add_modifier(Modifier::BOLD),
-                            ),
-                            Span::raw(value.to_owned()),
-                        ])
-                    } else {
-                        Line::from(Span::styled(l.as_str(), styles.status))
-                    }
+                .map(|l| metadata_line(l, &styles))
+                .collect();
+
+            let p = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
+            frame.render_widget(p, area);
+        }
+
+        PreviewContent::External { lines, .. } => {
+            // No gutter: numbering character art or rendered Markdown wrecks
+            // it. No wrap either — a tool told `{width}` has laid its lines out
+            // already, and wrapping would break `chafa`'s pictures; a longer
+            // line is clipped at the pane edge.
+            let text: Vec<Line> = lines
+                .iter()
+                .skip(offset)
+                .take(height)
+                .map(|spans| {
+                    Line::from(
+                        spans
+                            .iter()
+                            .map(|s| Span::styled(s.text.clone(), s.style()))
+                            .collect::<Vec<_>>(),
+                    )
                 })
+                .collect();
+
+            frame.render_widget(Paragraph::new(text).block(block), area);
+        }
+
+        PreviewContent::ExternalFailed {
+            error, metadata, ..
+        } => {
+            // The error, a blank line, then what is known about the file anyway.
+            let text: Vec<Line> = error
+                .iter()
+                .map(|l| Line::from(Span::styled(l.as_str(), styles.error)))
+                .chain(std::iter::once(Line::from("")))
+                .chain(metadata.iter().map(|l| metadata_line(l, &styles)))
+                .skip(offset)
+                .take(height)
                 .collect();
 
             let p = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
@@ -255,6 +288,24 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
             let p = Paragraph::new(visible).block(block);
             frame.render_widget(p, area);
         }
+    }
+}
+
+/// One line of a metadata block: `"  Key  : value"` drawn as a bold label and
+/// a plain value, anything else in the dim status style.
+fn metadata_line<'a>(l: &'a str, styles: &theme::ThemeStyles) -> Line<'a> {
+    if l.is_empty() {
+        Line::from("")
+    } else if let Some((label, value)) = l.split_once(':') {
+        Line::from(vec![
+            Span::styled(
+                format!("{label}:"),
+                styles.command.add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(value),
+        ])
+    } else {
+        Line::from(Span::styled(l, styles.status))
     }
 }
 

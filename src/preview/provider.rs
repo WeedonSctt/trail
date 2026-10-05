@@ -181,6 +181,36 @@ pub enum PreviewContent {
     /// further I/O.
     Image(ImagePreview),
 
+    /// Output of an external previewer (`[[preview.tool]]`), with its ANSI
+    /// colours kept as styled spans.
+    ///
+    /// Drawn without the line-number gutter — numbering character art or
+    /// rendered Markdown wrecks it — and clipped at the pane edge rather than
+    /// wrapped, since a tool told `{width}` has already laid its lines out.
+    External {
+        /// One entry per output line.
+        lines: Vec<HighlightedLine>,
+        /// The program's name, shown on the pane's top border so it is always
+        /// clear which preview is up.
+        tool: String,
+    },
+
+    /// An external previewer that did not produce a preview: not found, timed
+    /// out, exited non-zero, or printed nothing.
+    ///
+    /// The error is drawn in the theme's error colour, then the file's
+    /// metadata — the preview did not load, but what the listing knows about
+    /// the file is still worth showing.
+    ExternalFailed {
+        /// The program's name, for the top border.
+        tool: String,
+        /// What went wrong, one line each — the first names the tool.
+        error: Vec<String>,
+        /// The file's size and modification time, in the binary preview's
+        /// `"  Label : value"` form.
+        metadata: Vec<String>,
+    },
+
     /// Directory preview: a summary block followed by entry names.
     Directory {
         /// Total number of files (non-directories).
@@ -213,9 +243,50 @@ impl PreviewContent {
         match self {
             Self::Empty | Self::Loading | Self::Image(_) => None,
             Self::Text(lines) | Self::Binary(lines) => Some(lines.len()),
-            Self::Highlighted(lines) => Some(lines.len()),
+            Self::Highlighted(lines) | Self::External { lines, .. } => Some(lines.len()),
+            // The error, a blank separator line, then the metadata.
+            Self::ExternalFailed {
+                error, metadata, ..
+            } => Some(error.len() + 1 + metadata.len()),
             Self::Directory { entries, .. } => Some(entries.len() + DIRECTORY_HEADER_LINES),
         }
+    }
+
+    /// The external previewer behind this content, if it came from one.
+    pub fn external_tool(&self) -> Option<&str> {
+        match self {
+            Self::External { tool, .. } | Self::ExternalFailed { tool, .. } => Some(tool),
+            _ => None,
+        }
+    }
+}
+
+// ── PreviewTask ───────────────────────────────────────────────────────────────
+
+/// A running preview worker that can be cancelled, and is when this is dropped.
+///
+/// The generation guard already discards a late result, but not the work
+/// behind it: holding `j` through a folder of PDFs would otherwise leave one
+/// `pdftotext` per file running to completion. Aborting the task drops the
+/// child process handle, which is spawned `kill_on_drop`, so the process goes
+/// with it.
+///
+/// Abort-on-drop rather than an explicit call, so that every way a
+/// [`crate::app::state::PreviewSlot`] is replaced — a new selection, a tab
+/// switch — cancels what it was waiting for without each having to remember.
+#[derive(Debug)]
+pub struct PreviewTask(tokio::task::AbortHandle);
+
+impl PreviewTask {
+    /// Wraps the handle of a spawned worker task.
+    pub fn new(handle: tokio::task::AbortHandle) -> Self {
+        Self(handle)
+    }
+}
+
+impl Drop for PreviewTask {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -235,6 +306,10 @@ pub enum PreviewOutcome {
     /// The UI renders `PreviewContent::Loading` until the worker result
     /// merges in via `workers::merge`.
     Deferred,
+    /// Like `Deferred`, but the work is worth cancelling when the selection
+    /// moves on — an external process. The caller keeps the task until the
+    /// next preview replaces it, which aborts it.
+    Spawned(PreviewTask),
 }
 
 // ── PreviewCtx ────────────────────────────────────────────────────────────────
@@ -267,6 +342,14 @@ pub struct PreviewCtx {
     /// reported as truncated rather than silently cut. Read when the preview is
     /// requested, so a `:set` of the key takes effect from the next preview on.
     pub max_preview_lines: usize,
+    /// The external previewer to run for this entry, already resolved from the
+    /// `[[preview.tool]]` rules and the session's `P` toggles, or `None` when
+    /// the built-in preview applies.
+    ///
+    /// Resolved by [`crate::preview::external::resolve`] before the registry
+    /// is asked, because a provider sees only the entry and this context — it
+    /// cannot read the config or the toggles itself.
+    pub external: Option<crate::preview::external::ExternalSpec>,
 }
 
 // ── PreviewProvider trait ─────────────────────────────────────────────────────
@@ -281,7 +364,11 @@ pub struct PreviewCtx {
 /// once on the UI thread and shared across its lifetime.
 pub trait PreviewProvider: Send + Sync {
     /// Returns `true` if this provider can preview `entry`.
-    fn can_handle(&self, entry: &Entry) -> bool;
+    ///
+    /// `ctx` is what lets a provider's answer depend on more than the entry —
+    /// the external previewer takes a file only when `ctx.external` says a
+    /// rule applies to it.
+    fn can_handle(&self, entry: &Entry, ctx: &PreviewCtx) -> bool;
 
     /// Produces a preview for `entry`.
     ///
@@ -326,7 +413,7 @@ impl PreviewRegistry {
     /// matches (e.g. an empty directory or an unknown type).
     pub fn preview_for(&self, entry: &Entry, ctx: &PreviewCtx) -> PreviewOutcome {
         for provider in &self.providers {
-            if provider.can_handle(entry) {
+            if provider.can_handle(entry, ctx) {
                 return provider.preview(entry, ctx);
             }
         }

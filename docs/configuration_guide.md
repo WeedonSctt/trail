@@ -298,7 +298,9 @@ What to expect:
   reached. `external_timeout_ms` kills one that hangs.
 - **Moving on cancels it.** Selecting another entry kills the tool still working
   on the last one, so holding `j` through a folder of PDFs leaves at most one
-  `pdftotext` running.
+  `pdftotext` running. With the string form what is killed is the shell; a
+  program it started stops at its next attempt to write output rather than at
+  once — another reason to prefer the list form.
 - **A failure says why.** A missing program, a timeout, a non-zero exit (with
   the start of its stderr), or no output at all is shown in the error colour,
   followed by the file's size and modification time. `P` returns to the

@@ -171,6 +171,7 @@ async fn image_provider_renders_pixels_and_honours_being_switched_off() {
         generation: 7,
         text_sync_threshold_bytes: 256 * 1024,
         max_preview_lines: 2000,
+        external: None,
     };
     let provider = trail::preview::image::ImageProvider;
 
@@ -450,6 +451,7 @@ async fn text_provider_caps_lines_and_reports_truncation() {
         generation: 3,
         text_sync_threshold_bytes: 256 * 1024,
         max_preview_lines: 25,
+        external: None,
     };
 
     // Text previews always defer — the UI thread must never read the file.
@@ -515,6 +517,7 @@ async fn the_worker_classifies_a_binary_file_and_the_answer_is_cached() {
         generation: state.preview.generation,
         text_sync_threshold_bytes: 256 * 1024,
         max_preview_lines: 2000,
+        external: None,
     };
 
     // An unclassified file goes to the worker rather than being probed here.
@@ -559,6 +562,7 @@ async fn the_worker_classifies_a_binary_file_and_the_answer_is_cached() {
         generation: state.preview.generation,
         text_sync_threshold_bytes: 256 * 1024,
         max_preview_lines: 2000,
+        external: None,
     };
     assert!(
         matches!(
@@ -566,5 +570,199 @@ async fn the_worker_classifies_a_binary_file_and_the_answer_is_cached() {
             PreviewOutcome::Ready(PreviewContent::Binary(_))
         ),
         "a file already known to be binary is previewed synchronously"
+    );
+}
+
+// ── External previewers ───────────────────────────────────────────────────────
+
+/// A config whose one rule shows `.trailtest` files with the platform's own
+/// "print this file" command, so the test runs a real program on every target.
+fn external_config(dir: &Path, default: &str) -> trail::config::TrailConfig {
+    let command = if cfg!(windows) {
+        r#"["cmd", "/C", "type", "{path}"]"#
+    } else {
+        r#"["cat", "{path}"]"#
+    };
+    let path = dir.join("trail.toml");
+    std::fs::write(
+        &path,
+        format!(
+            "[[preview.tool]]\nextensions = [\"trailtest\", \"png\"]\ncommand = {command}\ndefault = \"{default}\"\n"
+        ),
+    )
+    .unwrap();
+    trail::config::load(Some(&path)).unwrap()
+}
+
+/// What the registry does with `entry` under `config` and `overrides`: the
+/// outcome, and the content a deferred preview delivers.
+async fn preview_through_registry(
+    entry: &trail::app::state::Entry,
+    config: &trail::config::TrailConfig,
+    overrides: &std::collections::HashMap<String, trail::config::preview_tool::PreviewMode>,
+) -> (&'static str, trail::preview::provider::PreviewContent) {
+    use trail::preview::provider::{PreviewCtx, PreviewOutcome, PreviewRegistry};
+    use trail::workers::WorkerMsg;
+
+    let mut registry = PreviewRegistry::new();
+    trail::preview::register_defaults(&mut registry);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+    let ctx = PreviewCtx {
+        show_hidden: false,
+        worker_tx: tx,
+        generation: 1,
+        text_sync_threshold_bytes: 256 * 1024,
+        max_preview_lines: 2000,
+        external: trail::preview::external::resolve(&entry.path, config, overrides, (80, 24)),
+    };
+    let outcome = registry.preview_for(entry, &ctx);
+    let kind = match &outcome {
+        PreviewOutcome::Ready(_) => "ready",
+        PreviewOutcome::Deferred => "deferred",
+        PreviewOutcome::Spawned(_) => "spawned",
+    };
+    let content = match outcome {
+        PreviewOutcome::Ready(content) => content,
+        // `outcome` is held until the end of this arm, so a spawned task is
+        // not cancelled while its result is awaited.
+        _ => match tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await {
+            Ok(Some(WorkerMsg::Preview { content, .. }))
+            | Ok(Some(WorkerMsg::ImageMeta { content, .. })) => content,
+            other => panic!("no preview arrived: {other:?}"),
+        },
+    };
+    (kind, content)
+}
+
+#[tokio::test]
+async fn a_rule_routes_a_file_to_its_tool_and_shows_the_output() {
+    use trail::preview::provider::PreviewContent;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("doc.trailtest"), "from the tool\n").unwrap();
+    let config = external_config(dir.path(), "external");
+    let state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let entry = state
+        .entries
+        .iter()
+        .find(|e| e.file_name == "doc.trailtest")
+        .unwrap()
+        .clone();
+
+    let (kind, content) =
+        preview_through_registry(&entry, &config, &std::collections::HashMap::new()).await;
+    assert_eq!(kind, "spawned", "an external preview is cancellable");
+    match content {
+        PreviewContent::External { lines, tool } => {
+            assert_eq!(tool, if cfg!(windows) { "cmd" } else { "cat" });
+            let text: String = lines[0].iter().map(|s| s.text.as_str()).collect();
+            assert_eq!(text, "from the tool");
+        }
+        other => panic!("expected External, got {other:?}"),
+    }
+}
+
+/// `P` flips a file type to the built-in preview: the same file then goes to
+/// the provider it would have had with no rule at all.
+#[tokio::test]
+async fn the_builtin_mode_falls_through_to_the_usual_provider() {
+    use trail::config::preview_tool::PreviewMode;
+    use trail::preview::provider::PreviewContent;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("doc.trailtest"), "plain text\n").unwrap();
+    let config = external_config(dir.path(), "external");
+    let state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let entry = state
+        .entries
+        .iter()
+        .find(|e| e.file_name == "doc.trailtest")
+        .unwrap()
+        .clone();
+
+    let overrides =
+        std::collections::HashMap::from([("trailtest".to_owned(), PreviewMode::Builtin)]);
+    let (kind, content) = preview_through_registry(&entry, &config, &overrides).await;
+    assert_eq!(kind, "deferred", "the highlight worker");
+    assert!(
+        matches!(
+            content,
+            PreviewContent::Text(_) | PreviewContent::Highlighted(_)
+        ),
+        "{content:?}"
+    );
+}
+
+/// The external provider sits ahead of the image provider, so a rule can take
+/// an image type — but only when its mode says so.
+#[tokio::test]
+async fn a_rule_can_take_an_image_type_only_in_external_mode() {
+    use trail::config::preview_tool::PreviewMode;
+    use trail::preview::provider::PreviewContent;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::copy("tests/fixtures/sample.png", dir.path().join("pic.png")).unwrap();
+    let config = external_config(dir.path(), "builtin");
+    let state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let entry = state
+        .entries
+        .iter()
+        .find(|e| e.file_name == "pic.png")
+        .unwrap()
+        .clone();
+
+    // Checked at resolution rather than through the registry, which would run
+    // the image decoder and need the process-wide graphics configuration.
+    assert!(
+        trail::preview::external::resolve(
+            &entry.path,
+            &config,
+            &std::collections::HashMap::new(),
+            (80, 24)
+        )
+        .is_none(),
+        "builtin by default: the image provider keeps it"
+    );
+
+    let overrides = std::collections::HashMap::from([("png".to_owned(), PreviewMode::External)]);
+    let (kind, content) = preview_through_registry(&entry, &config, &overrides).await;
+    assert_eq!(kind, "spawned");
+    assert!(
+        matches!(content, PreviewContent::External { .. }),
+        "{content:?}"
+    );
+}
+
+/// The generation guard covers external results like any other: a late one
+/// for a selection the user has left is dropped.
+#[test]
+fn a_stale_external_result_is_dropped() {
+    use trail::preview::provider::PreviewContent;
+    use trail::workers::WorkerMsg;
+
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "x").unwrap();
+    let mut state = trail::app::state::AppState::new(dir.path().to_owned()).unwrap();
+    let path = state.selected_entry().unwrap().path.clone();
+    let old = state.preview.begin(&path);
+    state.preview.begin(&path); // the selection moved on and came back
+    state.preview.content = PreviewContent::Loading;
+
+    trail::workers::merge(
+        WorkerMsg::Preview {
+            generation: old,
+            path,
+            content: PreviewContent::External {
+                lines: Vec::new(),
+                tool: "late".to_owned(),
+            },
+            truncated: false,
+            is_text: None,
+        },
+        &mut state,
+    );
+    assert!(
+        matches!(state.preview.content, PreviewContent::Loading),
+        "the stale result must not land"
     );
 }

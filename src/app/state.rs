@@ -174,7 +174,7 @@ pub struct GitDirState {
 /// late-arriving worker results for a since-abandoned selection can be
 /// discarded in `workers::merge` (Phase 4). The field is defined here in
 /// Phase 1 so the state shape is stable — the guard is exercised in Phase 4/5.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default)]
 pub struct PreviewSlot {
     /// The path whose preview is currently being displayed (or loading).
     pub for_path: PathBuf,
@@ -195,6 +195,20 @@ pub struct PreviewSlot {
     /// render, which makes every scroll request a no-op — harmless, because no
     /// key can be pressed before the first frame is drawn.
     pub viewport_height: usize,
+    /// Width in columns of the pane's interior, recorded by the render pass
+    /// alongside `viewport_height`.
+    ///
+    /// Read when an external previewer is resolved, for `{width}`. Zero until
+    /// the first frame, when [`PreviewSlot::pane_size`] assumes a standard
+    /// terminal instead.
+    pub viewport_width: usize,
+    /// The worker producing the pending preview, when it is one worth
+    /// cancelling — an external previewer's process.
+    ///
+    /// Replacing or dropping it kills the process (see
+    /// [`crate::preview::provider::PreviewTask`]), so a selection that has moved
+    /// on does not leave the old tool running.
+    pub task: Option<crate::preview::provider::PreviewTask>,
     /// Whether the loaded content stops short of the end of the file.
     ///
     /// Set from `WorkerMsg::Preview` when the highlight worker hit
@@ -232,6 +246,36 @@ impl PreviewSlot {
             self.truncated = false;
         }
         self.generation
+    }
+
+    /// Clears the slot for a different view — a tab switch — keeping what is
+    /// not about the old preview.
+    ///
+    /// The generation keeps counting rather than restarting at zero, so a late
+    /// result from before the reset can never match a request made after it.
+    /// The pane size is kept because the pane has not changed size, and the
+    /// next preview is requested before the next frame can record it. The
+    /// running task, if any, is dropped, which cancels it.
+    pub fn reset(&mut self) {
+        *self = PreviewSlot {
+            generation: self.generation,
+            viewport_height: self.viewport_height,
+            viewport_width: self.viewport_width,
+            ..PreviewSlot::default()
+        };
+    }
+
+    /// The pane's interior size as `(columns, rows)`, for an external
+    /// previewer's `{width}` and `{height}`.
+    ///
+    /// Before the first frame has measured it, assumes
+    /// [`crate::preview::external::ASSUMED_PANE`].
+    pub fn pane_size(&self) -> (u16, u16) {
+        if self.viewport_width == 0 || self.viewport_height == 0 {
+            return crate::preview::external::ASSUMED_PANE;
+        }
+        let clamp = |n: usize| u16::try_from(n).unwrap_or(u16::MAX);
+        (clamp(self.viewport_width), clamp(self.viewport_height))
     }
 
     /// Returns the largest useful scroll offset: the offset at which the last
@@ -388,6 +432,15 @@ pub struct AppState {
     pub filter: Option<FilterState>,
     /// Current preview pane content + generation counter.
     pub preview: PreviewSlot,
+    /// Which preview each file type is in this session, where `P` has
+    /// switched it away from its rule's `default`: normalised extension →
+    /// mode.
+    ///
+    /// Process-wide rather than per tab — it describes how a file type is
+    /// shown, not a place you are working — and never saved, the same as
+    /// `:set`.
+    pub preview_mode_overrides:
+        std::collections::HashMap<String, crate::config::preview_tool::PreviewMode>,
     /// Git repository state for the current directory.
     /// `None` before the git worker reports back or outside a git repo.
     pub git: Option<GitDirState>,
@@ -526,6 +579,7 @@ impl AppState {
             history: NavigationHistory::new(),
             filter: None,
             preview: PreviewSlot::default(),
+            preview_mode_overrides: std::collections::HashMap::new(),
             git: None,
             status: StatusBarState::default(),
             show_hidden: false,
@@ -1138,7 +1192,7 @@ impl AppState {
         self.sort = new_sort;
         self.git = None;
         self.filter = None;
-        self.preview = PreviewSlot::default();
+        self.preview.reset();
         self.mode = Mode::Navigation;
         self.load_dir(&new_cwd)?;
         Ok(())
@@ -1165,7 +1219,7 @@ impl AppState {
         self.selected = 0;
         self.git = None;
         self.filter = None;
-        self.preview = PreviewSlot::default();
+        self.preview.reset();
         self.mode = Mode::Navigation;
         self.history = NavigationHistory::new();
         self.load_dir(&new_cwd)?;
@@ -1194,7 +1248,7 @@ impl AppState {
         self.sort = new_sort;
         self.git = None;
         self.filter = None;
-        self.preview = PreviewSlot::default();
+        self.preview.reset();
         self.mode = Mode::Navigation;
         self.load_dir(&new_cwd)?;
         Ok(true)

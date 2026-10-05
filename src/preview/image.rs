@@ -27,7 +27,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 pub struct ImageProvider;
 
 impl PreviewProvider for ImageProvider {
-    fn can_handle(&self, entry: &Entry) -> bool {
+    fn can_handle(&self, entry: &Entry, _ctx: &PreviewCtx) -> bool {
         if entry.kind != EntryKind::File {
             return false;
         }

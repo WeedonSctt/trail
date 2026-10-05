@@ -34,7 +34,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 pub struct BinaryProvider;
 
 impl PreviewProvider for BinaryProvider {
-    fn can_handle(&self, entry: &Entry) -> bool {
+    fn can_handle(&self, entry: &Entry, _ctx: &PreviewCtx) -> bool {
         if entry.kind != EntryKind::File {
             return false;
         }
@@ -83,23 +83,14 @@ pub fn build_binary_preview(path: &Path, metadata: Option<&std::fs::Metadata>) -
         }
     };
 
-    // The same formatters the listing's details column uses, so a file cannot
-    // be described one way in the pane and another in the list.
-    let size_str = crate::metafmt::size(meta.len());
-
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("unknown")
         .to_uppercase();
 
-    let modified = crate::metafmt::modified(meta.modified().ok());
-
-    let mut lines = vec![
-        format!("  Type     : {} binary", ext),
-        format!("  Size     : {}", size_str),
-        format!("  Modified : {}", modified),
-    ];
+    let mut lines = vec![format!("  Type     : {} binary", ext)];
+    lines.extend(size_and_modified(meta));
 
     // Include a hex dump hint if the file is non-empty.
     if meta.len() > 0 {
@@ -108,6 +99,38 @@ pub fn build_binary_preview(path: &Path, metadata: Option<&std::fs::Metadata>) -
     }
 
     PreviewContent::Binary(lines)
+}
+
+/// The `Size` and `Modified` lines for a file, in the `"  Label : value"` form
+/// the preview panel draws with a bold label.
+///
+/// Uses `metadata` when the listing already has it, else reads it. Says why
+/// when it cannot be read rather than returning nothing. Makes no claim about
+/// what kind of file it is, which is why the failed-external-preview pane uses
+/// this rather than [`build_binary_preview`]: a Markdown file whose previewer
+/// failed is not a binary.
+pub fn file_metadata_lines(path: &Path, metadata: Option<&std::fs::Metadata>) -> Vec<String> {
+    match metadata {
+        Some(meta) => size_and_modified(meta),
+        None => match std::fs::metadata(path) {
+            Ok(meta) => size_and_modified(&meta),
+            Err(e) => vec![format!("  Cannot read metadata: {e}")],
+        },
+    }
+}
+
+/// The two lines shared by every metadata block.
+///
+/// Formatted by `metafmt`, the same as the listing's details column, so a file
+/// cannot be described one way in the pane and another in the list.
+fn size_and_modified(meta: &std::fs::Metadata) -> Vec<String> {
+    vec![
+        format!("  Size     : {}", crate::metafmt::size(meta.len())),
+        format!(
+            "  Modified : {}",
+            crate::metafmt::modified(meta.modified().ok())
+        ),
+    ]
 }
 
 #[cfg(test)]

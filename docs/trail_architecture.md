@@ -51,6 +51,7 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Metadata formatter (`src/metafmt.rs`) | Single place that decides how a size and a timestamp are spelled for a person, shared by the details column and the binary/image previews so they cannot disagree about the same file |
 | Preview panel | Dispatches by entry type to a `PreviewProvider` trait implementation; owns the pane's scroll offset — it records the pane height and clamps the offset each frame, because nothing else knows the pane's size. Its top border carries the entry's name and, when `[general] show_version` asks for it, Trail's version |
 | ANSI parser (`src/preview/ansi.rs`) | Turns an external previewer's output into styled preview spans: SGR colours (16, 256 and 24-bit, foreground and background) and attributes are kept, and every other escape sequence — cursor movement, clears, OSC titles, sixel and kitty image payloads — is discarded before the text is sanitized, so a tool's output can colour the pane but never act on the terminal. Written in the crate rather than taken from `ansi-to-tui`, whose releases each pin a `ratatui` major |
+| External previewer (`src/preview/external.rs`) | Decides, before the registry is asked, whether an entry gets an external preview: the `[[preview.tool]]` rule for its extension, in the session's `P` mode for that extension or else the rule's `default`, expanded against the pane size. The answer travels in `PreviewCtx::external`, because a provider sees only the entry and the context. `ExternalProvider` is registered second — after directories, ahead of images so a rule can take an image type — and always defers to the worker, returning a task that kills the program when the next preview replaces it |
 | Previewer rules (`src/config/preview_tool.rs`) | The `[[preview.tool]]` rules: which external program previews which file types. Validated at load — an extension in two rules, an unknown placeholder, or any placeholder in the string form is a config error — and never probes `PATH`. The list form is spawned directly with placeholders substituted inside one argument; the string form runs through `[general] shell` and reads the path from `TRAIL_PREVIEW_PATH`, because substituting a file name into shell text is injection |
 | Status bar | Pure reflection of current state — mode badge, tab indicator, filter, branch, entry count. **Not** the path: Command Mode takes the whole row, so anything that must stay visible while a command is typed cannot live here (see the navigation panel's borders) |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
@@ -141,6 +142,7 @@ Everything that is optional, variable-latency, or explicitly deferred in the spe
 | Git status worker | Computes repo indicator, branch, optional per-file status; cached, invalidated on fs events |
 | Filesystem watcher | Watches the current directory via `notify`; debounces bursts of events (e.g. a `git checkout`) into a single refresh signal |
 | Preview worker | Reads a file off-thread, classifies it as text or binary, and highlights the text with `syntect`. The classification travels back with the preview and is cached on the entry, so the directory listing never has to read a file to decide what it is |
+| External preview worker (`src/workers/external_preview.rs`) | Runs a `[[preview.tool]]` program with stdin null and stdout/stderr piped (so it can neither draw over the alternate screen nor read keystrokes) and, on Windows, `CREATE_NO_WINDOW`. Reads stdout to `[preview] max_lines` or `[general] text_sync_threshold_kb` and kills the program at either cap or at `external_timeout_ms`; parses what it read through the ANSI parser. Spawned `kill_on_drop` and cancelled by the next preview, so a stale selection leaves no process behind — for the string form that kills the shell, and a program the shell started stops at its next write |
 | Image worker | Decodes the image off-thread and builds the encoder state for the active graphics protocol; resize and re-encode happen on the UI thread only when the preview pane changes size |
 
 ### Program logic
@@ -153,6 +155,9 @@ on directory_change or fs_event:
 on selection_change(entry):
     match entry.kind:
         Directory      -> synchronous (cheap: read_dir + counts)
+        Tool rule, external mode
+                       -> spawn_task: run the tool (capped, timed, killed on the next
+                          selection) -> send WorkerResult::Preview(External | ExternalFailed)
         Image          -> spawn_task: decode_image(path) -> send WorkerResult::ImageMeta(...)
         known Binary   -> synchronous (metadata the listing already read)
         anything else  -> spawn_task: preview(path) -> classify, highlight if text

@@ -43,7 +43,7 @@ const TEXT_PREVIEW_MAX_LINES: usize = 500;
 pub struct TextProvider;
 
 impl PreviewProvider for TextProvider {
-    fn can_handle(&self, entry: &Entry) -> bool {
+    fn can_handle(&self, entry: &Entry, _ctx: &PreviewCtx) -> bool {
         // Only handle regular files; directories go to DirectoryProvider.
         if entry.kind != EntryKind::File {
             return false;

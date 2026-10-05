@@ -11,6 +11,7 @@
 //!   `state.preview.generation` and drops the message if they don't match.
 //! - Workers never touch `ratatui`/`crossterm` state directly.
 
+pub mod external_preview;
 pub mod fswatch;
 pub mod git;
 pub mod highlight;
@@ -204,6 +205,9 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             // Set after both guards, so a stale worker can never mark the
             // current preview as truncated.
             state.preview.truncated = truncated;
+            // The task that produced this has finished; nothing is left to
+            // cancel.
+            state.preview.task = None;
             state.dirty = true;
             tracing::debug!(?path, generation, truncated, "merged Preview worker result");
         }

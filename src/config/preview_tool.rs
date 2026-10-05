@@ -25,14 +25,8 @@ use crate::config::SetConfigError;
 /// Environment variable holding the previewed file's path, set for both forms.
 pub const ENV_PATH: &str = "TRAIL_PREVIEW_PATH";
 /// Environment variable holding the preview pane's width in columns.
-// clippy: dead_code — no caller in the binary until the external-preview
-// worker and the `P` toggle land in the next commits; removed there.
-#[allow(dead_code)]
 pub const ENV_WIDTH: &str = "TRAIL_PREVIEW_WIDTH";
 /// Environment variable holding the preview pane's height in rows.
-// clippy: dead_code — no caller in the binary until the external-preview
-// worker and the `P` toggle land in the next commits; removed there.
-#[allow(dead_code)]
 pub const ENV_HEIGHT: &str = "TRAIL_PREVIEW_HEIGHT";
 
 /// Smallest accepted `[preview] external_timeout_ms`.
@@ -135,9 +129,6 @@ fn normalized_extensions<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>,
 /// [`validate`] guarantees an extension appears in at most one rule, so the
 /// first match is the only one.
 #[must_use]
-// clippy: dead_code — no caller in the binary until the external-preview
-// worker and the `P` toggle land in the next commits; removed there.
-#[allow(dead_code)]
 pub fn find_rule<'a>(rules: &'a [PreviewToolRule], ext: &str) -> Option<&'a PreviewToolRule> {
     rules.iter().find(|r| r.extensions.iter().any(|e| e == ext))
 }

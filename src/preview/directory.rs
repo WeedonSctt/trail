@@ -26,7 +26,7 @@ const MAX_PREVIEW_ENTRIES: usize = 64;
 pub struct DirectoryProvider;
 
 impl PreviewProvider for DirectoryProvider {
-    fn can_handle(&self, entry: &Entry) -> bool {
+    fn can_handle(&self, entry: &Entry, _ctx: &PreviewCtx) -> bool {
         entry.kind == EntryKind::Dir
     }
 

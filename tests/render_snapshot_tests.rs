@@ -51,10 +51,14 @@ async fn render_to_string(state: &mut AppState, width: u16, height: u16) -> Stri
             generation: state.preview.generation,
             text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
             max_preview_lines: state.config.preview.max_lines,
+            external: None,
         };
-        let content = match registry.preview_for(&entry, &ctx) {
+        // Held, not matched by value: a `Spawned` task is cancelled when it
+        // is dropped, so it has to outlive the wait for its result.
+        let outcome = registry.preview_for(&entry, &ctx);
+        let content = match outcome {
             PreviewOutcome::Ready(c) => c,
-            PreviewOutcome::Deferred => {
+            PreviewOutcome::Deferred | PreviewOutcome::Spawned(_) => {
                 if let Ok(Some(WorkerMsg::Preview { content, .. })) =
                     tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv()).await
                 {
@@ -972,4 +976,140 @@ fn a_foreground_only_span_leaves_the_background_unset() {
     assert_eq!(cell.fg, Color::Green);
     assert_eq!(cell.bg, Color::Reset);
     assert_eq!(cell.modifier, Modifier::empty());
+}
+
+// ── External previewers ───────────────────────────────────────────────────────
+
+/// Renders `state` as it stands — no preview is computed — and returns the
+/// buffer as text, one `\n`-terminated row per terminal row.
+fn render_as_is(state: &mut AppState, width: u16, height: u16) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    trail::ui::render(&mut terminal, state).expect("render failed");
+    let buf = terminal.backend().buffer().clone();
+    let mut out = String::new();
+    for y in 0..height {
+        for x in 0..width {
+            out.push_str(buf[(x, y)].symbol());
+        }
+        out.push('\n');
+    }
+    out
+}
+
+fn external_lines(texts: &[&str]) -> Vec<Vec<trail::preview::provider::StyledSpan>> {
+    texts
+        .iter()
+        .map(|t| vec![trail::preview::provider::StyledSpan::fg(*t, None)])
+        .collect()
+}
+
+/// A tool's output is drawn as the tool laid it out: no line-number gutter in
+/// front of it, which would wreck character art and rendered Markdown.
+#[test]
+fn external_output_is_drawn_without_a_gutter() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.content = PreviewContent::External {
+        lines: external_lines(&["FIRSTLINE", "SECONDLINE"]),
+        tool: "pdftotext".to_owned(),
+    };
+    let rendered = render_as_is(&mut state, 80, 12);
+
+    let row = rendered
+        .lines()
+        .find(|l| l.contains("FIRSTLINE"))
+        .expect("the output is drawn");
+    assert!(
+        !row.contains("   1  FIRSTLINE"),
+        "no line number in front: {row:?}"
+    );
+    // Straight after the pane's left border.
+    assert!(row.contains("│FIRSTLINE"), "{row:?}");
+}
+
+/// Which preview is up has to be visible: `P` switches between two views of
+/// the same file.
+#[test]
+fn the_tool_is_named_on_the_preview_border() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.content = PreviewContent::External {
+        lines: external_lines(&["x"]),
+        tool: "pdftotext".to_owned(),
+    };
+    let rendered = render_as_is(&mut state, 80, 12);
+    let top = rendered.lines().next().unwrap();
+    assert!(top.contains("alpha_dir ─ pdftotext"), "{top:?}");
+
+    // A built-in preview carries no label.
+    state.preview.content = PreviewContent::Text(vec!["   1  x".to_owned()]);
+    let rendered = render_as_is(&mut state, 80, 12);
+    assert!(!rendered.lines().next().unwrap().contains("pdftotext"));
+}
+
+/// A long output line is clipped at the pane edge rather than wrapped: a tool
+/// told `{width}` has already laid it out, and wrapping breaks `chafa` art.
+#[test]
+fn a_long_external_line_is_clipped_not_wrapped() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let long = format!("START{}TAILMARK", "x".repeat(200));
+    state.preview.content = PreviewContent::External {
+        lines: external_lines(&[long.as_str(), "NEXTLINE"]),
+        tool: "t".to_owned(),
+    };
+    let rendered = render_as_is(&mut state, 80, 12);
+    assert!(
+        !rendered.contains("TAILMARK"),
+        "the end of the line is clipped"
+    );
+    let start_row = rendered.lines().position(|l| l.contains("START")).unwrap();
+    let next_row = rendered
+        .lines()
+        .position(|l| l.contains("NEXTLINE"))
+        .unwrap();
+    assert_eq!(next_row, start_row + 1, "the next line is not pushed down");
+}
+
+/// A failed tool shows why, in the error colour, then the file's metadata.
+#[test]
+fn a_failed_tool_shows_the_error_then_the_metadata() {
+    use ratatui::style::Color;
+
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.content = PreviewContent::ExternalFailed {
+        tool: "pdftotext".to_owned(),
+        error: vec!["pdftotext: not found on PATH".to_owned()],
+        metadata: vec![
+            "  Size     : 12 B".to_owned(),
+            "  Modified : 2026-10-05 10:00".to_owned(),
+        ],
+    };
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    trail::ui::render(&mut terminal, &mut state).expect("render failed");
+    let buf = terminal.backend().buffer().clone();
+
+    let (ex, ey) = find_cell(&buf, "pdftotext: not found").expect("the error is drawn");
+    assert_eq!(buf[(ex, ey)].fg, Color::Red, "in the theme's error colour");
+    let (_, sy) = find_cell(&buf, "Size").expect("the metadata is drawn");
+    assert_eq!(sy, ey + 2, "after the error and one blank line");
+    assert!(find_cell(&buf, "Modified").is_some());
+}
+
+/// The renderer records the pane's width, which `{width}` is resolved from.
+#[test]
+fn the_pane_width_is_recorded_for_the_next_preview() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    assert_eq!(
+        state.preview.pane_size(),
+        trail::preview::external::ASSUMED_PANE,
+        "assumed before the first frame"
+    );
+    render_as_is(&mut state, 100, 30);
+    let (w, h) = state.preview.pane_size();
+    assert!(w > 0 && w < 100, "the preview pane's interior: {w}");
+    assert!(h > 0 && h < 30, "{h}");
 }

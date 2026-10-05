@@ -317,6 +317,11 @@ fn load_configured(source: &config::ConfigSource) -> Result<(config::TrailConfig
 /// The `tx` sender is passed through to `PreviewCtx` so providers can spawn
 /// async worker tasks (highlight worker, image decode worker).
 fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::Sender<WorkerMsg>) {
+    // Whatever the last preview was still waiting on is no longer wanted.
+    // Dropping the task kills an external previewer's process; the generation
+    // guard would only have discarded its output.
+    state.preview.task = None;
+
     if let Some(entry) = state.selected_entry().cloned() {
         if let Some(engine) = &state.plugin_engine {
             engine.fire_on_select(&entry.path);
@@ -325,12 +330,21 @@ fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::
         // a different entry — a re-preview of the same path (filesystem watch,
         // `R`, hidden-file toggle) leaves the reader where they were.
         let generation = state.preview.begin(&entry.path);
+        // Resolved here, from state the UI thread already holds, because a
+        // provider sees only the entry and the context.
+        let external = preview::external::resolve(
+            &entry.path,
+            &state.config,
+            &state.preview_mode_overrides,
+            state.preview.pane_size(),
+        );
         let ctx = PreviewCtx {
             show_hidden: state.show_hidden,
             worker_tx: tx.clone(),
             generation,
             text_sync_threshold_bytes: state.config.general.text_sync_threshold_kb * 1024,
             max_preview_lines: state.config.preview.max_lines,
+            external,
         };
         match registry.preview_for(&entry, &ctx) {
             PreviewOutcome::Ready(content) => {
@@ -340,6 +354,11 @@ fn refresh_preview(state: &mut AppState, registry: &PreviewRegistry, tx: &mpsc::
                 // A worker was spawned. Show loading placeholder until the
                 // channel message arrives and merge() applies the content.
                 state.preview.content = PreviewContent::Loading;
+            }
+            PreviewOutcome::Spawned(task) => {
+                // As `Deferred`, and kept so the next preview can cancel it.
+                state.preview.content = PreviewContent::Loading;
+                state.preview.task = Some(task);
             }
         }
     } else {
