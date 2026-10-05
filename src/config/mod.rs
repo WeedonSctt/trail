@@ -4,6 +4,7 @@
 //! theme module. Strict-mode deserialization rejects unknown keys.
 
 pub mod last_used;
+pub mod preview_tool;
 pub mod schema;
 
 use std::path::{Path, PathBuf};
@@ -220,10 +221,21 @@ struct PreviewOverrides {
     image_cell_width: Option<u16>,
     image_cell_height: Option<u16>,
     max_lines: Option<usize>,
+    external_timeout_ms: Option<u64>,
+    tool: Option<Vec<preview_tool::PreviewToolRule>>,
 }
 
 impl PreviewOverrides {
     fn apply_to(self, preview: &mut PreviewConfig) {
+        if let Some(external_timeout_ms) = self.external_timeout_ms {
+            preview.external_timeout_ms = external_timeout_ms;
+        }
+        // The user's rules replace the defaults whole rather than merging by
+        // extension: a list that merged would make "which rule covers .png?"
+        // depend on two files at once.
+        if let Some(tool) = self.tool {
+            preview.tool = tool;
+        }
         if let Some(image_protocol) = self.image_protocol {
             preview.image_protocol = image_protocol;
         }
@@ -569,6 +581,80 @@ directory = "not-a-color"
         let err = load(Some(&path)).unwrap_err().to_string();
         assert!(err.contains("theme.directory"));
         assert!(err.contains("named color"));
+    }
+
+    /// Trail ships with no previewer rules: nothing runs, and nothing probes
+    /// `PATH`, until the user writes one.
+    #[test]
+    fn the_shipped_config_has_no_previewer_rules() {
+        let cfg = load(None).unwrap();
+        assert!(cfg.preview.tool.is_empty());
+        assert_eq!(cfg.preview.external_timeout_ms, 3000);
+    }
+
+    #[test]
+    fn user_previewer_rules_load_in_both_forms() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(
+            &path,
+            r#"
+[preview]
+external_timeout_ms = 5000
+
+[[preview.tool]]
+extensions = [".PDF"]
+command = ["pdftotext", "-layout", "{path}", "-"]
+
+[[preview.tool]]
+extensions = ["md"]
+command = "glow \"$TRAIL_PREVIEW_PATH\""
+default = "builtin"
+"#,
+        )
+        .unwrap();
+
+        let cfg = load(Some(&path)).unwrap();
+        assert_eq!(cfg.preview.external_timeout_ms, 5000);
+        assert_eq!(cfg.preview.tool.len(), 2);
+        assert_eq!(cfg.preview.tool[0].extensions, ["pdf"]);
+        assert_eq!(
+            cfg.preview.tool[1].default,
+            preview_tool::PreviewMode::Builtin
+        );
+        // The neighbouring keys keep their defaults.
+        assert_eq!(cfg.preview.max_lines, 2000);
+    }
+
+    #[test]
+    fn a_previewer_rule_with_a_placeholder_in_the_string_form_fails_to_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(
+            &path,
+            r#"
+[[preview.tool]]
+extensions = ["md"]
+command = "glow {path}"
+"#,
+        )
+        .unwrap();
+
+        let err = load(Some(&path)).unwrap_err().to_string();
+        assert!(err.contains("preview.tool #1"), "names the rule: {err}");
+        assert!(
+            err.contains("TRAIL_PREVIEW_PATH"),
+            "says what to use: {err}"
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_external_timeout_fails_to_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trail.toml");
+        std::fs::write(&path, "[preview]\nexternal_timeout_ms = 50\n").unwrap();
+        let err = load(Some(&path)).unwrap_err().to_string();
+        assert!(err.contains("external_timeout_ms"), "{err}");
     }
 
     #[test]

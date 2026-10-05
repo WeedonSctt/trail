@@ -114,6 +114,51 @@ image_cell_height = 0
 # long files, at proportionally more worker time and memory per preview; the
 # accepted range is 1 to 100000.
 max_lines = 2000
+# How long an external previewer (below) may run, in milliseconds, before it is
+# killed and the pane says it timed out.  Only matters once a rule exists.
+# Raise it for a slow tool on large files; the cost is a longer wait on a file
+# the tool chokes on.  Accepted range 100 to 60000.
+external_timeout_ms = 3000
+# External previewers: run a program for a file type and show its output in the
+# preview pane.  None are active -- Trail never runs anything you did not ask
+# for, and never searches PATH, so these cost nothing until you write one.
+# `P` switches the selected file's type between the tool and the built-in
+# preview for the rest of the session.
+#
+# Each rule is a [[preview.tool]] table:
+#   extensions  the file types it covers ("pdf" and ".PDF" are the same)
+#   command     a list, spawned directly, where {path} {width} {height} are
+#               replaced inside an argument -- the safe form, since a file name
+#               can never become a second argument; or a string, run through
+#               [general] shell so pipes work, which takes no placeholders
+#               (that would be shell injection) and reads the file from the
+#               environment instead: $TRAIL_PREVIEW_PATH in sh and PowerShell,
+#               %TRAIL_PREVIEW_PATH% in cmd, plus TRAIL_PREVIEW_WIDTH/HEIGHT
+#   default     external (the default) or builtin -- which one P starts from
+#
+# A .cmd or .bat tool (npm shims) cannot be spawned without an interpreter:
+# write it as ["cmd", "/C", "tool", ...].  Output is cut at max_lines and at
+# text_sync_threshold_kb, and the tool is killed when either is reached.
+#
+# [[preview.tool]]
+# extensions = ["pdf"]
+# command    = ["pdftotext", "-l", "10", "-layout", "{path}", "-"]
+#
+# [[preview.tool]]
+# extensions = ["png", "jpg", "jpeg", "webp"]
+# command    = ["chafa", "-f", "symbols", "--size", "{width}x{height}", "{path}"]
+# default    = "builtin"     # keep the inline image; P switches to chafa
+#
+# [[preview.tool]]
+# extensions = ["md"]
+# command    = "glow -s dark -w $TRAIL_PREVIEW_WIDTH \"$TRAIL_PREVIEW_PATH\""
+#
+# [[preview.tool]]
+# extensions = ["mp4", "mkv", "mov", "mp3", "flac"]
+# command    = ["ffprobe", "-v", "error", "-show_format", "-show_streams", "{path}"]
+# (only stdout is shown, and ffprobe's usual summary goes to stderr -- hence
+# -show_format/-show_streams rather than the bare command)
+tool = []
 
 [theme]
 foreground = "white"

@@ -161,6 +161,11 @@ Controls the preview pane, including inline image rendering.
   Read when a preview is requested, not at render time: `:set max_lines 8000`
   therefore applies from the next preview onwards. Move off the entry and back to
   reload the one on screen.
+- `external_timeout_ms` (Integer, `100`–`60000`): How long an external previewer
+  may run before it is killed and the pane reports a timeout. Only matters once
+  a `[[preview.tool]]` rule exists. (Default: `3000`)
+- `tool` (Array of tables): External previewer rules — see
+  [External previewers](#external-previewers) below. (Default: none)
 
 ##### How detection works
 
@@ -224,6 +229,90 @@ fine — each is resolved independently.
 PNG, JPEG, GIF, BMP, ICO, TIFF, WebP and AVIF are decoded. SVG is listed as an
 image extension but is not rasterised — it falls back to a metadata preview
 reporting the decode failure.
+
+##### External previewers
+
+Trail's own preview knows directories, images, text and binary metadata. For
+anything else — the text of a PDF, rendered Markdown, a video's streams — you
+can have it run a program and show that program's output in the preview pane,
+the way lf, yazi and ranger do. Press `P` on a file to switch its whole file
+type between the tool and the built-in preview, for the rest of the session.
+
+**Nothing is active by default.** Trail ships with the rules below commented out
+in its default config, never runs a program you have not named, and never
+searches `PATH` — so a config without rules starts exactly as fast as before.
+
+One rule per `[[preview.tool]]` table:
+
+```toml
+[[preview.tool]]
+extensions = ["pdf"]
+command    = ["pdftotext", "-l", "10", "-layout", "{path}", "-"]
+
+[[preview.tool]]
+extensions = ["png", "jpg", "jpeg", "webp"]
+command    = ["chafa", "-f", "symbols", "--size", "{width}x{height}", "{path}"]
+default    = "builtin"     # start on the inline image; P switches to chafa
+
+[[preview.tool]]
+extensions = ["md"]
+command    = "glow -s dark -w $TRAIL_PREVIEW_WIDTH \"$TRAIL_PREVIEW_PATH\""
+```
+
+| Field | Meaning |
+|---|---|
+| `extensions` | The file types the rule covers. Case and a leading `.` do not matter — `".PDF"` and `"pdf"` are the same. An extension may appear in only one rule. |
+| `command` | What to run: a list or a string, which behave differently — see below. |
+| `default` | `"external"` (the default when omitted) or `"builtin"`: which preview the file type starts in. `P` switches it. |
+
+**The list form** is spawned directly, with no shell. `{path}`, `{width}` and
+`{height}` are replaced *inside* an argument — `"--size={width}x{height}"`
+works — so a file name, whatever it contains, is always exactly one argument.
+This is the safe form, and the one to prefer. Any other `{…}` is a config error;
+write `{{` or `}}` for a literal brace.
+
+**The string form** runs through your `[general] shell`, so pipes and
+redirection work. It takes **no** placeholders — `{path}` in a string is a
+config error, because pasting a file name into shell text is injection: a file
+called `x & del /s *.pdf` would run the second command. The string reads the
+file from the environment instead, which every shell quotes safely:
+
+| Variable | Holds |
+|---|---|
+| `TRAIL_PREVIEW_PATH` | The file being previewed |
+| `TRAIL_PREVIEW_WIDTH` | The preview pane's width, in columns |
+| `TRAIL_PREVIEW_HEIGHT` | The preview pane's height, in rows |
+
+Write them as `"$TRAIL_PREVIEW_PATH"` in sh and PowerShell, `"%TRAIL_PREVIEW_PATH%"`
+in cmd. Both forms get the variables.
+
+What to expect:
+
+- **Only standard output is shown.** A tool that prints to stderr — `ffprobe`
+  without `-show_format`, for one — shows "produced no output".
+- **Colour is kept.** A tool's ANSI colours and bold/italic come through; cursor
+  movement, screen clears and inline-image escape sequences are stripped, so
+  `chafa -f symbols` works but `chafa -f sixel` does not.
+- **Output is bounded.** It is cut at `max_lines` lines and at
+  `[general] text_sync_threshold_kb`, and the tool is killed when either is
+  reached. `external_timeout_ms` kills one that hangs.
+- **Moving on cancels it.** Selecting another entry kills the tool still working
+  on the last one, so holding `j` through a folder of PDFs leaves at most one
+  `pdftotext` running.
+- **A failure says why.** A missing program, a timeout, a non-zero exit (with
+  the start of its stderr), or no output at all is shown in the error colour,
+  followed by the file's size and modification time. `P` returns to the
+  built-in preview.
+- **The tool's name is on the pane's top border**, so it is always clear which
+  preview you are looking at.
+- **A `.cmd` or `.bat` tool** (npm installs these) cannot be spawned without an
+  interpreter on Windows: write it as `["cmd", "/C", "tool", …]`.
+- **Runs in the file's directory**, with no terminal attached — no console
+  window flashes on Windows, and the tool cannot read your keystrokes.
+
+Your rules replace the shipped list whole; they are not merged with it by
+extension. The rules cannot be changed with `:set` (see below); edit the config
+file, and use `P` to switch a file type for the session.
 
 #### `[theme]`
 Customizes the UI colors.
@@ -355,9 +444,15 @@ window, because it describes the panel rather than a place you are working.
 - `:set image_protocol halfblocks` (or `:set preview.image_protocol halfblocks`)
 - `:set image_cell_width 8`
 - `:set image_cell_height 17`
+- `:set external_timeout_ms 8000`
 
 Preview changes apply to the next preview, so move the selection off the image
 and back to see the effect.
+
+`preview.tool` is the one key `:set` refuses. The previewer rules are a list of
+tables, which `:set <key> <value>` cannot express, so they live in the config
+file only; `P` switches a file type between its tool and the built-in preview
+for the session.
 
 **Theme Properties (Requires `theme.` prefix):**
 - `:set theme.background #1a1b26`

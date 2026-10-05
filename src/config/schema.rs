@@ -25,6 +25,14 @@ pub enum SetConfigError {
         /// Human-readable parse or validation reason.
         reason: String,
     },
+    /// The key exists but cannot be set at runtime, only in the config file.
+    #[error("{key} cannot be set with :set: {reason}")]
+    NotSettable {
+        /// The key the user tried to set.
+        key: String,
+        /// Why, and what to do instead.
+        reason: String,
+    },
 }
 
 /// Explanation attached to a rejected `[general] shell` value.
@@ -141,6 +149,11 @@ impl TrailConfig {
                 "must be between 1 and 100000",
             ));
         }
+        validate_external_timeout(
+            "preview.external_timeout_ms",
+            self.preview.external_timeout_ms,
+        )?;
+        crate::config::preview_tool::validate(&self.preview.tool)?;
         validate_color_value("theme.foreground", &self.theme.foreground)?;
         validate_color_value("theme.background", &self.theme.background)?;
         validate_color_value("theme.border", &self.theme.border)?;
@@ -263,6 +276,20 @@ impl TrailConfig {
                     return Err(invalid_value(key, value, "must be at most 100000"));
                 }
                 self.preview.max_lines = max_lines;
+            }
+            "preview.external_timeout_ms" | "external_timeout_ms" => {
+                let ms = parse_u64(key, value)?;
+                validate_external_timeout(key, ms)?;
+                self.preview.external_timeout_ms = ms;
+            }
+            // A deliberate exception to "every key is settable": the rules are a
+            // list of tables, which `key value` cannot express. Named, rather
+            // than left to the unknown-key arm, so the user is told where to go.
+            key if key == "tool" || key.starts_with("preview.tool") => {
+                return Err(SetConfigError::NotSettable {
+                    key: key.to_owned(),
+                    reason: crate::config::preview_tool::TOOL_NOT_SETTABLE.to_owned(),
+                });
             }
             "theme.foreground" => self.theme.foreground = parse_color_value(key, value)?,
             "theme.background" => self.theme.background = parse_color_value(key, value)?,
@@ -421,6 +448,16 @@ pub struct PreviewConfig {
     /// proportionally more time and memory per preview; capped at
     /// [`PREVIEW_MAX_LINES_LIMIT`].
     pub max_lines: usize,
+    /// How long an external previewer may run, in milliseconds, before it is
+    /// killed and the pane reports a timeout. Only matters once a `tool` rule
+    /// exists.
+    pub external_timeout_ms: u64,
+    /// External previewer rules, one per `[[preview.tool]]` table. Empty by
+    /// default: Trail runs nothing until the user writes a rule.
+    ///
+    /// Checked by [`crate::config::preview_tool::validate`]. Not reachable
+    /// through `:set` — see [`crate::config::preview_tool::TOOL_NOT_SETTABLE`].
+    pub tool: Vec<crate::config::preview_tool::PreviewToolRule>,
 }
 
 /// Upper bound accepted for `[preview] max_lines`.
@@ -492,6 +529,18 @@ fn parse_cell_size(key: &str, value: &str) -> Result<u16, SetConfigError> {
         .trim()
         .parse()
         .map_err(|_| invalid_value(key, value, "expected a whole number, or 0 to detect"))
+}
+
+/// Bounds `[preview] external_timeout_ms`, the same at load and at `:set`.
+fn validate_external_timeout(key: &str, ms: u64) -> Result<(), SetConfigError> {
+    use crate::config::preview_tool::{
+        EXTERNAL_TIMEOUT_MS_MAX, EXTERNAL_TIMEOUT_MS_MIN, EXTERNAL_TIMEOUT_REASON,
+    };
+    if (EXTERNAL_TIMEOUT_MS_MIN..=EXTERNAL_TIMEOUT_MS_MAX).contains(&ms) {
+        Ok(())
+    } else {
+        Err(invalid_value(key, &ms.to_string(), EXTERNAL_TIMEOUT_REASON))
+    }
 }
 
 fn parse_bool(key: &str, value: &str) -> Result<bool, SetConfigError> {
@@ -747,6 +796,43 @@ mod tests {
         }
         // A rejected value must not have been applied.
         assert_eq!(config.preview.max_lines, 500);
+    }
+
+    #[test]
+    fn set_value_accepts_and_bounds_the_external_timeout() {
+        let mut config = crate::config::load(None).unwrap();
+        config
+            .set_value("preview.external_timeout_ms", "8000")
+            .unwrap();
+        assert_eq!(config.preview.external_timeout_ms, 8000);
+        config.set_value("external_timeout_ms", "100").unwrap();
+        assert_eq!(config.preview.external_timeout_ms, 100);
+
+        for rejected in ["99", "60001", "-1", "soon"] {
+            assert!(
+                config
+                    .set_value("preview.external_timeout_ms", rejected)
+                    .is_err(),
+                "{rejected} must be rejected"
+            );
+        }
+        assert_eq!(config.preview.external_timeout_ms, 100);
+    }
+
+    /// The rules are a list of tables; `:set key value` cannot express one, so
+    /// it says where to go instead of claiming the key does not exist.
+    #[test]
+    fn set_value_refuses_the_previewer_rules_and_names_the_way_out() {
+        let mut config = crate::config::load(None).unwrap();
+        for key in ["preview.tool", "tool", "preview.tool.extensions"] {
+            let err = config.set_value(key, "pdf").unwrap_err();
+            assert!(
+                matches!(err, SetConfigError::NotSettable { .. }),
+                "{key}: {err}"
+            );
+            let msg = err.to_string();
+            assert!(msg.contains("config file") && msg.contains('P'), "{msg}");
+        }
     }
 
     #[test]
