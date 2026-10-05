@@ -21,6 +21,9 @@ const ESC: u8 = 0x1b;
 /// BEL, which terminates an OSC string as an alternative to `ESC \`.
 const BEL: u8 = 0x07;
 
+/// Form feed: a page break in tool output, dropped rather than drawn.
+const FORM_FEED: u8 = 0x0c;
+
 /// Parses `text` into lines of styled spans.
 ///
 /// Lines are split on `\n`, with a `\r` before it dropped, so CRLF output from
@@ -61,6 +64,14 @@ pub fn parse(text: &str) -> Vec<HighlightedLine> {
                 // CRLF reads as LF.
                 out.text.push_str(run.strip_suffix('\r').unwrap_or(run));
                 out.end_line();
+                i += 1;
+                run_start = i;
+            }
+            // A form feed is a page break — `pdftotext` writes one between
+            // pages — not text, and drawn as a placeholder it would start every
+            // page with a stray mark.
+            FORM_FEED => {
+                out.text.push_str(&text[run_start..i]);
                 i += 1;
                 run_start = i;
             }
@@ -548,6 +559,20 @@ mod tests {
         assert_eq!(texts(&parse("a\u{1b}[12éb")), ["aéb"]);
         assert_eq!(texts(&parse("a\u{1b}(éb")), ["aéb"]);
         assert_eq!(texts(&parse("日本\u{1b}]0;題\u{7}語")), ["日本語"]);
+    }
+
+    /// `pdftotext` separates pages with a form feed, and a scanned PDF with no
+    /// text layer produces nothing else — which has to read as empty, so the
+    /// worker can say the tool produced no output.
+    #[test]
+    fn form_feeds_are_page_breaks_not_text() {
+        assert_eq!(
+            texts(&parse("page one\n\u{c}page two\n")),
+            ["page one", "page two"]
+        );
+        assert!(texts(&parse("\u{c}\n\u{c}\n\u{c}"))
+            .iter()
+            .all(|l| l.trim().is_empty()));
     }
 
     /// More parameters than the parser reads are ignored, not a crash.

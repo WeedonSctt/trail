@@ -272,7 +272,9 @@ This is the safe form, and the one to prefer. Any other `{…}` is a config erro
 write `{{` or `}}` for a literal brace.
 
 **The string form** runs through your `[general] shell`, so pipes and
-redirection work. It takes **no** placeholders — `{path}` in a string is a
+redirection work — at the cost of starting that shell for every preview. With
+`pwsh -NoProfile -Command` that measured about 1.2 s per preview on Windows,
+against 130–150 ms for `pdftotext`, `bat` or `ffprobe` in the list form. It takes **no** placeholders — `{path}` in a string is a
 config error, because pasting a file name into shell text is injection: a file
 called `x & del /s *.pdf` would run the second command. The string reads the
 file from the environment instead, which every shell quotes safely:
