@@ -56,6 +56,7 @@ test itself).
 | 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **done** — v1.9.1; the pending-key indicator is still open, §2.15 |
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
+| 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
 
 ---
 
@@ -477,6 +478,24 @@ Whichever is chosen, the path should move rather than be duplicated — §2.8's 
 If it moves to the nav panel's bottom border, the status bar's left section is left with
 the mode badge and the tab indicator, which frees room the right section currently does
 not have (§2.16).
+
+### 2.18 A pasted path loses every `\`
+
+> "Every time i want to copy an absolute path with 'ya' in windows and i have to paste it
+> in the command line, every single time i found the path is pasted without the '\'."
+
+The clipboard was never the problem; `ya` copies the backslashes. The keystrokes drop them.
+Without bracketed paste, the Windows console replays a paste as one key event per
+character, and for each one it sets the modifiers the active layout would need to type
+it. On Spanish (Latin America), `\` is AltGr plus the key left of `1`, and Windows reports
+AltGr as Ctrl+Alt. Command Mode inserted a character only when Ctrl was **not** held, and
+Search Mode only when neither Ctrl nor Alt was, so both threw away `\`, along with `@`,
+`|`, `~` and anything else that layout puts behind AltGr. Typing `\` by hand failed the
+same way.
+
+**Fixed in v1.9.2.** `input::is_text_modifiers` treats Ctrl+Alt as text and a bare Ctrl or
+Alt as a chord, and both typing modes use it. Command Mode still accepts Alt+char as text,
+as it always did. Navigation Mode is unchanged: it binds keys, not text.
 
 ---
 
