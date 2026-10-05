@@ -285,6 +285,7 @@ the top again.
 | `Ctrl-b` | Scroll preview up one page |
 | `Shift-Home` | Jump to the start of the preview |
 | `Shift-End` | Jump to the end of the loaded preview |
+| `P` | Switch the file's type between its external previewer and the built-in preview |
 
 When the content is longer than the pane, the pane's bottom-right corner shows
 the visible range — `41–61/200`. A trailing `+` means the file continues past

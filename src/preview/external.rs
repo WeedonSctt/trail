@@ -78,7 +78,7 @@ pub fn resolve(
     }
 
     let (width, height) = pane;
-    let (argv, tool) = match &rule.command {
+    let argv = match &rule.command {
         ToolCommand::Argv(template) => {
             let values = Placeholders {
                 path,
@@ -98,34 +98,100 @@ pub fn resolve(
                     }
                 }
             }
-            let tool = tool_name(template.first().map(String::as_str).unwrap_or_default());
-            (argv, tool)
+            argv
         }
         ToolCommand::Shell(script) => {
-            let argv = crate::actions::shell_exec::shell_argv(&config.general.shell, script)
+            crate::actions::shell_exec::shell_argv(&config.general.shell, script)
                 .into_iter()
                 .map(OsString::from)
-                .collect();
-            // The script's first word is the tool, as far as the user is
-            // concerned — not the shell that runs it.
-            let program = crate::actions::shell_exec::split_shell_spec(script)
-                .and_then(|tokens| tokens.into_iter().next())
-                .unwrap_or_default();
-            (argv, tool_name(&program))
+                .collect()
         }
     };
 
     Some(ExternalSpec {
         argv,
-        tool,
+        tool: tool_label(&rule.command),
         width,
         height,
         timeout: Duration::from_millis(config.preview.external_timeout_ms),
     })
 }
 
-/// The name a program is shown under: its file stem, so `C:\bin\glow.exe` is
-/// `glow`.
+/// The name a rule's tool is shown under, on the pane's border and in notices:
+/// the program's file stem, so `C:\bin\glow.exe` is `glow`.
+///
+/// For the string form that is the script's first word — the tool, as far as
+/// the user is concerned — not the shell that runs it.
+pub fn tool_label(command: &ToolCommand) -> String {
+    let program = match command {
+        ToolCommand::Argv(argv) => argv.first().cloned().unwrap_or_default(),
+        ToolCommand::Shell(script) => crate::actions::shell_exec::split_shell_spec(script)
+            .and_then(|tokens| tokens.into_iter().next())
+            .unwrap_or_default(),
+    };
+    tool_name(&program)
+}
+
+/// What `P` did, for the notice that reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Toggled {
+    /// The file type now previews through its tool.
+    ToTool {
+        /// The normalised extension that was switched.
+        ext: String,
+        /// The tool's name.
+        tool: String,
+    },
+    /// The file type now gets Trail's own preview.
+    ToBuiltin {
+        /// The normalised extension that was switched.
+        ext: String,
+    },
+    /// Nothing changed: no rule covers this file. Carries the notice text.
+    NoRule(String),
+}
+
+impl Toggled {
+    /// The status-bar notice for this outcome.
+    pub fn notice(&self) -> String {
+        match self {
+            Toggled::ToTool { ext, tool } => format!(".{ext}: previewed with {tool}"),
+            Toggled::ToBuiltin { ext } => format!(".{ext}: built-in preview"),
+            Toggled::NoRule(why) => why.clone(),
+        }
+    }
+}
+
+/// Switches the file type of `path` between its tool and the built-in preview
+/// for the rest of the session — what `P` does.
+///
+/// The switch is recorded in `overrides` against the extension, so every file
+/// of that type follows it until `P` again or quit. With no rule for the
+/// extension, nothing is recorded and the outcome says why.
+pub fn toggle_mode(
+    path: &Path,
+    config: &TrailConfig,
+    overrides: &mut HashMap<String, PreviewMode>,
+) -> Toggled {
+    let Some(ext) = extension_of(path) else {
+        return Toggled::NoRule("no previewer configured for files without an extension".into());
+    };
+    let Some(rule) = preview_tool::find_rule(&config.preview.tool, &ext) else {
+        return Toggled::NoRule(format!("no previewer configured for .{ext}"));
+    };
+    let current = overrides.get(&ext).copied().unwrap_or(rule.default);
+    let next = current.toggled();
+    overrides.insert(ext.clone(), next);
+    match next {
+        PreviewMode::External => Toggled::ToTool {
+            ext,
+            tool: tool_label(&rule.command),
+        },
+        PreviewMode::Builtin => Toggled::ToBuiltin { ext },
+    }
+}
+
+/// The name a program is shown under: its file stem.
 fn tool_name(program: &str) -> String {
     Path::new(program)
         .file_stem()
@@ -269,6 +335,51 @@ command = "glow -w $TRAIL_PREVIEW_WIDTH \"$TRAIL_PREVIEW_PATH\""
             ],
             "the script reaches the shell as written; the path travels in the environment"
         );
+    }
+
+    #[test]
+    fn toggling_switches_the_whole_file_type_and_back() {
+        let config = config_with(RULES);
+        let mut overrides = HashMap::new();
+
+        let first = toggle_mode(Path::new("a.pdf"), &config, &mut overrides);
+        assert_eq!(first, Toggled::ToBuiltin { ext: "pdf".into() });
+        assert_eq!(first.notice(), ".pdf: built-in preview");
+        // Another file of the same type follows the switch.
+        assert!(resolve(Path::new("other.PDF"), &config, &overrides, ASSUMED_PANE).is_none());
+
+        let second = toggle_mode(Path::new("b.pdf"), &config, &mut overrides);
+        assert_eq!(second.notice(), ".pdf: previewed with pdftotext");
+        assert!(resolve(Path::new("a.pdf"), &config, &overrides, ASSUMED_PANE).is_some());
+    }
+
+    #[test]
+    fn toggling_starts_from_the_rules_default() {
+        let config = config_with(RULES);
+        let mut overrides = HashMap::new();
+        // png defaults to builtin, so the first P goes to the tool.
+        assert_eq!(
+            toggle_mode(Path::new("a.png"), &config, &mut overrides),
+            Toggled::ToTool {
+                ext: "png".into(),
+                tool: "chafa".into()
+            }
+        );
+    }
+
+    #[test]
+    fn toggling_without_a_rule_changes_nothing_and_says_so() {
+        let config = config_with(RULES);
+        let mut overrides = HashMap::new();
+        assert_eq!(
+            toggle_mode(Path::new("a.xyz"), &config, &mut overrides).notice(),
+            "no previewer configured for .xyz"
+        );
+        assert_eq!(
+            toggle_mode(Path::new("Makefile"), &config, &mut overrides).notice(),
+            "no previewer configured for files without an extension"
+        );
+        assert!(overrides.is_empty());
     }
 
     #[test]

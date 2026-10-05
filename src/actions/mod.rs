@@ -68,6 +68,9 @@ pub enum Action {
     /// Scroll the preview pane to the last loaded line, which is the end of the
     /// file only when the preview is not truncated.
     PreviewScrollBottom,
+    /// Switch the selected file's type between its `[[preview.tool]]` and the
+    /// built-in preview, for the rest of the session (`P`).
+    TogglePreviewTool,
 
     // ── Mode transitions ──────────────────────────────────────────────────
     /// Enter Search Mode (Phase 2 wires the actual filter logic).
@@ -186,6 +189,26 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         Action::PreviewPageUp => state.scroll_preview_pages(-1),
         Action::PreviewScrollTop => state.scroll_preview_to_edge(false),
         Action::PreviewScrollBottom => state.scroll_preview_to_edge(true),
+
+        Action::TogglePreviewTool => {
+            if let Some(entry) = state.selected_entry().cloned() {
+                use crate::app::state::EntryKind;
+                // The event loop re-previews after this action, which picks the
+                // switch up; all that happens here is recording it.
+                let notice = if entry.kind == EntryKind::Dir {
+                    "no previewer configured for directories".to_owned()
+                } else {
+                    crate::preview::external::toggle_mode(
+                        &entry.path,
+                        &state.config,
+                        &mut state.preview_mode_overrides,
+                    )
+                    .notice()
+                };
+                state.notify(notice);
+                state.dirty = true;
+            }
+        }
 
         Action::EnterOrOpen => {
             if let Some(entry) = state.selected_entry().cloned() {

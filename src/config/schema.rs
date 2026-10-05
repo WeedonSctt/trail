@@ -747,6 +747,7 @@ const NAV_ACTIONS: &[&str] = &[
     "preview_page_up",
     "preview_scroll_top",
     "preview_scroll_bottom",
+    "toggle_preview_tool",
 ];
 
 const SEARCH_ACTIONS: &[&str] = &["exit", "confirm", "move_down", "move_up", "delete_char"];

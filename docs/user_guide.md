@@ -113,6 +113,23 @@ you were.
 Scrolling applies to text, binary metadata and directory previews. An image preview
 has no lines to scroll, so the keys do nothing there.
 
+### External Previewers
+You can have Trail run a program for a file type — `pdftotext` for PDFs, `glow` for
+Markdown, `chafa` for images — and show its output in the preview pane. Nothing is
+set up by default; you add a `[[preview.tool]]` rule to your config. The
+[configuration guide](configuration_guide.md#external-previewers) shows how, with
+examples.
+
+- `P`: Switch the selected file's type between its tool and Trail's own preview. It
+  applies to every file of that type until you press `P` again or quit, and is not
+  saved. On a file no rule covers it just says so.
+
+While a tool's output is showing, the tool's name is on the pane's top border —
+` report.pdf ─ pdftotext ` — and the scroll keys above work on its output. If the
+tool cannot run, times out, fails or prints nothing, the pane says which, in the
+error colour, above the file's size and date. Moving to another entry stops a tool
+that is still working.
+
 ### Display Options
 - `R`: Refresh the current directory view
 - `.`: Toggle visibility of hidden files

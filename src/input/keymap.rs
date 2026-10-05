@@ -233,6 +233,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "preview_page_up" => Some(Action::PreviewPageUp),
         "preview_scroll_top" => Some(Action::PreviewScrollTop),
         "preview_scroll_bottom" => Some(Action::PreviewScrollBottom),
+        "toggle_preview_tool" => Some(Action::TogglePreviewTool),
         _ => None,
     }
 }
@@ -569,6 +570,25 @@ mod tests {
             key_to_config_string(shifted(KeyCode::Tab)),
             Some("shift-tab".to_owned())
         );
+    }
+
+    /// `P` (Shift-p) switches the previewer; `p` stays free.
+    #[test]
+    fn capital_p_toggles_the_preview_tool_and_lowercase_p_is_unbound() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+        let shifted_p = KeyEvent {
+            code: KeyCode::Char('P'),
+            modifiers: KeyModifiers::SHIFT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        assert_eq!(
+            navigation(shifted_p, &mut ctx, &state),
+            Some(Action::TogglePreviewTool)
+        );
+        assert_eq!(navigation(key(KeyCode::Char('p')), &mut ctx, &state), None);
     }
 
     #[test]

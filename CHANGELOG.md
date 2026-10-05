@@ -29,7 +29,21 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- External previewers: a `[[preview.tool]]` rule runs a program for a file type
+  and shows its output, with its colours, in the preview pane — `pdftotext` for
+  PDFs, `glow` for Markdown, `chafa` for images, `ffprobe` for media. None is
+  active until you write one; the default config carries commented examples.
+  A rule's command is either a list, spawned directly with `{path}`, `{width}`
+  and `{height}` substituted, or a string run through `[general] shell`, which
+  reads the file from `$TRAIL_PREVIEW_PATH`.
+- `P` switches the selected file's type between its tool and the built-in
+  preview for the rest of the session.
+- `[preview] external_timeout_ms` (default 3000) kills a previewer that hangs.
+  Output is cut at `max_lines` and `text_sync_threshold_kb`, and moving to
+  another entry stops a tool that is still running. A tool that is missing,
+  times out, fails or prints nothing shows why, above the file's size and date.
 
 ## [1.9.2] - 2026-10-04
 

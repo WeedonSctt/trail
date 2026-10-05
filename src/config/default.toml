@@ -219,6 +219,10 @@ preview_page_down = "ctrl-f"
 preview_page_up = "ctrl-b"
 preview_scroll_top = "shift-home"
 preview_scroll_bottom = "shift-end"
+# Switch the selected file's type between its [[preview.tool]] and the built-in
+# preview, for the rest of the session.  Does nothing but say so when no rule
+# covers the file.
+toggle_preview_tool = "P"
 
 [keymap.search]
 # Search Mode is a typing mode: unmodified characters go into the query, so

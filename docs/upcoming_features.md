@@ -63,7 +63,7 @@ test itself).
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 | 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
-| 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **planned** — §2.19 |
+| 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **in progress** — built on `feat/external-previewers`, awaiting the maintainer's pass and B1–B6; §2.19 |
 
 ---
 
@@ -720,6 +720,29 @@ After the maintainer's pass and B1–B6: rebase onto `main` if it has moved,
 the release sequence in `CLAUDE.md` §8 as **v1.10.0**, including the post-release doc
 update and the `trail.exe` replacement on this machine. Until then the branch stays open
 on purpose, and is reported as such at the end of every session that touches it.
+
+#### As built
+
+Steps 1–5 are on `feat/external-previewers`. Where the code departs from the plan above:
+
+- **`ExternalFailed` carries `tool` too**, so the border label shows which tool failed,
+  not only which one succeeded.
+- **The failure's metadata is size and modification time only**
+  (`binary::file_metadata_lines`), not `build_binary_preview`'s whole block: that block
+  says `MD binary` and "no text preview" about a Markdown file whose previewer failed.
+- **`{{` and `}}` are literal braces** in the list form, so a tool that wants a `{}`
+  argument is still expressible. In the string form only the three placeholder names are
+  rejected; other braces (`${VAR}`, PowerShell blocks) are shell syntax.
+- **Cancellation is a new `PreviewOutcome::Spawned(PreviewTask)`**, and `PreviewTask`
+  aborts on drop rather than on an explicit call — so tab switches, which replace the
+  preview slot, cancel too. They now go through `PreviewSlot::reset`, which keeps the
+  generation counting (it used to restart at 0) and keeps the pane size.
+- **String-form cancellation kills the shell.** A program the shell started stops at its
+  next write to the closed pipe, not at once; killing the whole tree needs job objects or
+  process groups, which `#![forbid(unsafe_code)]` rules out without a new dependency.
+  Documented in the configuration guide as a reason to prefer the list form.
+- **The `ffprobe` example uses `-show_format -show_streams`**: its usual summary goes to
+  stderr, and only stdout is shown.
 
 #### Cannot be verified here
 

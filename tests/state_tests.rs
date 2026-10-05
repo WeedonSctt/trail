@@ -1475,3 +1475,65 @@ fn the_sort_command_reorders_the_listing() {
         vec!["sub", "big.md", "mid.rs", "small.txt"]
     );
 }
+
+// ── `P`: switching a file type's previewer ────────────────────────────────────
+
+/// `P` records the switch for the file's type and says what it did; the event
+/// loop's re-preview picks it up.
+#[test]
+fn toggle_preview_tool_switches_the_file_type_and_reports_it() {
+    use trail::actions::{apply, Action};
+    use trail::config::preview_tool::PreviewMode;
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("doc.pdf"), b"%PDF").unwrap();
+    let cfg_path = dir.path().join("trail.toml");
+    fs::write(
+        &cfg_path,
+        "[[preview.tool]]\nextensions = [\"pdf\"]\ncommand = [\"pdftotext\", \"{path}\", \"-\"]\n",
+    )
+    .unwrap();
+    let config = trail::config::load(Some(&cfg_path)).unwrap();
+    let mut state = AppState::with_config(dir.path().to_owned(), config).unwrap();
+    while state.selected_entry().unwrap().file_name != "doc.pdf" {
+        state.move_down();
+    }
+
+    apply(Action::TogglePreviewTool, &mut state).unwrap();
+    assert_eq!(
+        state.preview_mode_overrides.get("pdf"),
+        Some(&PreviewMode::Builtin)
+    );
+    assert_eq!(
+        state.notice.as_ref().unwrap().text,
+        ".pdf: built-in preview"
+    );
+
+    apply(Action::TogglePreviewTool, &mut state).unwrap();
+    assert_eq!(
+        state.preview_mode_overrides.get("pdf"),
+        Some(&PreviewMode::External)
+    );
+    assert_eq!(
+        state.notice.as_ref().unwrap().text,
+        ".pdf: previewed with pdftotext"
+    );
+}
+
+/// With no rule for the file, `P` changes nothing and says why — a silent
+/// no-op is indistinguishable from a binding that does not work.
+#[test]
+fn toggle_preview_tool_without_a_rule_only_says_so() {
+    use trail::actions::{apply, Action};
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("notes.xyz"), b"x").unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    apply(Action::TogglePreviewTool, &mut state).unwrap();
+    assert!(state.preview_mode_overrides.is_empty());
+    assert_eq!(
+        state.notice.as_ref().unwrap().text,
+        "no previewer configured for .xyz"
+    );
+}

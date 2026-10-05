@@ -60,9 +60,6 @@ pub enum PreviewMode {
 
 impl PreviewMode {
     /// The other mode — what `P` switches to.
-    // clippy: dead_code — no caller in the binary until the external-preview
-    // worker and the `P` toggle land in the next commits; removed there.
-    #[allow(dead_code)]
     #[must_use]
     pub fn toggled(self) -> Self {
         match self {
