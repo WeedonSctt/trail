@@ -16,10 +16,10 @@ use ratatui::style::{Color, Modifier};
 use crate::preview::provider::{sanitize, HighlightedLine, StyledSpan};
 
 /// ESC, which opens every sequence this module recognises.
-const ESC: char = '\u{1b}';
+const ESC: u8 = 0x1b;
 
 /// BEL, which terminates an OSC string as an alternative to `ESC \`.
-const BEL: char = '\u{7}';
+const BEL: u8 = 0x07;
 
 /// Parses `text` into lines of styled spans.
 ///
@@ -40,81 +40,115 @@ const BEL: char = '\u{7}';
 /// assert!(lines[0][1].modifiers.contains(Modifier::BOLD));
 /// ```
 pub fn parse(text: &str) -> Vec<HighlightedLine> {
+    // Scanned by byte offset, so a run of plain text is copied out of the input
+    // as one slice rather than char by char. Every sequence is ASCII, and each
+    // offset this loop stops at is an ASCII byte or the start of a character,
+    // which keeps every slice on a character boundary.
+    let bytes = text.as_bytes();
     let mut out = Builder::default();
-    let mut chars = text.chars().peekable();
-    // A string sequence (OSC, DCS…) ended by an ESC that was not `ESC \` hands
-    // that ESC back here, so it can start the next sequence.
-    let mut pending: Option<char> = None;
+    let mut run_start = 0;
+    let mut i = 0;
 
-    while let Some(ch) = pending.take().or_else(|| chars.next()) {
-        match ch {
-            ESC => match chars.next() {
-                Some('[') => {
-                    let mut params = String::new();
-                    let mut final_byte = None;
-                    while let Some(&c) = chars.peek() {
-                        if ('\u{40}'..='\u{7e}').contains(&c) {
-                            chars.next();
-                            final_byte = Some(c);
-                            break;
-                        }
-                        if ('\u{20}'..='\u{3f}').contains(&c) {
-                            chars.next();
-                            params.push(c);
-                            continue;
-                        }
-                        // Not part of a CSI: the sequence is malformed. Abandon
-                        // it and let the character be handled normally.
-                        break;
-                    }
-                    // Only a plain SGR. `ESC [ > 4 ; 2 m` ends in `m` too, but it
-                    // is xterm's key-modifier setting, not a colour.
-                    if final_byte == Some('m')
-                        && params
-                            .chars()
-                            .all(|c| c.is_ascii_digit() || c == ';' || c == ':')
-                    {
-                        out.flush();
-                        out.pen.apply_sgr(&params);
-                    }
-                }
-                // OSC, DCS, SOS, PM, APC: a string running to its terminator.
-                Some(']' | 'P' | 'X' | '^' | '_') => {
-                    while let Some(c) = chars.next() {
-                        if c == BEL {
-                            break;
-                        }
-                        if c == ESC {
-                            if chars.peek() == Some(&'\\') {
-                                chars.next();
-                            } else {
-                                pending = Some(ESC);
-                            }
-                            break;
-                        }
-                    }
-                }
-                // nF escapes such as `ESC ( B` (character set): intermediate
-                // bytes, then one final byte.
-                Some(c) if ('\u{20}'..='\u{2f}').contains(&c) => {
-                    for c in chars.by_ref() {
-                        if !('\u{20}'..='\u{2f}').contains(&c) {
-                            break;
-                        }
-                    }
-                }
-                // Two-character escapes (`ESC 7`, `ESC =`), or input that ended
-                // on the ESC itself.
-                Some(_) | None => {}
-            },
-            '\n' => out.end_line(),
-            '\r' if chars.peek() == Some(&'\n') => {}
-            c => out.text.push(c),
+    while i < bytes.len() {
+        match bytes[i] {
+            ESC => {
+                out.text.push_str(&text[run_start..i]);
+                i = skip_escape(text, i, &mut out);
+                run_start = i;
+            }
+            b'\n' => {
+                let run = &text[run_start..i];
+                // CRLF reads as LF.
+                out.text.push_str(run.strip_suffix('\r').unwrap_or(run));
+                out.end_line();
+                i += 1;
+                run_start = i;
+            }
+            _ => i += 1,
         }
     }
+    out.text.push_str(&text[run_start..]);
 
     out.finish()
 }
+
+/// Handles the escape sequence starting at `bytes[start]` (an ESC) and returns
+/// the offset just past it — applying it to `out`'s pen if it is an SGR, and
+/// discarding it otherwise.
+///
+/// A sequence cut off by the end of the input returns the input's length. A
+/// string sequence (OSC, DCS…) ended by an ESC that is not `ESC \` returns
+/// that ESC's offset, so it can start the next sequence.
+fn skip_escape(text: &str, start: usize, out: &mut Builder) -> usize {
+    let bytes = text.as_bytes();
+    let end = bytes.len();
+    let Some(&kind) = bytes.get(start + 1) else {
+        return end;
+    };
+    match kind {
+        b'[' => {
+            let mut j = start + 2;
+            while j < end && (0x20..=0x3f).contains(&bytes[j]) {
+                j += 1;
+            }
+            match bytes.get(j) {
+                Some(&fin) if (0x40..=0x7e).contains(&fin) => {
+                    let params = &text[start + 2..j];
+                    // Only a plain SGR. `ESC [ > 4 ; 2 m` ends in `m` too, but it
+                    // is xterm's key-modifier setting, not a colour.
+                    if fin == b'm'
+                        && params
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || b == b';' || b == b':')
+                    {
+                        out.flush();
+                        out.pen.apply_sgr(params);
+                    }
+                    j + 1
+                }
+                // Not part of a CSI: the sequence is malformed. Abandon it and
+                // let the byte be handled normally.
+                Some(_) => j,
+                None => end,
+            }
+        }
+        // OSC, DCS, SOS, PM, APC: a string running to its terminator.
+        b']' | b'P' | b'X' | b'^' | b'_' => {
+            let mut j = start + 2;
+            while j < end {
+                match bytes[j] {
+                    BEL => return j + 1,
+                    ESC if bytes.get(j + 1) == Some(&b'\\') => return j + 2,
+                    ESC => return j,
+                    _ => j += 1,
+                }
+            }
+            end
+        }
+        // nF escapes such as `ESC ( B` (character set): intermediate bytes,
+        // then one final byte.
+        0x20..=0x2f => {
+            let mut j = start + 2;
+            while j < end && (0x20..=0x2f).contains(&bytes[j]) {
+                j += 1;
+            }
+            match bytes.get(j) {
+                Some(&fin) if fin.is_ascii() => j + 1,
+                // Never step into the middle of a multi-byte character.
+                Some(_) => j,
+                None => end,
+            }
+        }
+        // Two-character escapes (`ESC 7`, `ESC =`).
+        _ if kind.is_ascii() => start + 2,
+        // ESC before a multi-byte character: drop the ESC, keep the character.
+        _ => start + 1,
+    }
+}
+
+/// Most parameters one SGR sequence is read for; any past this are ignored.
+/// Real output uses a handful — `38;2;r;g;b` plus a modifier or two.
+const MAX_SGR_PARAMS: usize = 32;
 
 /// The style the next printed character is drawn in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -132,15 +166,30 @@ impl Pen {
     /// one parameter, which is how `38:2::r:g:b` keeps its colour together.
     /// An empty parameter list, like an explicit `0`, resets everything.
     fn apply_sgr(&mut self, params: &str) {
-        let groups: Vec<Vec<Option<u16>>> = params
-            .split(';')
-            .map(|group| group.split(':').map(|n| n.parse().ok()).collect())
-            .collect();
+        // Flattened into fixed arrays rather than a vector per group: a
+        // coloured line carries a dozen of these, and allocating for each one
+        // was most of the parser's time. `starts[g]..starts[g + 1]` is group g.
+        let mut vals = [None::<u16>; MAX_SGR_PARAMS];
+        let mut starts = [0usize; MAX_SGR_PARAMS + 1];
+        let mut n = 0;
+        let mut groups = 0;
+        for group in params.split(';') {
+            if n == MAX_SGR_PARAMS {
+                break;
+            }
+            starts[groups] = n;
+            groups += 1;
+            for sub in group.split(':').take(MAX_SGR_PARAMS - n) {
+                vals[n] = sub.parse().ok();
+                n += 1;
+            }
+        }
+        starts[groups] = n;
 
         let mut i = 0;
-        while i < groups.len() {
-            let group = &groups[i];
-            let code = group[0].unwrap_or(0);
+        while i < groups {
+            let group = &vals[starts[i]..starts[i + 1]];
+            let code = group.first().copied().flatten().unwrap_or(0);
             match code {
                 0 => *self = Pen::default(),
                 1 => self.modifiers.insert(Modifier::BOLD),
@@ -176,11 +225,14 @@ impl Pen {
                     let (color, consumed) = if group.len() > 1 {
                         (extended_color(&group[1..]), 0)
                     } else {
-                        let rest: Vec<Option<u16>> = groups[i + 1..]
-                            .iter()
-                            .map(|g| g.first().copied().flatten())
-                            .collect();
-                        extended_color_semicolons(&rest)
+                        // The colour's arguments are the next groups, at most
+                        // four of them (`2;r;g;b`).
+                        let mut rest = [None::<u16>; 4];
+                        let available = (groups - i - 1).min(rest.len());
+                        for (k, slot) in rest.iter_mut().take(available).enumerate() {
+                            *slot = vals[starts[i + 1 + k]];
+                        }
+                        extended_color_semicolons(&rest[..available])
                     };
                     match code {
                         38 => self.fg = color.or(self.fg),
@@ -287,8 +339,14 @@ impl Builder {
         if self.text.is_empty() {
             return;
         }
-        let text = sanitize(&self.text);
-        self.text.clear();
+        // Most runs contain nothing to defuse; only those that do pay for a copy.
+        let text = if self.text.chars().any(char::is_control) {
+            let safe = sanitize(&self.text);
+            self.text.clear();
+            safe
+        } else {
+            std::mem::take(&mut self.text)
+        };
         // Redundant SGRs (`ESC[31m` twice) would otherwise split one run.
         if let Some(last) = self.line.last_mut() {
             if last.fg == self.pen.fg
@@ -477,6 +535,27 @@ mod tests {
     fn empty_lines_are_kept_and_a_trailing_newline_adds_none() {
         assert_eq!(texts(&parse("a\n\nb\n")), ["a", "", "b"]);
         assert!(parse("").is_empty());
+    }
+
+    /// The scan works on byte offsets; a sequence next to a multi-byte
+    /// character must never leave an offset inside it.
+    #[test]
+    fn escapes_next_to_multibyte_characters_keep_them_whole() {
+        assert_eq!(texts(&parse("héllo\u{1b}[31m—wörld")), ["héllo—wörld"]);
+        // ESC directly before a multi-byte character: the ESC goes, it stays.
+        assert_eq!(texts(&parse("a\u{1b}éb")), ["aéb"]);
+        // A malformed CSI and an nF escape cut short by one.
+        assert_eq!(texts(&parse("a\u{1b}[12éb")), ["aéb"]);
+        assert_eq!(texts(&parse("a\u{1b}(éb")), ["aéb"]);
+        assert_eq!(texts(&parse("日本\u{1b}]0;題\u{7}語")), ["日本語"]);
+    }
+
+    /// More parameters than the parser reads are ignored, not a crash.
+    #[test]
+    fn an_overlong_sgr_is_read_up_to_its_limit() {
+        let many = vec!["1"; 100].join(";");
+        let span = only_span(&format!("\u{1b}[{many};31mx"));
+        assert!(span.modifiers.contains(Modifier::BOLD));
     }
 
     #[test]

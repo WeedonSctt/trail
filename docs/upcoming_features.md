@@ -744,6 +744,22 @@ Steps 1–5 are on `feat/external-previewers`. Where the code departs from the p
 - **The `ffprobe` example uses `-show_format -show_streams`**: its usual summary goes to
   stderr, and only stdout is shown.
 
+**Budgets, measured 2026-10-05** on the maintainer's Windows machine, release build:
+
+| # | Result | Budget |
+|---|---|---|
+| B1 | 9.3 µs | < 1 ms |
+| B2 | +0.09 ms; no process spawned | < 1 ms |
+| B3 | 1 live child, and 1 `PING.EXE` by Windows' own process list | ≤ 1 |
+| B4 | 26 ms past process start-up; stopped at the 256 KB cap | < 200 ms |
+| B5 | 9.5 ms, on 330 KB rather than the planned 200 KB | < 20 ms |
+| B6 | 1.0 ms | < 2 ms |
+
+B5 failed on the first run (29 ms). The parser walked the input a character at a time
+and allocated a vector per SGR group; it now scans byte offsets, slices plain runs out of
+the input whole, parses parameters into fixed arrays, and skips `sanitize` for runs with
+no control characters.
+
 #### Cannot be verified here
 
 `glow` and `chafa` output (not installed); how character-art images look in a given
