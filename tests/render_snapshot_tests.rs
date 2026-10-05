@@ -909,3 +909,67 @@ fn a_zero_scroll_margin_lets_the_selection_ride_the_edge() {
     }
     assert_eq!(selected_row(&mut terminal, &mut state), 10);
 }
+
+// ── Styled preview spans ──────────────────────────────────────────────────────
+
+/// Finds the first cell whose symbol starts `needle` on screen, as `(x, y)`.
+fn find_cell(buf: &ratatui::buffer::Buffer, needle: &str) -> Option<(u16, u16)> {
+    let area = buf.area;
+    (0..area.height).find_map(|y| {
+        let line: String = (0..area.width).map(|x| buf[(x, y)].symbol()).collect();
+        // Every cell here is one column wide, so a char index is an x offset.
+        line.find(needle)
+            .map(|byte| (line[..byte].chars().count() as u16, y))
+    })
+}
+
+/// A span's background and attributes reach the buffer, not only its
+/// foreground. The highlighter sets neither, but an external previewer's ANSI
+/// output depends on both — `chafa` draws in background colour.
+#[test]
+fn a_styled_span_draws_its_background_and_modifiers() {
+    use ratatui::style::{Color, Modifier};
+    use trail::preview::provider::StyledSpan;
+
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.content = PreviewContent::Highlighted(vec![vec![StyledSpan {
+        text: "STYLED".to_owned(),
+        fg: Some(Color::Red),
+        bg: Some(Color::Blue),
+        modifiers: Modifier::BOLD | Modifier::ITALIC,
+    }]]);
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    trail::ui::render(&mut terminal, &mut state).expect("render failed");
+    let buf = terminal.backend().buffer().clone();
+
+    let (x, y) = find_cell(&buf, "STYLED").expect("the span is drawn");
+    let cell = &buf[(x, y)];
+    assert_eq!(cell.fg, Color::Red);
+    assert_eq!(cell.bg, Color::Blue);
+    assert!(cell.modifier.contains(Modifier::BOLD | Modifier::ITALIC));
+}
+
+/// A span with nothing but a foreground — every span the highlighter makes —
+/// leaves the background alone, exactly as before the field existed.
+#[test]
+fn a_foreground_only_span_leaves_the_background_unset() {
+    use ratatui::style::{Color, Modifier};
+    use trail::preview::provider::StyledSpan;
+
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.content =
+        PreviewContent::Highlighted(vec![vec![StyledSpan::fg("PLAINFG", Some(Color::Green))]]);
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    trail::ui::render(&mut terminal, &mut state).expect("render failed");
+    let buf = terminal.backend().buffer().clone();
+
+    let (x, y) = find_cell(&buf, "PLAINFG").expect("the span is drawn");
+    let cell = &buf[(x, y)];
+    assert_eq!(cell.fg, Color::Green);
+    assert_eq!(cell.bg, Color::Reset);
+    assert_eq!(cell.modifier, Modifier::empty());
+}

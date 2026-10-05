@@ -191,13 +191,7 @@ fn highlight_file_sync(
         let spans: HighlightedLine = regions
             .into_iter()
             .filter(|(_, text)| !text.is_empty())
-            .map(|(style, text)| {
-                let fg = convert_color(style.foreground);
-                StyledSpan {
-                    text: text.to_owned(),
-                    fg,
-                }
-            })
+            .map(|(style, text)| StyledSpan::fg(text, convert_color(style.foreground)))
             .collect();
 
         lines.push(spans);

@@ -12,7 +12,7 @@
 
 use std::path::PathBuf;
 
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier, Style};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
@@ -42,17 +42,53 @@ pub enum PreviewError {
 
 // ── PreviewContent ────────────────────────────────────────────────────────────
 
-/// A single span of text with an optional foreground colour for highlighted
-/// preview rendering.
+/// A single span of styled preview text.
 ///
-/// Used by `PreviewContent::Highlighted` to carry the output of `syntect`
-/// syntax highlighting. Each `StyledSpan` maps to a ratatui `Span`.
-#[derive(Debug, Clone)]
+/// Carries the output of `syntect` syntax highlighting in
+/// `PreviewContent::Highlighted`, and of an external previewer's ANSI colours
+/// in `PreviewContent::External`. Each `StyledSpan` maps to one ratatui `Span`
+/// through [`StyledSpan::style`].
+///
+/// The highlighter only ever sets a foreground; the background and modifiers
+/// exist for external tools — `chafa` draws almost entirely in background
+/// colour, and `glow` renders emphasis as bold and italic.
+#[derive(Debug, Clone, Default)]
 pub struct StyledSpan {
     /// The text content of this span.
     pub text: String,
-    /// Optional foreground colour (RGB). `None` means "use default foreground".
+    /// Optional foreground colour. `None` means "use default foreground".
     pub fg: Option<Color>,
+    /// Optional background colour. `None` means "use default background".
+    pub bg: Option<Color>,
+    /// Text attributes — bold, italic, underline and the like. Empty means
+    /// none.
+    pub modifiers: Modifier,
+}
+
+impl StyledSpan {
+    /// A span of `text` drawn in `fg`, with no background or attributes.
+    pub fn fg(text: impl Into<String>, fg: Option<Color>) -> Self {
+        Self {
+            text: text.into(),
+            fg,
+            ..Self::default()
+        }
+    }
+
+    /// The ratatui style this span is drawn with.
+    ///
+    /// Unset colours stay unset rather than becoming `Color::Reset`, so the
+    /// pane's own style shows through them.
+    pub fn style(&self) -> Style {
+        let mut style = Style::default().add_modifier(self.modifiers);
+        if let Some(fg) = self.fg {
+            style = style.fg(fg);
+        }
+        if let Some(bg) = self.bg {
+            style = style.bg(bg);
+        }
+        style
+    }
 }
 
 /// A single highlighted line, made up of one or more [`StyledSpan`]s.

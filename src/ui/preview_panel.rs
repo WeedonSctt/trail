@@ -132,12 +132,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
 
                     // Highlighted spans from syntect.
                     for s in spans {
-                        let style = if let Some(fg) = s.fg {
-                            Style::default().fg(fg)
-                        } else {
-                            Style::default()
-                        };
-                        ratatui_spans.push(Span::styled(s.text.clone(), style));
+                        ratatui_spans.push(Span::styled(s.text.clone(), s.style()));
                     }
 
                     Line::from(ratatui_spans)
