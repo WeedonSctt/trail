@@ -27,6 +27,12 @@ command. Both shipped, in v1.8.2 and v1.8.3. They share a question — which sur
 information — and §2.17 is where the answer has to be decided, because it revisits
 [§2.8](#28-the-path-is-drawn-twice).
 
+**Fourth round (2026-10-05, item 21).** A feature request rather than a defect: external
+previewer tools per file type, switchable with a key. The design decisions were put to the
+maintainer and answered before this entry was written; §2.19 records the answers alongside
+the plan, and the release gate it carries is stricter than the others' — a branch, a manual
+test by the maintainer, and performance budgets, before anything reaches `main`.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -57,6 +63,7 @@ test itself).
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 | 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
+| 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **planned** — §2.19 |
 
 ---
 
@@ -497,6 +504,229 @@ same way.
 Alt as a chord, and both typing modes use it. Command Mode still accepts Alt+char as text,
 as it always did. Navigation Mode is unchanged: it binds keys, not text.
 
+### 2.19 External previewer tools per file type
+
+> "add an optional previewer tool for various type of files (pdf, png, jpg, md, etc.).
+> this can be switchable from default in config (for each type of file) and live with a
+> key that toggles the preview of the selected item."
+
+**The gap.** The preview pane knows four kinds of thing: directories, images (by
+extension, `preview/image.rs`), text (`workers/highlight.rs`) and binary metadata
+(`preview/binary.rs`). A PDF is binary, so it gets size and timestamp and nothing about
+its content; Markdown is text, so it gets highlighted source rather than a rendering; a
+video gets the same metadata block as a PDF. Tools that do each of these well already
+exist — `pdftotext`, `glow`, `chafa`, `ffprobe`, `7z l` — and the usual way a terminal
+file manager reaches them (lf, yazi, ranger) is to run them and show their output in the
+preview pane. On the maintainer's machine `pdftotext`, `bat` and `ffprobe` are installed;
+`glow` and `chafa` are not.
+
+This is not `o` (`open_with_os`), which hands the file to a GUI application and stays as
+it is.
+
+#### Decisions
+
+Put to the maintainer on 2026-10-05; these are settled, not open.
+
+| Question | Answer |
+|---|---|
+| What the toggle key switches | **The whole file type, for the session.** `P` on one `.md` switches every `.md` until `P` again or quit |
+| How a command is written | **Both forms.** A list runs directly; a string runs through `[general] shell` |
+| What Trail ships with | **Commented examples only.** No rule is active until the user writes one |
+| What a failed tool shows | **The error and the file's metadata**, since the preview did not load |
+| The toggle key | **`P`** (Shift-p), leaving `p` free |
+| Whether toggles survive a restart | **Session only**, the same as `:set` (§5.1) |
+| How it ships | **Branch → maintainer tests → performance budgets pass → `main` → release** |
+
+#### Configuration
+
+One rule per tool, as an array of tables, so one image tool can cover several
+extensions:
+
+```toml
+[[preview.tool]]
+extensions = ["pdf"]
+command    = ["pdftotext", "-l", "10", "-layout", "{path}", "-"]
+default    = "external"          # external | builtin; omitted means external
+
+[[preview.tool]]
+extensions = ["png", "jpg", "jpeg", "webp"]
+command    = ["chafa", "-f", "symbols", "--size", "{width}x{height}", "{path}"]
+default    = "builtin"           # keep the inline image; P switches to chafa
+
+[[preview.tool]]
+extensions = ["md"]
+command    = "glow -s dark -w $TRAIL_PREVIEW_WIDTH \"$TRAIL_PREVIEW_PATH\""
+
+[preview]
+external_timeout_ms = 3000       # 100..=60000
+```
+
+- **List form** is spawned directly, no shell. Placeholders `{path}`, `{width}`,
+  `{height}` are substituted per argument, so a file name can never become a second
+  argument or a second command. Any other `{…}` is a config error. A `.cmd`/`.bat` tool
+  (npm shims) cannot be spawned without an interpreter and is written as
+  `["cmd", "/C", "tool", …]`; the configuration guide says so.
+- **String form** runs through `shell_exec::shell_argv`, i.e. the `[general] shell` the
+  user already configured, so pipes work. Placeholders are **a config error** in the
+  string form: substituting a file name into shell text is injection (a file called
+  `x & del /s *.pdf`), and quoting rules differ between cmd, PowerShell and sh. The string
+  reads the path from the environment instead — `TRAIL_PREVIEW_PATH`,
+  `TRAIL_PREVIEW_WIDTH`, `TRAIL_PREVIEW_HEIGHT` — written `"$TRAIL_PREVIEW_PATH"` in sh
+  and PowerShell, `"%TRAIL_PREVIEW_PATH%"` in cmd. Both forms get the variables.
+- **Validation** (`TrailConfig::validate`): `deny_unknown_fields` on the rule; empty
+  command rejected; an extension in two rules rejected; extensions lowercased and a
+  leading `.` stripped; `default` is `external` or `builtin`.
+- **Shipped default:** `tool = []`, with the four examples above commented out in
+  `default.toml`. Trail never probes `PATH` — not at startup, not at config load — so
+  startup is unaffected whether or not rules exist.
+- **`:set`.** `preview.external_timeout_ms` gets a `set_value` arm like any key. The rule
+  list cannot be expressed as `key value`, so `:set preview.tool…` returns an error naming
+  `P` and the config file. This is a deliberate exception to the six-places rule in
+  `CLAUDE.md` §5 and is stated in `configuration_guide.md`.
+- **Overrides** (`config/mod.rs`): a user's `tool` list replaces the default list whole;
+  rules are not merged by extension.
+
+#### Architecture
+
+**Provider contract.** `PreviewProvider::can_handle(&self, entry)` sees no state, so a
+provider cannot know the config or the session's toggles. It becomes
+`can_handle(&self, entry, ctx)` — a one-line change to each of the four existing
+providers and their tests. `PreviewCtx` gains `external: Option<ExternalSpec>`: the
+command for this entry, already resolved. Resolution — the rule for the extension, then
+the session override, else the rule's `default` — is a pure function in the library
+(`preview::external::resolve`), not in `main.rs`, so it is unit-testable;
+`refresh_preview` calls it. The alternative, branching around the registry in
+`refresh_preview`, would make this the one provider that is not registered, which is the
+trap `CLAUDE.md` §5 names.
+
+**`preview/external.rs`** — `ExternalProvider`, registered second (after
+`DirectoryProvider`, before `ImageProvider`, so it can take images when asked to).
+`can_handle` is `ctx.external.is_some()` for a file; `preview` always spawns and returns
+`Deferred`. Nothing runs on the UI thread.
+
+**`workers/external_preview.rs`** — `tokio::process::Command` (tokio's `full` feature
+already includes `process`; no new dependency).
+
+- *Isolated from the terminal:* stdin null, stdout and stderr piped — a child that
+  inherited them would draw over the alternate screen (invariant 7) and read keystrokes.
+  On Windows, `CREATE_NO_WINDOW` through the safe `creation_flags`, so no console flashes.
+  Working directory is the file's parent.
+- *Bounded:* stdout is read until `[preview] max_lines` lines or `text_sync_threshold_kb`
+  bytes, then the child is killed — a `cat`-like tool on a 2 GB file costs the cap, not the
+  file. `external_timeout_ms` kills a hung tool.
+- *Cancelled when stale:* the generation guard already drops a late result, but not the
+  process behind it; holding `j` through a folder of PDFs would leave one `pdftotext` per
+  file running. `PreviewSlot` keeps the running task's `AbortHandle`, `refresh_preview`
+  aborts it before starting the next, and the child is spawned `kill_on_drop(true)`, so
+  aborting the task kills the process. A live-child counter in the worker exists for the
+  performance test below.
+- Results come back as `WorkerMsg::Preview` with the generation, through the existing
+  `merge` guard — no new message type.
+
+**`preview/ansi.rs`** — SGR escape sequences to styled spans: 16, 256 and 24-bit colour,
+foreground and background, bold, dim, italic, underline, reverse, and their resets. Every
+other sequence (cursor movement, clears, OSC titles, sixel/kitty image payloads) is
+discarded, and what is left goes through `provider::sanitize`. Written in the crate
+(~200 lines) rather than taking `ansi-to-tui`, whose releases each pin a `ratatui` major
+— the two-ratatui trap in `CLAUDE.md` §9. Recorded in the Decision Log.
+
+**`StyledSpan`** gains `bg: Option<Color>` and `modifiers: Modifier`. `chafa` draws almost
+entirely with background colours; `glow` uses bold and italic. The highlight worker passes
+`None` and empty, so its output is unchanged.
+
+**New content variants.**
+- `PreviewContent::External { lines, tool }` — drawn **without the line-number gutter**
+  (numbering character art or rendered Markdown wrecks it), scrolls with `J`/`K` like
+  text, clips long lines at the pane edge. `tool` (the program's file stem) is shown on
+  the pane's top border — `─ pdftotext ─` — so it is always visible which preview is up.
+- `PreviewContent::ExternalFailed { error, metadata }` — the failure answer: the error
+  lines in the theme's `error` colour (`pdftotext: not found on PATH`, `timed out after
+  3000 ms`, `exited with status 1` plus the first lines of stderr, or `produced no
+  output`), a blank line, then the same metadata block `binary::build_binary_preview`
+  gives today. `P` returns to the built-in preview.
+
+**Pane size.** `{width}` needs the pane's width; the renderer records only
+`viewport_height`. `PreviewSlot` gains `viewport_width`, written the same way, with
+80×24 assumed before the first frame.
+
+#### The toggle
+
+`toggle_preview_tool = "P"` in `[keymap.navigation]` → `Action::TogglePreviewTool`. It
+flips `AppState::preview_mode_overrides` (extension → mode) for the selected file's
+extension, then re-previews in place keeping the scroll position, as `R` does. With no
+rule for the extension it posts `no previewer configured for .xyz` on the notice channel
+and changes nothing. Overrides are process-wide (not per tab) and are not saved.
+`P` is a bare character, so the `NAMED_KEYS` trap does not apply; the existing keymap test
+still runs over it.
+
+#### Order of work
+
+On a branch, `feat/external-previewers`, pushed after every commit so the work exists
+somewhere other than this machine:
+
+1. `[~] feat>` give preview spans a background colour and text modifiers — no visible
+   change; render tests prove it.
+2. `[+] feat>` ANSI SGR parser for external previewer output — unit tests only.
+3. `[+] feat>` `[[preview.tool]]` rules and `external_timeout_ms` — the six places,
+   commented examples, configuration guide.
+4. `[+] feat>` external previewer provider and worker — the `can_handle` change, the
+   worker with cancellation, both content variants, pane width, registration.
+5. `[+] feat>` toggle a file type's previewer with `P` — keymap, border label,
+   `user_guide.md`, `README.md` key table, `CHANGELOG.md`, the architecture doc's module
+   tables, the Decision Log.
+
+#### Tests
+
+- *Parser:* each colour form, resets, discarded non-SGR sequences, CR and tab, a sequence
+  cut off at end of input.
+- *Config:* both command forms; rejection of an unknown field, empty command, duplicate
+  extension, unknown placeholder, any placeholder in the string form; extension
+  normalisation; `:set preview.tool…` refused; `:set preview.external_timeout_ms` bounded.
+- *Resolution:* override beats `default`, `default` applies without one, `P` on an
+  extension with no rule notifies and changes nothing.
+- *Worker, against real processes* (`cmd /C type` on Windows, `cat` elsewhere): normal
+  output, missing program, timeout, output past the line cap, non-zero exit with stderr,
+  abort mid-run.
+- *Merge:* a stale external result is dropped.
+- *Render (`TestBackend`):* no gutter on `External`, the border label, error lines then
+  metadata on `ExternalFailed`.
+
+#### Performance budgets — the release gate
+
+In `tests/perf_external_preview.rs`, every test `#[ignore]`d and run with
+`cargo test --release --test perf_external_preview -- --ignored`. Timing assertions are
+flaky on shared CI runners, so they gate the release locally rather than CI.
+
+| # | Measures | Budget |
+|---|---|---|
+| B1 | UI-thread cost of previewing an entry with an external rule (resolve + `preview_for`), median of 1000 | < 1 ms — it only spawns |
+| B2 | Config load with 20 rules vs none | < 1 ms difference; zero processes spawned |
+| B3 | 200 selection changes 10 ms apart, tool sleeps 5 s | ≤ 1 live child 500 ms after the last change |
+| B4 | A tool printing 10 MB | read stops at the byte cap, child killed, result within 200 ms of the cap |
+| B5 | ANSI parse of 2000 lines (~200 KB) of `bat --color=always` output | < 20 ms |
+| B6 | One frame of a 2000-line `External` preview in `TestBackend` | < 2 ms — only the visible slice is drawn |
+
+Then the maintainer's own pass, against a release build run beside the installed one
+(`target\release\trail.exe --config <test config>`, which leaves `%LOCALAPPDATA%\trail`
+untouched): hold `j` through a folder of 100+ PDFs with the `pdftotext` rule — the listing
+keeps pace and Task Manager shows no more than one or two `pdftotext.exe`; `P` on a `.md`
+and back; no console window flashes; a rule naming a missing program shows the error and
+the metadata.
+
+#### Shipping
+
+After the maintainer's pass and B1–B6: rebase onto `main` if it has moved,
+`merge --ff-only`, push, delete the branch locally and remotely (SHA printed first), then
+the release sequence in `CLAUDE.md` §8 as **v1.10.0**, including the post-release doc
+update and the `trail.exe` replacement on this machine. Until then the branch stays open
+on purpose, and is reported as such at the end of every session that touches it.
+
+#### Cannot be verified here
+
+`glow` and `chafa` output (not installed); how character-art images look in a given
+terminal — related to the open image-terminal question in §5.4; whether a console window
+still flashes on some Windows configuration only the maintainer's terminal shows.
+
 ---
 
 ## 3. Sequencing
@@ -541,6 +771,11 @@ meaning, that is a PATCH, the same reading that made the v1.8.1 sort badge one. 
 ship together the release is MINOR, and the notes should say that the path has moved
 surface rather than merely reappeared — anyone who had learned where to look will find it
 somewhere else.
+
+The fourth round's §2.19 is MINOR: `[[preview.tool]]` defaults to an empty list and
+`external_timeout_ms` only matters once a rule exists, so a v1.9.2 config behaves exactly
+as before, and `P` was unbound. The `can_handle` signature change is internal — the
+plugin API does not expose providers yet — so it does not count. Planned as v1.10.0.
 
 ---
 
