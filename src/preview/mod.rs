@@ -7,6 +7,7 @@
 //! Phase 5 registers all four built-in providers: `DirectoryProvider`,
 //! `ImageProvider`, `TextProvider`, and `BinaryProvider`.
 
+pub mod ansi;
 pub mod binary;
 pub mod directory;
 pub mod graphics;
