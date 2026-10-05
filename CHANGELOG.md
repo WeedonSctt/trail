@@ -29,6 +29,10 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [1.9.2] - 2026-10-04
+
 ### Fixed
 
 - `\` now reaches the command line and the search box on Windows keyboard
@@ -109,7 +113,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/WeedonSctt/trail/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/WeedonSctt/trail/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/WeedonSctt/trail/compare/v1.8.3...v1.9.0
 [1.8.3]: https://github.com/WeedonSctt/trail/compare/v1.8.2...v1.8.3

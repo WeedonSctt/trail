@@ -368,7 +368,7 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
-- Released: **v1.9.1**, from `main`, which is current and pushed.
+- Released: **v1.9.2**, from `main`, which is current and pushed.
 - A new key name in `keymap.rs`'s `key_to_config_string` must also go in `NAMED_KEYS`.
   Otherwise its first letter becomes a prefix that swallows the next keystroke — how `t`
   (from `tab`) and `c` (from `ctrl-r`) were dead keys until v1.9.1. A unit test enumerates
