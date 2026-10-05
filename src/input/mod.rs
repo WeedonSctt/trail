@@ -7,9 +7,33 @@
 pub mod command_parser;
 pub mod keymap;
 
-use crossterm::event::{KeyEvent, KeyEventKind};
+use crossterm::event::{KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::actions::Action;
+
+/// Whether a `Char` key with `modifiers` is a typed character rather than a chord.
+///
+/// Shift alone is text (capitals). Ctrl or Alt alone is a chord. Ctrl **and**
+/// Alt together are text too: that is how Windows reports AltGr, which many
+/// layouts need for `\`, `@`, `|` or `~` — on Spanish (Latin America) `\` is
+/// AltGr plus the key left of `1`. The console also replays pasted text as one
+/// keystroke per character with the modifiers the layout needs, so treating
+/// AltGr as a chord dropped every backslash of a pasted Windows path.
+///
+/// ```
+/// use crossterm::event::KeyModifiers;
+/// use trail::input::is_text_modifiers;
+///
+/// assert!(is_text_modifiers(KeyModifiers::SHIFT));
+/// assert!(is_text_modifiers(KeyModifiers::CONTROL | KeyModifiers::ALT));
+/// assert!(!is_text_modifiers(KeyModifiers::CONTROL));
+/// assert!(!is_text_modifiers(KeyModifiers::ALT));
+/// ```
+#[must_use]
+pub fn is_text_modifiers(modifiers: KeyModifiers) -> bool {
+    let altgr = KeyModifiers::CONTROL | KeyModifiers::ALT;
+    modifiers.contains(altgr) || !modifiers.intersects(altgr)
+}
 use crate::app::state::AppState;
 
 /// Mutable context shared with the keymap across ticks.

@@ -84,11 +84,8 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
 /// shadowing cannot be reintroduced through config.
 pub fn search(key: KeyEvent, keymap: &KeymapConfig) -> Option<Action> {
     if let KeyCode::Char(ch) = key.code {
-        // SHIFT is deliberately not excluded: capital letters are text too.
-        if !key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
-        {
+        // Capitals (Shift) and AltGr characters (Ctrl+Alt on Windows) are text too.
+        if super::is_text_modifiers(key.modifiers) {
             return Some(Action::SearchAppendChar(ch));
         }
     }
@@ -444,6 +441,19 @@ mod tests {
             search(shifted, &keymap),
             Some(Action::SearchAppendChar('K'))
         );
+    }
+
+    /// Windows reports AltGr as Ctrl+Alt; on es-MX that is how `\` is typed.
+    #[test]
+    fn altgr_characters_are_text() {
+        let keymap = crate::config::load(None).unwrap().keymap;
+        let altgr = KeyEvent {
+            code: KeyCode::Char('\\'),
+            modifiers: KeyModifiers::CONTROL | KeyModifiers::ALT,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        assert_eq!(search(altgr, &keymap), Some(Action::SearchAppendChar('\\')));
     }
 
     /// A shifted character carries its own capital, so `J`/`K` reach the

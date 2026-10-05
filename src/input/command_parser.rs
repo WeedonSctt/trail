@@ -800,7 +800,12 @@ pub fn feed_with_plugins(
             FeedResult::Updated
         }
 
-        KeyCode::Char(ch) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+        // Only a bare Ctrl is a chord here. AltGr arrives as Ctrl+Alt on
+        // Windows and is how `\` is typed (and pasted) on many layouts.
+        KeyCode::Char(ch)
+            if crate::input::is_text_modifiers(key.modifiers)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
+        {
             // Insert the character at the cursor position.
             buffer.insert(*cursor, ch);
             *cursor += ch.len_utf8();
@@ -1375,6 +1380,75 @@ mod tests {
         assert_eq!(result, FeedResult::Updated);
         assert_eq!(buf, "m");
         assert_eq!(cursor, 1);
+    }
+
+    /// A pasted Windows path arrives one key at a time, and on layouts where
+    /// `\` needs AltGr each backslash carries Ctrl+Alt. None may be dropped.
+    #[test]
+    fn feed_keeps_altgr_backslashes_of_a_pasted_path() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf = String::new();
+        let mut cursor = 0usize;
+        let mut hist_idx = None;
+        let mut tab = TabState::new();
+        let h = CommandHistory::new();
+
+        let pasted = r"C:\Users\me\file.txt";
+        for ch in pasted.chars() {
+            let modifiers = match ch {
+                '\\' => KeyModifiers::CONTROL | KeyModifiers::ALT,
+                ':' | 'C' | 'U' => KeyModifiers::SHIFT,
+                _ => KeyModifiers::NONE,
+            };
+            let key = KeyEvent {
+                code: KeyCode::Char(ch),
+                modifiers,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            };
+            feed(
+                key,
+                &mut buf,
+                &mut cursor,
+                &mut hist_idx,
+                &mut tab,
+                &h,
+                dir.path(),
+                false,
+            );
+        }
+        assert_eq!(buf, pasted);
+        assert_eq!(cursor, pasted.len());
+    }
+
+    #[test]
+    fn feed_bare_ctrl_char_is_not_text() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        let dir = tempfile::tempdir().unwrap();
+        let mut buf = String::new();
+        let mut cursor = 0usize;
+        let mut hist_idx = None;
+        let mut tab = TabState::new();
+        let h = CommandHistory::new();
+
+        let key = KeyEvent {
+            code: KeyCode::Char('x'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        };
+        feed(
+            key,
+            &mut buf,
+            &mut cursor,
+            &mut hist_idx,
+            &mut tab,
+            &h,
+            dir.path(),
+            false,
+        );
+        assert!(buf.is_empty());
     }
 
     #[test]

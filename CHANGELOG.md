@@ -29,7 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- `\` now reaches the command line and the search box on Windows keyboard
+  layouts that type it with AltGr, such as Spanish (Latin America). Windows
+  reports AltGr as Ctrl+Alt, and Trail threw away any character that came with
+  Ctrl held. That dropped every backslash of a path pasted after `ya`, since a
+  paste arrives as one keystroke per character. `@`, `|`, `~` and the other
+  AltGr characters are fixed the same way.
 
 ## [1.9.1] - 2026-09-29
 
