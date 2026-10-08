@@ -54,7 +54,7 @@ test itself).
 | 9 | Recycle bin instead of permanent delete | `dd` is irreversible | **done** — `[general] delete_mode` |
 | 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | **done** — patterns only; marking entries is still open, §5.3 |
 | 11 | `:set` persistence | `:set` is session-only | deferred — §5 |
-| 12 | Run a command without leaving the view | wanted a second window | **planned** — a built-in terminal panel, spec under discussion in, [`terminal_panel.md`](terminal_panel.md); §5.2 |
+| 12 | Run a command without leaving the view | wanted a second window | **planned** — a built-in terminal panel, spec under discussion in [`terminal_panel.md`](terminal_panel.md); §5.2 |
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
