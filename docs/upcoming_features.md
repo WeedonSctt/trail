@@ -54,7 +54,7 @@ test itself).
 | 9 | Recycle bin instead of permanent delete | `dd` is irreversible | **done** — `[general] delete_mode` |
 | 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | **done** — patterns only; marking entries is still open, §5.3 |
 | 11 | `:set` persistence | `:set` is session-only | deferred — §5 |
-| 12 | Run a command without leaving the view | wanted a second window | deferred — §5 |
+| 12 | Run a command without leaving the view | wanted a second window | **planned** — a built-in terminal panel, spec under discussion in, [`terminal_panel.md`](terminal_panel.md); §5.2 |
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
@@ -790,6 +790,10 @@ of each trade-off. If persistence is wanted, it should be an explicit `:set!` or
 `:config write` built on `toml_edit` so comments survive. Needs a decision on which.
 
 ### 5.2 A second window for commands
+
+> **Decided 2026-10-08:** the third option, an embedded terminal, as a VS Code-style
+> panel at the bottom holding several interactive shells. The product spec is
+> [`terminal_panel.md`](terminal_panel.md); the text below is the original triage.
 
 > **Resurfaced 2026-09-29**, in the same words: *"could it be possible to start a new
 > window where to input commands instead of exiting trail? just as vscode"*. Re-checked

@@ -25,6 +25,7 @@ The authoritative documents, in order of precedence for code-quality questions:
 | `docs/configuration_guide.md` | Every user-facing config key |
 | `docs/upcoming_features.md` | Assessed-but-unbuilt improvements, and why the deferred ones wait |
 | `docs/plugin_api_plan.md` | The shape the Lua plugin API is growing into, and the two decisions blocking it |
+| `docs/terminal_panel.md` | Product spec for the built-in terminal panel — behaviour only, not yet built |
 | `docs/release_process.md` / `docs/release_checklist.md` | Cutting a release |
 
 If code and a doc disagree, that is a bug in one of them — say so rather than silently
