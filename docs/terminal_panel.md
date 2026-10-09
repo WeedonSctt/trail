@@ -164,22 +164,39 @@ the shell). The panel can be open with either one focused.
 | Key | Default | Panel hidden | Panel open, file list focused | Panel open, shell focused |
 |---|---|---|---|---|
 | **toggle** | `Ctrl+.` | open it, focus the shell | hide it | hide it, focus returns to the file list |
-| **focus** | `Alt+.` | open it, focus the shell | focus the shell | focus the file list (panel stays open) |
+| **focus** | `F12` | open it, focus the shell | focus the shell | focus the file list (panel stays open) |
 
 So **toggle** is "show/hide", and **focus** is "go to the other side". Pressing *focus*
 with the panel hidden opens it rather than doing nothing, so there is never a key that
 silently fails. Both are rebindable like every other binding.
 
-Two consequences of these defaults, recorded so they are not rediscovered as bugs:
+#### Why `F12` for focus
 
-- **`Alt+.` is "insert the last argument"** in bash, zsh and PowerShell (PSReadLine).
-  Reserving it means that shortcut does not reach a shell in the panel. Accepted for the
-  default; a user who relies on it rebinds the focus key.
-- **Both keys must arrive at Trail with their modifier.** A terminal that cannot report
-  `Ctrl+.` or `Alt+.` as such would deliver a plain `.` — which in the file list is
-  *toggle hidden files*. Implementation verifies both on the maintainer's Windows
-  Terminal before the defaults are fixed in code; if a terminal cannot report them, the
-  user guide says which keys to bind instead.
+`Alt+.` was the first choice and was replaced on 2026-10-09, because it is "insert the
+last argument" in bash, zsh and PowerShell (PSReadLine) — a shortcut people use many
+times a day, which the panel would have swallowed. The focus key is pressed constantly,
+so it has to be a key **no shell and no common terminal program uses**, and one **every
+terminal reports the same way**. Checked against:
+
+| Who | Keys they already own |
+|---|---|
+| bash / zsh (readline, zle) | almost every `Ctrl+letter`; `Alt+letter`, `Alt+digit`, `Alt+.`, `Alt+_`, `Alt+<`/`>` |
+| PowerShell (PSReadLine) | `Alt+.`, `Alt+digit`, `Alt+?`, `Ctrl+Space`, `Ctrl+]`, `F1`–`F3`, `F7`, `F8`, `Shift`/`Ctrl`+arrows |
+| cmd.exe | `F1`–`F9` (line recall) |
+| vim, less, htop, mc | `Ctrl+letter`, `Ctrl+\`, `Ctrl+]`, `F1`–`F10` (htop, mc) |
+| Windows Terminal | `Ctrl+Shift+letter`, `Ctrl+,`, `Ctrl+Shift+,` (settings), `Ctrl+=`/`-`/`0` (zoom), `Alt+Enter`, `F11`, `Alt+Shift+…` (panes), `Ctrl+Alt+digit`, `Ctrl+Shift+M` |
+| Windows itself | `Ctrl+Alt+…` is AltGr — it types `\`, `@`, `|` on Spanish layouts |
+
+`F12` is outside all of them. It is also the most robust key to *receive*: every terminal
+sends it as the same escape sequence, with no modifier that a terminal might drop, and it
+is the same key on every keyboard layout. Combinations with punctuation were rejected
+for the second reason: on the Latin American layout `;` is `Shift+,`, so `Ctrl+;` would
+arrive as `Ctrl+Shift+,` — Windows Terminal's "open settings".
+
+One consequence of the defaults, recorded so it is not rediscovered as a bug: **`Ctrl+.`
+must arrive at Trail with its `Ctrl`.** A terminal that cannot report it would deliver a
+plain `.` — which in the file list is *toggle hidden files*. Windows Terminal reports it;
+the user guide says what to bind instead on a terminal that does not.
 
 ### 6.2 Reserved while the shell is focused
 
@@ -188,8 +205,8 @@ The complete list of keys the shell does **not** receive. Everything else goes t
 | Action | Default | Why it is worth stealing |
 |---|---|---|
 | toggle | `Ctrl+.` | the way out |
-| focus | `Alt+.` | the way back to the file list |
-| next shell / previous shell | `Ctrl+PageDown` / `Ctrl+PageUp` | VS Code's and browsers' tab keys; shells rarely use them |
+| focus | `F12` | the way back to the file list |
+| next shell / previous shell | `Ctrl+PageDown` / `Ctrl+PageUp` | VS Code's and browsers' tab keys. No shell uses them for editing; vim uses them for its own tabs, where `gt`/`gT` still work |
 | scroll back / forward through output | `Shift+PageUp` / `Shift+PageDown` | what every standalone terminal does with these keys |
 
 Scrolling back shows earlier output; typing anything returns the view to the bottom, as
@@ -246,7 +263,7 @@ What the user can set, without committing to key names (settled at implementatio
 | Quit confirmation: `when_busy` / `always` / `never` | `when_busy` |
 | Close confirmation (`:term close`): same values | `when_busy` |
 | Toggle key | `Ctrl+.` |
-| Focus key | `Alt+.` |
+| Focus key | `F12` |
 | Next / previous shell keys | `Ctrl+PageDown` / `Ctrl+PageUp` |
 | Scroll back / forward keys | `Shift+PageUp` / `Shift+PageDown` |
 
@@ -272,7 +289,7 @@ Said explicitly, so a later request can be checked against it:
 ## 10. Versioning
 
 A **MINOR** release under `CLAUDE.md` §8: new keys and new config with defaults that
-change nothing for someone who does not use them. `Ctrl+.` and `Alt+.` collide with no
+change nothing for someone who does not use them. `Ctrl+.` and `F12` collide with no
 existing Trail binding, provided they arrive with their modifier (§6.1).
 
 ---
