@@ -21,6 +21,8 @@ This document translates `trail.md` (the product spec) into a concrete tech stac
 | Plugin scripting | `mlua` (Lua) or `extism` (WASM) | User-defined commands, custom preview providers |
 | Config | `serde` + `toml` | Keybindings, theme, extension points |
 | CLI parsing | `clap` | Initial invocation flags (e.g. `--cwd-file`) |
+| Terminal panel | `portable-pty` + `vt100` | Runs each panel shell in a pseudo-terminal (ConPTY on Windows) and keeps its screen; Trail draws the grid itself rather than through a widget crate, so ratatui stays a single version |
+| Process table | `sysinfo` | Answers "is this panel shell running a command?" from its child processes, for the quit/close confirmations |
 
 **Alternative stack:** Go + `bubbletea`/`lipgloss`. Viable if the team prefers goroutines over `tokio` tasks. Slightly weaker syntax-highlighting and git ecosystem, but fast enough for this workload.
 
@@ -140,6 +142,7 @@ Everything that is optional, variable-latency, or explicitly deferred in the spe
 | Filesystem watcher | Watches the current directory via `notify`; debounces bursts of events (e.g. a `git checkout`) into a single refresh signal |
 | Preview worker | Reads a file off-thread, classifies it as text or binary, and highlights the text with `syntect`. The classification travels back with the preview and is cached on the entry, so the directory listing never has to read a file to decide what it is |
 | Image worker | Decodes the image off-thread and builds the encoder state for the active graphics protocol; resize and re-encode happen on the UI thread only when the preview pane changes size |
+| Terminal session threads (`src/terminal/session.rs`) | Three OS threads per panel shell — not pool tasks, since every call they make blocks: a reader that feeds output to the shell's `vt100` screen and sends `WorkerMsg::TerminalOutput` (at most one in flight per frame), a writer that delivers keystrokes so a shell that stops reading cannot stall the UI, and a waiter that sends `WorkerMsg::TerminalExited`. The UI thread draws output at most every 16 ms, so a flood of output cannot delay keystrokes |
 
 ### Program logic
 

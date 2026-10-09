@@ -5,6 +5,7 @@
 
 pub mod last_used;
 pub mod schema;
+pub mod terminal;
 
 use std::path::{Path, PathBuf};
 
@@ -14,7 +15,7 @@ use thiserror::Error;
 pub use last_used::ConfigSource;
 pub use schema::{
     GeneralConfig, KeymapConfig, NavigationConfig, PluginsConfig, PreviewConfig, SetConfigError,
-    ThemeConfig, TrailConfig,
+    TerminalConfig, TerminalProfile, ThemeConfig, TrailConfig,
 };
 
 /// Built-in default configuration shipped with the binary.
@@ -113,6 +114,7 @@ struct ConfigOverrides {
     general: Option<GeneralOverrides>,
     navigation: Option<NavigationOverrides>,
     preview: Option<PreviewOverrides>,
+    terminal: Option<TerminalOverrides>,
     theme: Option<ThemeOverrides>,
     keymap: Option<KeymapOverrides>,
     plugins: Option<PluginsOverrides>,
@@ -128,6 +130,9 @@ impl ConfigOverrides {
         }
         if let Some(preview) = self.preview {
             preview.apply_to(&mut config.preview);
+        }
+        if let Some(terminal) = self.terminal {
+            terminal.apply_to(&mut config.terminal);
         }
         if let Some(theme) = self.theme {
             theme.apply_to(&mut config.theme);
@@ -241,6 +246,38 @@ impl PreviewOverrides {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct TerminalOverrides {
+    default_profile: Option<String>,
+    height: Option<u16>,
+    confirm_quit: Option<String>,
+    confirm_close: Option<String>,
+    profile: Option<Vec<TerminalProfile>>,
+}
+
+impl TerminalOverrides {
+    fn apply_to(self, terminal: &mut TerminalConfig) {
+        if let Some(default_profile) = self.default_profile {
+            terminal.default_profile = default_profile;
+        }
+        if let Some(height) = self.height {
+            terminal.height = height;
+        }
+        if let Some(confirm_quit) = self.confirm_quit {
+            terminal.confirm_quit = confirm_quit;
+        }
+        if let Some(confirm_close) = self.confirm_close {
+            terminal.confirm_close = confirm_close;
+        }
+        // A user's profile list replaces the default (empty) one rather than
+        // extending it, so removing a profile from the file removes it here.
+        if let Some(profile) = self.profile {
+            terminal.profile = profile;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ThemeOverrides {
     foreground: Option<String>,
     background: Option<String>,
@@ -310,6 +347,7 @@ impl ThemeOverrides {
 struct KeymapOverrides {
     navigation: Option<std::collections::HashMap<String, String>>,
     search: Option<std::collections::HashMap<String, String>>,
+    terminal: Option<std::collections::HashMap<String, String>>,
 }
 
 impl KeymapOverrides {
@@ -319,6 +357,9 @@ impl KeymapOverrides {
         }
         if let Some(search) = self.search {
             keymap.search.extend(search);
+        }
+        if let Some(terminal) = self.terminal {
+            keymap.terminal.extend(terminal);
         }
     }
 }

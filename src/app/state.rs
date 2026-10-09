@@ -473,6 +473,8 @@ pub struct AppState {
     pub plugin_engine: Option<crate::plugin::PluginEngine>,
     /// Recent directories tracker.
     pub recent_dirs: crate::session::RecentDirs,
+    /// The terminal panel and its shells.
+    pub terminal: crate::terminal::TerminalPanel,
 }
 
 impl AppState {
@@ -543,6 +545,7 @@ impl AppState {
             bookmark_store: None,
             plugin_engine: None,
             recent_dirs: crate::session::RecentDirs::default(),
+            terminal: crate::terminal::TerminalPanel::default(),
         };
 
         state.load_dir(&cwd)?;

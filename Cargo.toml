@@ -80,6 +80,11 @@ arboard = "3"
 # --- Delete ---
 trash = "5"        # `dd` goes to the platform recycle bin; nothing in the stack can
 
+# --- Terminal panel ---
+portable-pty = "0.9"       # runs each panel shell in a pseudo-terminal (ConPTY on Windows)
+vt100 = "0.16"             # turns a shell's output into a screen grid Trail draws itself
+sysinfo = { version = "0.36", default-features = false, features = ["system"] }  # "is a shell busy?" asks whether it has child processes
+
 # --- Error handling & logging ---
 anyhow = "1"
 thiserror = "1"             # typed errors for library-shaped modules (coding-standard §4)

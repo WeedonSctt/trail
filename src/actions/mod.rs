@@ -962,6 +962,8 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             }
         },
 
+        ParsedCommand::Term(command) => crate::terminal::run_command(state, command),
+
         ParsedCommand::Plugin { name, arg } => {
             if let Some(engine) = &state.plugin_engine {
                 if engine.fire_action(&name, &arg) {

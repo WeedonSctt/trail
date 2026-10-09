@@ -197,6 +197,8 @@ long for the bar.
 - `:`: Enter Command Mode
 - `q`: Quit Trail (if shell wrapper is sourced, your shell will cd to the last directory)
 - `Ctrl-c`: Force quit without changing directory
+- `Ctrl-.`: Show or hide the terminal panel — see [Terminal Panel](#5-terminal-panel)
+- `F12`: Move the keyboard between the file list and the terminal panel
 
 ## 3. Search Mode
 
@@ -234,6 +236,8 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   on its own flips whichever order is already in use
 - `:bookmark <name>` (or `:bm`): Bookmark the current directory (defaults to directory base name if no name provided)
 - `:jump <name>` (or `:j`): Jump to a previously saved bookmark
+- `:term`, `:term new [profile]`, `:term close`, `:term <n>`, `:term max`: Drive the
+  terminal panel — see [Terminal Panel](#5-terminal-panel)
 
 ### Shell Commands
 You can run arbitrary shell commands by prefixing them with `!` instead of `:`.
@@ -271,7 +275,75 @@ work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work 
 
 Trail shows and copies paths in the plain `C:\Users\me` form rather than the extended-length `\\?\C:\Users\me` form Windows returns internally — on the nav panel's borders, in `ya` (yank absolute path) and in the directory handed back to your shell on exit. The one exception is a path the plain form cannot address, such as one longer than 260 characters: there the `\\?\` prefix is kept, because dropping it would produce a path Windows rejects.
 
-## 5. Configuration
+## 5. Terminal Panel
+
+The terminal panel is a real shell inside Trail: a panel under the file list and the preview
+where you can type commands, see their output, and run anything you would run in a terminal —
+`git commit` without `-m`, `vim`, `ssh`, a build. Unlike `!`, Trail does not step aside while
+it runs: you can go back to browsing with the shell still open, and come back to it.
+
+```
+┌ Trail ──────────────┐┌ preview ─────────────────────┐
+│> src/               ││ ...                          │
+└─────────────────────┘└──────────────────────────────┘
+┌ 1:pwsh │ 2:gitbash ─────────────────────────────────┐
+│C:\proj\trail> cargo test                             │
+│C:\proj\trail> _                                      │
+└─────────────────────────────────────────────────────┘
+ TERMINAL  2/2 gitbash
+```
+
+### Keys
+
+| Key | Does |
+|---|---|
+| `Ctrl-.` | Show the panel and give it the keyboard — starting a shell if there is none — or hide it. Hiding never stops a shell. |
+| `F12` | Move the keyboard to the other side: from the file list to the shell, or back. The panel stays open. With the panel hidden, it opens it. |
+| `Ctrl-PageDown` / `Ctrl-PageUp` | Next / previous shell |
+| `Shift-PageUp` / `Shift-PageDown` | Scroll back through the shell's output. Typing anything returns to the bottom. |
+
+While the shell has the keyboard the status bar says **TERMINAL**, and **every other key
+goes to the shell** — `q`, `Esc`, `Ctrl-c` and all of Trail's own keys included. That is
+what makes it a real terminal; `F12` is the way back. All six keys can be changed under
+[`[keymap.terminal]`](configuration_guide.md#keymapterminal).
+
+`F12` was chosen because no shell, editor or common terminal program uses it, and every
+terminal sends it the same way. `Ctrl-.` needs your terminal to report the `Ctrl` with the
+`.` — Windows Terminal does. On a terminal that does not, the key arrives as a plain `.`,
+which toggles hidden files; bind `toggle` to something else, such as `f11` or `alt-t`.
+
+### Commands
+
+| Command | Does |
+|---|---|
+| `:term` | Same as `Ctrl-.` |
+| `:term new [profile]` | Start another shell in the folder Trail is showing, from the default profile or the one named |
+| `:term close` | End the current shell — asks first if it is running a command |
+| `:term <n>` | Switch to shell number *n*, as the tabs are numbered |
+| `:term max` | Make the panel fill the screen, for `vim` or long output; again to restore |
+
+### How it behaves
+
+- **Each shell starts in the folder Trail is showing.** After that the two are independent:
+  `cd` in the shell does not move Trail, and browsing in Trail does not move the shell.
+  Quitting Trail hands your shell wrapper *Trail's* folder, as always.
+- **Shells keep running while the panel is hidden**, and are there as you left them when you
+  show it again. A shell that exits (`exit`, `Ctrl-d`) closes its tab; when the last one does,
+  the panel hides.
+- **Quitting Trail ends the panel's shells.** If one is running a command, Trail asks first.
+  `[terminal] confirm_quit` and `confirm_close` choose when it asks: `when_busy` (the
+  default), `always` or `never`.
+- **Shells come from profiles.** With none configured you get PowerShell 7 if it is installed,
+  else Windows PowerShell (`$SHELL` on Linux and macOS). Add `[[terminal.profile]]` entries
+  for Git Bash, cmd, WSL or anything else — see the
+  [configuration guide](configuration_guide.md#terminal).
+- **The panel's height** is `[terminal] height`, 35% of the screen by default. On a screen too
+  short for both, the panel takes all of it.
+- **Copying text with the mouse** is done by your terminal, not by Trail, so a selection that
+  runs beside the file list picks that up too. Pasting works as usual.
+- `!command` is unchanged: it still hands the whole terminal to the command and comes back.
+
+## 6. Configuration
 
 You can customize Trail by supplying a configuration file. This allows overriding the default theme, keybindings, and general settings (like your preferred `$EDITOR`).
 

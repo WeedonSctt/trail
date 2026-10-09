@@ -192,7 +192,7 @@ fn verb_completion_all_verbs_when_empty() {
         got,
         vec![
             "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
-            "touch",
+            "term", "touch",
         ],
         "every verb should be offered for an empty prefix"
     );
@@ -833,4 +833,43 @@ fn a_pattern_that_matches_nothing_says_so() {
 
     let err = state.error_text().expect("an empty match is an error");
     assert!(err.contains("nothing matches"), "got: {err}");
+}
+
+// ── :term ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn term_commands_parse() {
+    use trail::terminal::TermCommand;
+
+    let term = |text: &str| parse(text, false);
+    assert_eq!(term("term"), Ok(ParsedCommand::Term(TermCommand::Toggle)));
+    assert_eq!(
+        term("term new"),
+        Ok(ParsedCommand::Term(TermCommand::New(None)))
+    );
+    assert_eq!(
+        term("term new gitbash"),
+        Ok(ParsedCommand::Term(TermCommand::New(Some(
+            "gitbash".to_owned()
+        ))))
+    );
+    assert_eq!(
+        term("term close"),
+        Ok(ParsedCommand::Term(TermCommand::Close))
+    );
+    assert_eq!(term("term max"), Ok(ParsedCommand::Term(TermCommand::Max)));
+    assert_eq!(
+        term("term 2"),
+        Ok(ParsedCommand::Term(TermCommand::Select(2)))
+    );
+}
+
+#[test]
+fn term_rejects_what_it_cannot_do() {
+    for bad in ["term 0", "term split", "term new a b", "term close now"] {
+        assert!(
+            matches!(parse(bad, false), Err(ParseError::InvalidArgument(_))),
+            "{bad}"
+        );
+    }
 }

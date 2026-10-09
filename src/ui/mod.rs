@@ -1,4 +1,5 @@
-//! UI rendering: draws the three-panel layout (nav, preview, status bar).
+//! UI rendering: draws the three-panel layout (nav, preview, status bar), and
+//! the terminal panel beneath the first two when it is open.
 //!
 //! Corresponds to the architecture doc's UI thread rendering responsibility.
 //! `render()` is the single entry point called once per tick when `state.dirty`
@@ -8,6 +9,7 @@
 pub mod nav_panel;
 mod preview_panel;
 mod status_bar;
+mod terminal_panel;
 mod theme;
 
 use ratatui::backend::Backend;
@@ -22,7 +24,9 @@ use crate::preview::provider::PreviewContent;
 ///
 /// The layout splits the screen into a top region (nav + preview side by side)
 /// and a bottom status bar. The top region is split 40/60 between the
-/// navigation panel and the preview panel.
+/// navigation panel and the preview panel. An open terminal panel takes the
+/// bottom `[terminal] height` percent of the top region, or all of it when
+/// maximized — in which case the file list and preview are not drawn.
 ///
 /// This function does **not** clear `state.dirty`; the caller (`main.rs`)
 /// is responsible for setting it to `false` after a successful render so
@@ -62,13 +66,36 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
             ])
             .split(frame.area());
 
+        let (main, panel) = if state.terminal.is_visible() {
+            let rows = crate::terminal::panel_rows(
+                outer[0].height,
+                state.config.terminal.height,
+                state.terminal.is_maximized(),
+            );
+            let split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(rows)])
+                .split(outer[0]);
+            (split[0], Some(split[1]))
+        } else {
+            (outer[0], None)
+        };
+
+        status_bar::draw(frame, outer[1], state);
+        if let Some(panel) = panel {
+            terminal_panel::draw(frame, panel, state);
+        }
+        if main.height == 0 {
+            return;
+        }
+
         let inner = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
                 Constraint::Percentage(40), // navigation panel
                 Constraint::Percentage(60), // preview panel
             ])
-            .split(outer[0]);
+            .split(main);
 
         // The panel's scroll position is decided here rather than inside the
         // panel because it outlives the frame: the panel borrows `state` only
@@ -83,7 +110,6 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
             state.config.navigation.scroll_margin,
         );
         nav_panel::draw(frame, inner[0], state, nav_offset);
-        status_bar::draw(frame, outer[1], state);
         // Drawn last: it borrows `state` mutably, so the read-only panels above
         // must have finished with it.
         preview_panel::draw(frame, inner[1], state);

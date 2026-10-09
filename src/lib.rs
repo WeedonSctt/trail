@@ -20,5 +20,6 @@ pub mod paths;
 pub mod plugin;
 pub mod preview;
 pub mod session;
+pub mod terminal;
 pub mod ui;
 pub mod workers;

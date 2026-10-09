@@ -1,7 +1,7 @@
 //! Command Mode grammar: parsing, history, completion, and validation.
 //!
 //! Handles the `:` and `!`-prefixed command grammar including `:mkdir`,
-//! `:touch`, `:rename`, `:mv`, `:cp`, `:git`, `:set`, and `!<shell>`.
+//! `:touch`, `:rename`, `:mv`, `:cp`, `:git`, `:set`, `:term`, and `!<shell>`.
 //!
 //! # Grammar
 //!
@@ -10,7 +10,7 @@
 //!           | "!" shell_string
 //!
 //! verb    ::= "mkdir" | "touch" | "rename" | "mv" | "cp" | "git" | "set"
-//!           | "sort" | "bookmark" | "jump" | "plugin"
+//!           | "sort" | "bookmark" | "jump" | "plugin" | "term"
 //! ```
 //!
 //! `:git` and `:set` are syntactically accepted and validated here; their
@@ -79,6 +79,9 @@ pub enum ParsedCommand {
     Jump(String),
     /// Run a custom plugin action: `:plugin <name> [arg]`.
     Plugin { name: String, arg: String },
+    /// Drive the terminal panel: `:term`, `:term new [profile]`,
+    /// `:term close`, `:term <n>`, `:term max`.
+    Term(crate::terminal::TermCommand),
 }
 
 // ── Parse error ────────────────────────────────────────────────────────────────
@@ -87,7 +90,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :plugin")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :plugin, :term")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -292,8 +295,37 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             })
         }
 
+        "term" => parse_term(rest),
+
         other => Err(ParseError::UnknownVerb(other.to_owned())),
     }
+}
+
+/// Parses the arguments of `:term`.
+fn parse_term(rest: &str) -> Result<ParsedCommand, ParseError> {
+    use crate::terminal::TermCommand;
+
+    let mut words = rest.split_whitespace();
+    let command = match words.next() {
+        None => TermCommand::Toggle,
+        Some("new") => TermCommand::New(words.next().map(str::to_owned)),
+        Some("close") => TermCommand::Close,
+        Some("max") => TermCommand::Max,
+        Some(word) => match word.parse::<usize>() {
+            Ok(n) if n > 0 => TermCommand::Select(n),
+            _ => {
+                return Err(ParseError::InvalidArgument(format!(
+                    "term: '{word}' is not new, close, max or a shell number"
+                )))
+            }
+        },
+    };
+    if let Some(extra) = words.next() {
+        return Err(ParseError::InvalidArgument(format!(
+            "term: unexpected '{extra}'"
+        )));
+    }
+    Ok(ParsedCommand::Term(command))
 }
 
 /// Splits the argument of `:mv`/`:cp` into a wildcard pattern and a destination,
@@ -368,7 +400,7 @@ pub fn completions_with_plugins(
         let prefix = trimmed;
         let verbs = [
             "mkdir", "touch", "rename", "mv", "cp", "git", "set", "sort", "bookmark", "jump",
-            "plugin",
+            "plugin", "term",
         ];
         return verbs
             .iter()
@@ -1139,7 +1171,7 @@ mod tests {
             got,
             vec![
                 "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
-                "touch",
+                "term", "touch",
             ]
         );
     }

@@ -349,6 +349,8 @@ Press `:` for operations that take arguments.
 | `:bookmark [name]` / `:bm` | Bookmark the current directory (defaults to its base name) |
 | `:jump <name>` / `:j` | Jump to a saved bookmark |
 | `:plugin <name> [arg]` | Invoke an action registered by a Lua plugin |
+| `:term` / `:term new [profile]` | Show or hide the terminal panel / start another shell in it |
+| `:term close` / `:term <n>` / `:term max` | End the current shell / switch to shell *n* / fill the screen |
 | `!<command>` | Run any shell command in the current directory, e.g. `!ls -la` |
 
 Command mode keeps a **history** (`↑` / `↓`) and offers **Tab completion** for command verbs and
@@ -356,6 +358,23 @@ for destination paths in `:mv` and `:cp`.
 
 Shell commands and your editor take over the terminal while they run; Trail restores the interface
 and your full navigation state when they exit.
+
+### Terminal panel
+
+Real, interactive shells in a panel under the file list, like VS Code's terminal — browse and
+use a shell at the same time. Each shell starts in the folder Trail is showing; after that,
+neither moves the other.
+
+| Key | Action |
+|---|---|
+| `Ctrl-.` | Show / hide the panel (starts a shell the first time) |
+| `F12` | Move the keyboard between the file list and the shell |
+| `Ctrl-PageDown` / `Ctrl-PageUp` | Next / previous shell |
+| `Shift-PageUp` / `Shift-PageDown` | Scroll back through the shell's output |
+
+While the shell has the keyboard, every other key goes to it. Shells come from
+`[[terminal.profile]]` entries (PowerShell by default on Windows); quitting Trail asks first if
+one is still running a command. See the [user guide](docs/user_guide.md#5-terminal-panel).
 
 ---
 

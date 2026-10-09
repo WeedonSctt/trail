@@ -115,6 +115,42 @@ image_cell_height = 0
 # accepted range is 1 to 100000.
 max_lines = 2000
 
+[terminal]
+# The terminal panel: real, interactive shells under the file list.  Ctrl-.
+# shows and hides it, F12 moves the keyboard between the file list and the
+# shell; `:term new [profile]`, `:term close`, `:term <n>` and `:term max` do
+# the rest.  Nothing starts until the panel is first opened.
+#
+# Which profile a new shell runs.  Blank means the first [[terminal.profile]],
+# or -- with none configured -- PowerShell 7 if installed, else Windows
+# PowerShell (on Linux/macOS: $SHELL).
+default_profile = ""
+# The panel's height as a percentage of the screen above the status bar, 10-90.
+# A screen too short for both the file list and the panel gives the panel all
+# of it.  `:term max` fills the screen and restores it.
+height = 35
+# Whether quitting Trail, and `:term close`, ask before ending shells:
+#   when_busy -- only if a shell is running a command (default).  Trail tells by
+#                whether the shell has child processes; when it cannot tell, it
+#                asks, rather than risk ending a build.
+#   always    -- every time there is a shell to end.
+#   never     -- end them at once, whatever they are doing.
+confirm_quit = "when_busy"
+confirm_close = "when_busy"
+# Named shells.  `command` is the program and its arguments, run directly (no
+# shell parses it, so nothing in it is expanded).  For example:
+#
+#   [[terminal.profile]]
+#   name = "pwsh"
+#   command = ["pwsh.exe", "-NoLogo"]
+#
+#   [[terminal.profile]]
+#   name = "gitbash"
+#   command = ['C:\Program Files\Git\bin\bash.exe', "--login", "-i"]
+#
+# Listing profiles in your own config replaces this empty list.
+profile = []
+
 [theme]
 foreground = "white"
 background = "black"
@@ -185,6 +221,22 @@ confirm = "enter"
 move_down = "down"
 move_up = "up"
 delete_char = "backspace"
+
+[keymap.terminal]
+# The terminal panel's keys.  Each is one chord -- ctrl-, alt-, shift- plus a
+# character or a key name (f1-f12, pageup, pagedown, home, end, insert, delete,
+# enter, esc, tab, space, arrows).
+#
+# toggle and focus work from anywhere.  The other four are taken only while the
+# shell has the keyboard, and every key here is one no program in the shell can
+# receive -- which is why they avoid everything shells, vim and Windows Terminal
+# already use.  F12 in particular is used by none of them.
+toggle = "ctrl-."
+focus = "f12"
+next_shell = "ctrl-pagedown"
+prev_shell = "ctrl-pageup"
+scroll_up = "shift-pageup"
+scroll_down = "shift-pagedown"
 
 [plugins]
 enabled = []

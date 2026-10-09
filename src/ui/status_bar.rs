@@ -56,8 +56,19 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     // ── Left section: mode badge + cwd ────────────────────────────────────────
-    let mode_label = state.mode.label();
+    // While a panel shell has the keyboard, that is the mode that matters: the
+    // badge is how the user tells which side their next keystroke goes to.
+    let shell_focused = state.terminal.shell_focused();
+    let mode_label = if shell_focused {
+        "TERMINAL"
+    } else {
+        state.mode.label()
+    };
     let mode_style = match &state.mode {
+        _ if shell_focused => Style::default()
+            .fg(Color::Black)
+            .bg(theme::parse_color(&state.config.theme.command))
+            .add_modifier(Modifier::BOLD),
         Mode::Navigation => Style::default()
             .fg(Color::Black)
             .bg(theme::parse_color(&state.config.theme.git_clean))
@@ -80,7 +91,20 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     // tab the answer is never in doubt and the path wants the room. Without
     // this, `Tab` and `Shift-Tab` changed the focused tab with nothing on screen
     // to say so, which reads as a key that does nothing.
-    if !state.tab_manager.is_single() {
+    if shell_focused {
+        let panel = &state.terminal;
+        if let Some(session) = panel.sessions().get(panel.active()) {
+            left_spans.push(Span::styled(
+                format!(
+                    "{}/{} {} ",
+                    panel.active() + 1,
+                    panel.sessions().len(),
+                    session.label()
+                ),
+                styles.command,
+            ));
+        }
+    } else if !state.tab_manager.is_single() {
         left_spans.push(Span::styled(
             format!(
                 "[{}/{}] ",
@@ -135,9 +159,20 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
 /// The message to show, with the style to show it in, or `None` when there is
 /// nothing to say.
 ///
-/// Priority: a pending delete is a question and outranks a notice, which is only
-/// ever a report of something already done.
+/// Priority: a question outranks a notice, which is only ever a report of
+/// something already done. The terminal panel's quit and close questions come
+/// first, since every key goes to answering them until they are answered.
 fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Style)> {
+    if let Some(confirm) = state.terminal.pending() {
+        return Some((
+            confirm.prompt().to_owned(),
+            Style::default()
+                .fg(Color::Black)
+                .bg(theme::parse_color(&state.config.theme.error))
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
     if state.pending_delete {
         let name = state
             .selected_entry()

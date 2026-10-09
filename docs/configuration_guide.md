@@ -225,6 +225,53 @@ PNG, JPEG, GIF, BMP, ICO, TIFF, WebP and AVIF are decoded. SVG is listed as an
 image extension but is not rasterised — it falls back to a metadata preview
 reporting the decode failure.
 
+#### `[terminal]`
+The terminal panel — see the [user guide](user_guide.md#5-terminal-panel) for how it
+behaves.
+
+- `default_profile` (String): The profile a new shell runs. Blank (the default) means the
+  first `[[terminal.profile]]`, or the built-in shell when there are none: PowerShell 7 if
+  `pwsh.exe` is on `PATH`, else Windows PowerShell; on Linux and macOS, `$SHELL`. Naming a
+  profile that does not exist is an error.
+- `height` (Integer, 10–90): The panel's height as a percentage of the screen above the status
+  bar. (Default: `35`) A screen too short to leave the file list five rows gives the panel all
+  of it.
+- `confirm_quit` (String): Whether quitting Trail asks before ending the panel's shells.
+  (Default: `"when_busy"`)
+
+  | Value | Asks |
+  |---|---|
+  | `"when_busy"` | only if a shell is running a command |
+  | `"always"` | every time a shell is open |
+  | `"never"` | never — shells end at once, whatever they are doing |
+
+  "Running a command" means the shell has a child process. Trail cannot tell for certain with
+  every shell, and where it cannot, it asks — a question you did not need is better than a
+  build you lost.
+- `confirm_close` (String): The same choice for `:term close`. (Default: `"when_busy"`)
+- `[[terminal.profile]]` (Array of tables): Named shells. Each has a `name`, shown on the
+  panel's tab and taken by `:term new <name>`, and a `command`: the program and its arguments
+  as a list. The command is run directly — no shell parses it, so nothing in it is expanded.
+  Profiles in your config replace the (empty) default list.
+
+```toml
+[terminal]
+default_profile = "pwsh"
+
+[[terminal.profile]]
+name = "pwsh"
+command = ["pwsh.exe", "-NoLogo"]
+
+[[terminal.profile]]
+name = "gitbash"
+# A literal string, so the backslashes need no doubling.
+command = ['C:\Program Files\Git\bin\bash.exe', "--login", "-i"]
+
+[[terminal.profile]]
+name = "cmd"
+command = ["cmd.exe"]
+```
+
 #### `[theme]`
 Customizes the UI colors.
 **Valid Color Values:**
@@ -313,6 +360,25 @@ Overrides keybindings for Search Mode.
 - `move_up`: Scroll up in search results
 - `delete_char`: Delete the last typed character in the search query
 
+#### `[keymap.terminal]`
+The terminal panel's keys. Each is a single chord: any of `ctrl-`, `alt-`, `shift-` followed
+by a character or a key name — `f1`–`f12`, `pageup`, `pagedown`, `home`, `end`, `insert`,
+`delete`, `enter`, `esc`, `tab`, `space`, `up`, `down`, `left`, `right`.
+
+| Action | Default | Works |
+|---|---|---|
+| `toggle` | `ctrl-.` | everywhere — show or hide the panel |
+| `focus` | `f12` | everywhere — move the keyboard between the file list and the shell |
+| `next_shell` | `ctrl-pagedown` | while the shell has the keyboard |
+| `prev_shell` | `ctrl-pageup` | while the shell has the keyboard |
+| `scroll_up` | `shift-pageup` | while the shell has the keyboard |
+| `scroll_down` | `shift-pagedown` | while the shell has the keyboard |
+
+Every key here is one no program in the panel can receive, so choose ones your shells do not
+use. Avoid `alt-.` (insert last argument in bash, zsh and PowerShell), `ctrl-` + a letter
+(readline uses nearly all of them), `ctrl-alt-` + anything on Windows (it is AltGr, which
+types `\` and `@` on many layouts), and Windows Terminal's own `ctrl-shift-` keys.
+
 #### `[plugins]`
 Enables specific Lua plugins to load at startup.
 - `enabled` (Array of Strings): Names of the plugins to load. (e.g., `enabled = ["example_bookmarks"]`).
@@ -359,11 +425,20 @@ window, because it describes the panel rather than a place you are working.
 Preview changes apply to the next preview, so move the selection off the image
 and back to see the effect.
 
+**Terminal Properties:**
+- `:set terminal.height 50` (applies on the next frame)
+- `:set confirm_quit never` (or `:set terminal.confirm_quit never`)
+- `:set confirm_close always`
+- `:set default_profile gitbash` (applies to the next new shell; must name a configured profile)
+
+Profiles themselves can only be changed in the config file.
+
 **Theme Properties (Requires `theme.` prefix):**
 - `:set theme.background #1a1b26`
 - `:set theme.directory blue`
 
-**Keymap Properties (Requires `keymap.navigation.` or `keymap.search.` prefix):**
+**Keymap Properties (Requires `keymap.navigation.`, `keymap.search.` or `keymap.terminal.` prefix):**
 - `:set keymap.navigation.move_down n`
 - `:set keymap.navigation.quit ctrl-q`
 - `:set keymap.search.confirm enter`
+- `:set keymap.terminal.toggle f11`

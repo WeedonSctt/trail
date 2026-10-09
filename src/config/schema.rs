@@ -1,13 +1,18 @@
 //! Serde structs mirroring the TOML config shape.
 //!
-//! Covers `[general]`, `[navigation]`, `[preview]`, `[theme]`, `[keymap]`, and
-//! `[plugins]` sections. All structs reject unknown TOML keys so user typos are
+//! Covers `[general]`, `[navigation]`, `[preview]`, `[terminal]`, `[theme]`,
+//! `[keymap]`, and `[plugins]` sections. All structs reject unknown TOML keys so user typos are
 //! surfaced instead of silently ignored.
 
 use std::collections::HashMap;
 
 use serde::Deserialize;
 use thiserror::Error;
+
+use super::terminal::{
+    parse_confirm, parse_terminal_chord, TERMINAL_HEIGHT_RANGE, TERMINAL_HEIGHT_REASON,
+};
+pub use super::terminal::{TerminalConfig, TerminalProfile};
 
 /// Errors produced while applying a runtime `:set` update.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -54,6 +59,8 @@ pub struct TrailConfig {
     pub navigation: NavigationConfig,
     /// Preview pane settings, including inline image rendering.
     pub preview: PreviewConfig,
+    /// Terminal panel settings: shell profiles, size and confirmations.
+    pub terminal: TerminalConfig,
     /// UI color settings.
     pub theme: ThemeConfig,
     /// Key binding overrides.
@@ -141,6 +148,7 @@ impl TrailConfig {
                 "must be between 1 and 100000",
             ));
         }
+        self.terminal.validate()?;
         validate_color_value("theme.foreground", &self.theme.foreground)?;
         validate_color_value("theme.background", &self.theme.background)?;
         validate_color_value("theme.border", &self.theme.border)?;
@@ -159,6 +167,13 @@ impl TrailConfig {
         validate_keymap_table("keymap.search", &self.keymap.search, SEARCH_ACTIONS)?;
         for (action, binding) in &self.keymap.search {
             validate_search_binding(&format!("keymap.search.{action}"), binding)?;
+        }
+        for (action, binding) in &self.keymap.terminal {
+            let key = format!("keymap.terminal.{action}");
+            if !crate::terminal::TERMINAL_ACTIONS.contains(&action.as_str()) {
+                return Err(SetConfigError::UnknownKey(key));
+            }
+            parse_terminal_chord(&key, binding)?;
         }
         Ok(())
     }
@@ -264,6 +279,29 @@ impl TrailConfig {
                 }
                 self.preview.max_lines = max_lines;
             }
+            "terminal.height" => {
+                let height = value
+                    .trim()
+                    .parse::<u16>()
+                    .map_err(|_| invalid_value(key, value, TERMINAL_HEIGHT_REASON))?;
+                if !TERMINAL_HEIGHT_RANGE.contains(&height) {
+                    return Err(invalid_value(key, value, TERMINAL_HEIGHT_REASON));
+                }
+                self.terminal.height = height;
+            }
+            "terminal.confirm_quit" | "confirm_quit" => {
+                self.terminal.confirm_quit = parse_confirm(key, value)?;
+            }
+            "terminal.confirm_close" | "confirm_close" => {
+                self.terminal.confirm_close = parse_confirm(key, value)?;
+            }
+            "terminal.default_profile" | "default_profile" => {
+                let name = value.trim();
+                if !self.terminal.has_profile(name) {
+                    return Err(invalid_value(key, value, "names no [[terminal.profile]]"));
+                }
+                self.terminal.default_profile = name.to_owned();
+            }
             "theme.foreground" => self.theme.foreground = parse_color_value(key, value)?,
             "theme.background" => self.theme.background = parse_color_value(key, value)?,
             "theme.border" => self.theme.border = parse_color_value(key, value)?,
@@ -295,6 +333,16 @@ impl TrailConfig {
                 let binding = parse_key_binding(key, value)?;
                 validate_search_binding(key, &binding)?;
                 self.keymap.search.insert(action.to_owned(), binding);
+            }
+            key if key.starts_with("keymap.terminal.") => {
+                let action = key.trim_start_matches("keymap.terminal.");
+                if !crate::terminal::TERMINAL_ACTIONS.contains(&action) {
+                    return Err(SetConfigError::UnknownKey(key.to_owned()));
+                }
+                parse_terminal_chord(key, value)?;
+                self.keymap
+                    .terminal
+                    .insert(action.to_owned(), value.trim().to_owned());
             }
             _ => return Err(SetConfigError::UnknownKey(key.to_owned())),
         }
@@ -473,6 +521,9 @@ pub struct KeymapConfig {
     pub navigation: HashMap<String, String>,
     /// Search-mode bindings by action name.
     pub search: HashMap<String, String>,
+    /// Terminal panel bindings by action name. Unlike the other tables these
+    /// are single chords (`ctrl-.`, `f12`), never sequences.
+    pub terminal: HashMap<String, String>,
 }
 
 /// Plugin loader settings.
@@ -653,7 +704,7 @@ fn validate_color_value(key: &str, value: &str) -> Result<(), SetConfigError> {
     ))
 }
 
-fn invalid_value(key: &str, value: &str, reason: &str) -> SetConfigError {
+pub(super) fn invalid_value(key: &str, value: &str, reason: &str) -> SetConfigError {
     SetConfigError::InvalidValue {
         key: key.to_owned(),
         value: value.to_owned(),

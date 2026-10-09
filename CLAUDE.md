@@ -25,7 +25,7 @@ The authoritative documents, in order of precedence for code-quality questions:
 | `docs/configuration_guide.md` | Every user-facing config key |
 | `docs/upcoming_features.md` | Assessed-but-unbuilt improvements, and why the deferred ones wait |
 | `docs/plugin_api_plan.md` | The shape the Lua plugin API is growing into, and the two decisions blocking it |
-| `docs/terminal_panel.md` | Product spec for the built-in terminal panel — behaviour only, not yet built |
+| `docs/terminal_panel.md` | Product spec for the built-in terminal panel, and the decisions behind it |
 | `docs/release_process.md` / `docs/release_checklist.md` | Cutting a release |
 
 If code and a doc disagree, that is a bug in one of them — say so rather than silently
@@ -66,17 +66,21 @@ src/
   pathfmt.rs       how a path is spelled for a human vs. for the OS (Windows `\\?\`)
   paths.rs         every location Trail owns; the only ProjectDirs caller
   session.rs       cd-on-exit handoff to the shell wrappers
+  terminal/        the terminal panel: mod.rs (TerminalPanel), input (keys, :term),
+                   session (one shell: pty + threads), keys, profile, busy
   app/             state.rs (AppState), mode.rs, history.rs, tabs.rs, sort.rs, scroll.rs
-  ui/              mod.rs (render entry), nav_panel, preview_panel, status_bar, theme
+  ui/              mod.rs (render entry), nav_panel, preview_panel, terminal_panel,
+                   status_bar, theme
   input/           keymap.rs, command_parser.rs
   preview/         provider.rs (PreviewProvider trait + PreviewContent), text, directory,
                    binary, image, graphics (terminal inline-image protocol state)
   workers/         mod.rs (WorkerMsg + merge), git, fswatch, highlight, image_decode
   actions/         mod.rs (dispatch), fs_ops, shell_exec, clipboard
-  config/          schema.rs (serde structs), mod.rs (overrides + merge), default.toml,
-                   last_used.rs
+  config/          schema.rs (serde structs), terminal.rs ([terminal] section),
+                   mod.rs (overrides + merge), default.toml, last_used.rs
   plugin/          mod.rs, lua_api.rs, bookmarks.rs
-tests/             state_, preview_, command_parser_, render_snapshot_, test_gg_sequence
+tests/             state_, preview_, command_parser_, render_snapshot_, terminal_panel_,
+                   test_gg_sequence
 pkg/               homebrew/ aur/ scoop/ packaging manifests
 shell/             trail.bash|zsh|fish|ps1 — cd-on-exit wrappers, shipped in every archive
 ```
@@ -390,5 +394,11 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   rather than overflowing (an overflowing image is dropped entirely by the terminal).
 - `.gitignore` contains `test-*`, which will swallow a new top-level file or directory
   starting with `test-`. Name test fixtures accordingly, or place them in `tests/`.
+- The terminal panel's threads are OS threads, not tokio tasks (every pty call blocks), and
+  they report on the shared `WorkerMsg` channel. Its keys are matched in
+  `terminal::handle_key` *before* Trail's keymap, and are parsed by `terminal::keys::KeyChord`
+  — a separate grammar from `keymap.rs`, so they never touch `NAMED_KEYS`. Real-terminal
+  behaviour (ConPTY resizing, which keys a terminal delivers) is not testable here; the
+  tests run real `cmd.exe`/`sh` sessions against `TestBackend`.
 - Line endings: the working tree is CRLF on Windows, the repo is LF. `git diff` warnings
   about this are expected and not something to fix.

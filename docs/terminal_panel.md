@@ -1,9 +1,12 @@
 # Trail — Terminal Panel
 
 A product spec for a built-in terminal: a panel at the bottom of Trail that runs real,
-interactive shells, so the user can browse and use a shell at the same time. **Nothing
-here is built.** Sections 1–11 say only how the feature behaves; §12 records the
-technical direction agreed with it, which the implementation document will expand.
+interactive shells, so the user can browse and use a shell at the same time. Sections
+1–11 say only how the feature behaves; §12 records the technical direction agreed with
+it, and §13 how the first version was built.
+
+**Status:** built on `feat/terminal-panel` (2026-10-09), awaiting the maintainer's manual
+test before it reaches `main`.
 
 Designed with the maintainer on 2026-10-08 and 2026-10-09, at v1.9.2. Companion to
 [`upcoming_features.md`](upcoming_features.md) §5.2 ("a second window for commands"),
@@ -327,3 +330,30 @@ them.
    manual pass — listed alongside the image matrix as not automatically verifiable.
 6. **Order.** The `feat/external-previewers` work lands on `main` first; the terminal
    panel touches the same areas (workers, layout, keymap) and is built after it.
+
+---
+
+## 13. The first version, as built
+
+Everything in §§1–10 is implemented, with the defaults in §8. Where the build had to pick
+something the spec left open:
+
+- **Where the code is.** `src/terminal/` (`mod.rs` the panel, `input.rs` keys and `:term`,
+  `session.rs` one shell, `keys.rs` chords and key encoding, `profile.rs`, `busy.rs`),
+  `src/ui/terminal_panel.rs` for drawing, `src/config/terminal.rs` for the section.
+- **Busy detection** is "the shell has a child process". Console hosts (`conhost`,
+  `OpenConsole`) do not count, and a shell under a shell counts only if *it* has children —
+  Git Bash's launcher always runs a second `bash.exe`. Where the process table cannot be
+  read, the shell counts as busy (§5). It is read only when a confirmation is being decided.
+- **Output** is drawn at most every 16 ms. A hidden panel's output costs at most one message
+  per drawn frame and is not drawn.
+- **Terminal questions.** Programs that ask the terminal where the cursor is, or what it is
+  (`ESC[6n`, `ESC[5n`, `ESC[c`), get an answer, so prompt frameworks and `vim` do not stall.
+- **Pasting** arrives as typed keys, as it does elsewhere in Trail; bracketed paste is not
+  enabled, because turning it on would change how pasting into the command line works.
+- **`Release` key events** are swallowed while the shell has the keyboard; only presses and
+  repeats are sent.
+- **Not verifiable automatically:** how it looks and feels in Windows Terminal, ConPTY's
+  behaviour when the panel is resized, Git Bash and WSL profiles, and `vim`/`htop` in the
+  panel. The automated tests run real `cmd.exe` (or `/bin/sh`) sessions and render them
+  through ratatui's `TestBackend`.

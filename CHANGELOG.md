@@ -29,7 +29,20 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A terminal panel**: real, interactive shells in a panel under the file list, so you can
+  browse and use a shell at the same time. `Ctrl-.` shows and hides it, `F12` moves the
+  keyboard between the file list and the shell, `Ctrl-PageDown`/`Ctrl-PageUp` switch shells
+  and `Shift-PageUp`/`Shift-PageDown` scroll back. `:term new [profile]`, `:term close`,
+  `:term <n>` and `:term max` do the rest. Each shell starts in the folder Trail is showing
+  and is independent of it after that; `!command` is unchanged.
+- `[terminal]` config: `default_profile`, `height` (35% by default), `confirm_quit` and
+  `confirm_close` (`when_busy` by default — quitting asks only if a shell is running a
+  command), and `[[terminal.profile]]` entries naming the shells to run. With none, Trail
+  runs PowerShell on Windows and `$SHELL` elsewhere.
+- `[keymap.terminal]`: `toggle`, `focus`, `next_shell`, `prev_shell`, `scroll_up`,
+  `scroll_down`.
 
 ## [1.9.2] - 2026-10-04
 

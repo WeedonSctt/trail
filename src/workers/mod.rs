@@ -1,5 +1,9 @@
 //! Async worker pool: `WorkerMsg` enum, spawn/dispatch helpers, mpsc plumbing.
 //!
+//! The terminal panel's session threads report on the same channel
+//! (`TerminalOutput`, `TerminalExited`), though they are OS threads rather than
+//! pool tasks — see `crate::terminal::session`.
+//!
 //! Workers do anything that could be slow (git status, filesystem watching,
 //! syntax highlighting, image decoding) and report results back to the UI
 //! thread over a single `mpsc` channel drained once per UI tick.
@@ -107,6 +111,23 @@ pub enum WorkerMsg {
         path: PathBuf,
         /// The rendered metadata content.
         content: PreviewContent,
+    },
+
+    /// A terminal panel shell produced output.
+    ///
+    /// Carries no data: the output is already in the session's screen. At most
+    /// one is in flight per session until the next frame is drawn.
+    TerminalOutput {
+        /// The session that produced it.
+        id: u64,
+    },
+
+    /// A terminal panel shell exited.
+    TerminalExited {
+        /// The session that exited.
+        id: u64,
+        /// Its exit code, when the platform reported one.
+        code: Option<u32>,
     },
 }
 
@@ -236,6 +257,18 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             state.preview.truncated = false;
             state.dirty = true;
             tracing::debug!(?path, generation, "merged ImageMeta worker result");
+        }
+
+        WorkerMsg::TerminalOutput { id } => {
+            tracing::trace!(id, "terminal output");
+            state.terminal.note_output();
+        }
+
+        WorkerMsg::TerminalExited { id, code } => {
+            tracing::debug!(id, ?code, "terminal shell exited");
+            if state.terminal.on_exit(id) {
+                state.dirty = true;
+            }
         }
     }
 }

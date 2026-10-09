@@ -20,18 +20,20 @@ mod paths;
 mod plugin;
 mod preview;
 mod session;
+mod terminal;
 mod ui;
 mod workers;
 
 use std::io::{self, stdout};
 use std::panic;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use clap::Parser;
 use crossterm::event::{self, Event, EventStream};
 use crossterm::execute;
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{self as tty, EnterAlternateScreen, LeaveAlternateScreen};
 use futures::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -43,6 +45,7 @@ use crate::app::state::AppState;
 use crate::cli::Cli;
 use crate::input::InputCtx;
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
+use crate::terminal::KeyOutcome;
 use crate::workers::fswatch::FsWatchHandle;
 use crate::workers::{GitCache, WorkerMsg};
 
@@ -70,7 +73,7 @@ async fn main() -> Result<()> {
         // Best-effort terminal restoration — if this itself fails, there's
         // nothing more we can do.
         let _ = execute!(stdout(), LeaveAlternateScreen);
-        let _ = terminal::disable_raw_mode();
+        let _ = tty::disable_raw_mode();
         default_hook(info);
     }));
 
@@ -172,6 +175,8 @@ async fn main() -> Result<()> {
 
     // Set up the worker channel (single mpsc, drained once per UI tick).
     let (worker_tx, worker_rx) = workers::channel();
+    // The terminal panel's shells report output and exit on the same channel.
+    state.terminal.attach(worker_tx.clone());
 
     // Set up the git cache (shared between the UI thread and worker tasks).
     let git_cache = workers::git::new_cache();
@@ -195,7 +200,7 @@ async fn main() -> Result<()> {
     // Enter raw mode and the alternate screen. The suspend/resume sequence in
     // shell_exec::run_external reuses the same crossterm operations, so
     // establishing the enter/exit pair correctly here avoids rework later.
-    terminal::enable_raw_mode()?;
+    tty::enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
 
     let backend = CrosstermBackend::new(stdout());
@@ -218,7 +223,7 @@ async fn main() -> Result<()> {
     // Teardown: leave alternate screen and restore cooked mode regardless of
     // whether the event loop exited cleanly or with an error.
     execute!(stdout(), LeaveAlternateScreen)?;
-    terminal::disable_raw_mode()?;
+    tty::disable_raw_mode()?;
 
     // Phase 6: On normal exit, write the current directory to `--cwd-file`
     // so the shell wrapper can `cd` into it. On cancellation or error the
@@ -364,6 +369,21 @@ fn resubscribe_fswatch(
     *handle = workers::fswatch::spawn_fswatch(new_cwd, tx.clone(), debounce_ms);
 }
 
+/// The shortest interval between two frames drawn because a terminal panel
+/// shell produced output — about 60 a second. Without a cap, a build or a
+/// `cat` of a large file would redraw the whole screen for every read, and the
+/// keys typed meanwhile would wait behind those frames.
+const TERMINAL_FRAME: Duration = Duration::from_millis(16);
+
+/// Sleeps for `wait`, or forever when there is nothing to wait for — so a
+/// `select!` arm built from it fires only when terminal output is pending.
+async fn frame_timer(wait: Option<Duration>) {
+    match wait {
+        Some(wait) => tokio::time::sleep(wait).await,
+        None => std::future::pending().await,
+    }
+}
+
 /// Runs the main event loop until the user quits.
 ///
 /// Phase 4: `select!`s across three event sources:
@@ -391,6 +411,7 @@ async fn run_event_loop(
     // Initial render.
     ui::render(terminal, state)?;
     state.dirty = false;
+    let mut last_render = Instant::now();
 
     // Use crossterm's async EventStream for non-blocking terminal input.
     let mut event_stream = EventStream::new();
@@ -433,7 +454,14 @@ async fn run_event_loop(
             refresh_preview(state, registry, &worker_tx);
         }
 
-        if !worker_drained {
+        // Terminal output waits for the next frame slot rather than drawing at
+        // once; `frame_wait` is how long until that slot, if output is waiting.
+        let frame_wait = state
+            .terminal
+            .output_pending()
+            .then(|| TERMINAL_FRAME.saturating_sub(last_render.elapsed()));
+
+        if !worker_drained && frame_wait != Some(Duration::ZERO) {
             // Block until either a terminal event or worker message arrives.
             tokio::select! {
                 // Terminal input.
@@ -481,7 +509,8 @@ async fn run_event_loop(
                     }
                 }
 
-                // Worker messages (git, FsChanged, Preview, ImageMeta).
+                // Worker messages (git, FsChanged, Preview, ImageMeta, and the
+                // terminal panel's output and exits).
                 Some(msg) = worker_rx.recv() => {
                     let prev_cwd = state.cwd.clone();
                     handle_worker_msg(
@@ -493,13 +522,22 @@ async fn run_event_loop(
                         &prev_cwd,
                     );
                 }
+
+                // The frame slot for pending terminal output.
+                () = frame_timer(frame_wait) => {}
             }
+        }
+
+        if state.terminal.output_pending() && last_render.elapsed() >= TERMINAL_FRAME {
+            state.dirty = true;
         }
 
         // Re-render only when something changed.
         if state.dirty {
             ui::render(terminal, state)?;
             state.dirty = false;
+            last_render = Instant::now();
+            state.terminal.frame_drawn();
         }
     }
 
@@ -541,14 +579,28 @@ fn handle_key_event(
         state.clear_notice();
     }
 
-    if let Some(action) = input::dispatch(key, state, ctx) {
-        if action == Action::Quit {
+    // The terminal panel sees every key first: its toggle and focus keys work
+    // from anywhere, and while a shell has the keyboard everything else is the
+    // shell's.
+    match terminal::handle_key(state, &key) {
+        KeyOutcome::NotMine => {}
+        KeyOutcome::Handled => return,
+        KeyOutcome::Quit { cancel } => {
             *should_quit = true;
+            *cancelled = cancel;
             return;
         }
-        if action == Action::Cancel {
-            *should_quit = true;
-            *cancelled = true;
+    }
+
+    if let Some(action) = input::dispatch(key, state, ctx) {
+        // Quitting ends the panel's shells, so it may have to ask first; the
+        // answer comes back through `terminal::handle_key` above.
+        if action == Action::Quit || action == Action::Cancel {
+            let cancel = action == Action::Cancel;
+            if terminal::allow_quit(state, cancel) {
+                *should_quit = true;
+                *cancelled = cancel;
+            }
             return;
         }
 
