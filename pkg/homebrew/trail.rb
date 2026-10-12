@@ -35,12 +35,12 @@ class Trail < Formula
   on_macos do
     on_arm do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "12d578c88f363cf93e123618ec6db7565b49170f571c88620cabe57ad90aab78"
+      sha256 "706572826ba209308914611e3cd0895f7cae5aa98bab08dbf28e7f7c6a7068c0"
     end
 
     on_intel do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "1dba068cf13047c9250bba7d131d0ac801cf13d528f878d5593c050397cdecdf"
+      sha256 "90aa086cc9eac9503e501fdb35de6324f5401819b92ee866119743f15d90842f"
     end
   end
 
