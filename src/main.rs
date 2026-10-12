@@ -375,17 +375,8 @@ fn resubscribe_fswatch(
 /// keys typed meanwhile would wait behind those frames.
 const TERMINAL_FRAME: Duration = Duration::from_millis(16);
 
-/// How long after the last resize event the screen is cleared and drawn again.
-///
-/// Narrowing the window makes the terminal (or ConPTY between it and Trail)
-/// re-wrap the old frame's rows, and that re-wrap can land *after* the redraw
-/// the resize event triggered — leaving the frame broken into a staircase of
-/// half rows until something else redraws. A second full redraw once the
-/// resizing has stopped paints over whatever the re-wrap left behind.
-const RESIZE_SETTLE: Duration = Duration::from_millis(150);
-
 /// Sleeps for `wait`, or forever when there is nothing to wait for — so a
-/// `select!` arm built from it fires only when something is scheduled.
+/// `select!` arm built from it fires only when terminal output is pending.
 async fn frame_timer(wait: Option<Duration>) {
     match wait {
         Some(wait) => tokio::time::sleep(wait).await,
@@ -421,8 +412,6 @@ async fn run_event_loop(
     ui::render(terminal, state)?;
     state.dirty = false;
     let mut last_render = Instant::now();
-    // When to repaint once a resize has settled — see `RESIZE_SETTLE`.
-    let mut resize_settle: Option<Instant> = None;
 
     // Use crossterm's async EventStream for non-blocking terminal input.
     let mut event_stream = EventStream::new();
@@ -471,7 +460,6 @@ async fn run_event_loop(
             .terminal
             .output_pending()
             .then(|| TERMINAL_FRAME.saturating_sub(last_render.elapsed()));
-        let settle_wait = resize_settle.map(|at| at.saturating_duration_since(Instant::now()));
 
         if !worker_drained && frame_wait != Some(Duration::ZERO) {
             // Block until either a terminal event or worker message arrives.
@@ -507,7 +495,6 @@ async fn run_event_loop(
                                         tracing::debug!("terminal clear after resize failed: {e}");
                                     }
                                     state.dirty = true;
-                                    resize_settle = Some(Instant::now() + RESIZE_SETTLE);
                                 }
                                 _ => {}
                             }
@@ -538,15 +525,6 @@ async fn run_event_loop(
 
                 // The frame slot for pending terminal output.
                 () = frame_timer(frame_wait) => {}
-
-                // The repaint after a resize has stopped.
-                () = frame_timer(settle_wait) => {
-                    resize_settle = None;
-                    if let Err(e) = terminal.clear() {
-                        tracing::debug!("terminal clear after resize settled failed: {e}");
-                    }
-                    state.dirty = true;
-                }
             }
         }
 

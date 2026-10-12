@@ -44,11 +44,11 @@ the commits said rather than what the users saw.
 - `[keymap.terminal]`: `toggle`, `focus`, `next_shell`, `prev_shell`, `scroll_up`,
   `scroll_down`.
 
-### Fixed
+### Known issues
 
-- Narrowing the window no longer leaves the screen broken into a staircase of half rows.
-  The terminal re-wraps the old frame after Trail has already redrawn it, so Trail now
-  draws the whole screen once more when the resizing stops.
+- Making the window narrower can leave the screen drawn as a "staircase" of broken rows
+  until the next redraw (moving the selection is enough). Widening it, and resizing
+  vertically, are fine.
 
 ## [1.9.2] - 2026-10-04
 

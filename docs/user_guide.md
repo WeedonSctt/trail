@@ -342,6 +342,9 @@ which toggles hidden files; bind `toggle` to something else, such as `f11` or `a
 - **Copying text with the mouse** is done by your terminal, not by Trail, so a selection that
   runs beside the file list picks that up too. Pasting works as usual.
 - `!command` is unchanged: it still hands the whole terminal to the command and comes back.
+- **Known issue:** making the window *narrower* can leave the screen drawn as a staircase of
+  broken rows. Any redraw — moving the selection, for instance — puts it right. Widening the
+  window and resizing it vertically are not affected.
 
 ## 6. Configuration
 

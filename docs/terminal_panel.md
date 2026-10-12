@@ -5,8 +5,8 @@ interactive shells, so the user can browse and use a shell at the same time. Sec
 1–11 say only how the feature behaves; §12 records the technical direction agreed with
 it, and §13 how the first version was built.
 
-**Status:** built on `feat/terminal-panel` (2026-10-09), awaiting the maintainer's manual
-test before it reaches `main`.
+**Status:** shipped in v1.10.0 (2026-10-12), after the maintainer's manual test. One known
+issue is open: §11, L5.
 
 Designed with the maintainer on 2026-10-08 and 2026-10-09, at v1.9.2. Companion to
 [`upcoming_features.md`](upcoming_features.md) §5.2 ("a second window for commands"),
@@ -316,6 +316,7 @@ existing Trail binding, provided they arrive with their modifier (§6.1).
 | L2 | **Running-shells indicator** | a small mark on the status bar (e.g. `▣ 2`) while the panel is hidden but shells are still running, so a forgotten shell is not invisible |
 | L3 | **Exit notice** | a status-bar notification when a shell exits with a non-zero code; without it a crashing shell just vanishes |
 | L4 | **Focused-border colour** | the focused side's border drawn in a themeable highlight colour, in addition to the `TERMINAL` label. The theme has a single `border` colour today |
+| L5 | **Narrowing the window leaves a "staircase"** | found in the maintainer's test on 2026-10-12 and accepted as minor for the first release. Making the window narrower leaves Trail's frame broken into stepped rows until the next redraw; widening and vertical resizing are clean. The likely cause is the outer terminal (or ConPTY) re-wrapping the old frame's rows *after* Trail's resize redraw. A second full redraw 150 ms after resizing stops was tried and did **not** help, so the cause is not just timing — next step is to reproduce it with the panel closed and on v1.9.2, to learn whether the panel is involved at all |
 
 ---
 
