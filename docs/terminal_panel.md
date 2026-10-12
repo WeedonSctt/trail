@@ -340,8 +340,9 @@ them.
 5. **Testing.** Key translation, drawing, and shell lifetime are tested automatically.
    Real feel, resizing, ConPTY behaviour and the §6.1 key check need the maintainer's
    manual pass — listed alongside the image matrix as not automatically verifiable.
-6. **Order.** The `feat/external-previewers` work lands on `main` first; the terminal
-   panel touches the same areas (workers, layout, keymap) and is built after it.
+6. **Order.** Planned as: `feat/external-previewers` lands on `main` first. In the event
+   the terminal panel shipped first (v1.10.0), while the previewers still awaited the
+   maintainer's test; that branch is rebased onto the panel when it lands.
 
 ---
 
