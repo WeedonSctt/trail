@@ -10,7 +10,7 @@
 ## guidelines.
 ##
 ## NOTE ON SHA256 DIGESTS:
-##   The sha256 values below are the v1.9.2 digests, from its checksums.txt.
+##   The sha256 values below are the v1.10.0 digests, from its checksums.txt.
 ##   On every version bump they must be refreshed alongside `version` — read
 ##   the new values from that release's checksums.txt, or run `shasum -a 256`
 ##   (macOS) / `sha256sum` (Linux) against each downloaded archive.
@@ -25,7 +25,7 @@
 class Trail < Formula
   desc "Terminal-first workspace for navigating, inspecting and acting on the filesystem"
   homepage "https://github.com/WeedonSctt/trail"
-  version "1.9.2"
+  version "1.10.0"
   license "MIT"  # Update to match the actual LICENSE file when added.
 
   # ── Platform-specific source archives ─────────────────────────────────────
