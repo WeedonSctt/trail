@@ -188,6 +188,7 @@ terminal reports the same way**. Checked against:
 | cmd.exe | `F1`–`F9` (line recall) |
 | vim, less, htop, mc | `Ctrl+letter`, `Ctrl+\`, `Ctrl+]`, `F1`–`F10` (htop, mc) |
 | Windows Terminal | `Ctrl+Shift+letter`, `Ctrl+,`, `Ctrl+Shift+,` (settings), `Ctrl+=`/`-`/`0` (zoom), `Alt+Enter`, `F11`, `Alt+Shift+…` (panes), `Ctrl+Alt+digit`, `Ctrl+Shift+M` |
+| WezTerm | `Ctrl+Shift+letter`, `Ctrl+Tab`, `Ctrl+PageUp`/`Down` (tabs), `Shift+PageUp`/`Down` (its own scrollback), `Ctrl+Shift+arrows`, `Ctrl+=`/`-`/`0`, `Alt+Enter` |
 | Windows itself | `Ctrl+Alt+…` is AltGr — it types `\`, `@`, `|` on Spanish layouts |
 
 `F12` is outside all of them. It is also the most robust key to *receive*: every terminal
@@ -209,11 +210,21 @@ The complete list of keys the shell does **not** receive. Everything else goes t
 |---|---|---|
 | toggle | `Ctrl+.` | the way out |
 | focus | `F12` | the way back to the file list |
-| next shell / previous shell | `Ctrl+PageDown` / `Ctrl+PageUp` | VS Code's and browsers' tab keys. No shell uses them for editing; vim uses them for its own tabs, where `gt`/`gT` still work |
-| scroll back / forward through output | `Shift+PageUp` / `Shift+PageDown` | what every standalone terminal does with these keys |
+| next shell / previous shell | `Alt+Shift+PageDown` / `Alt+Shift+PageUp` | no shell, vim, or terminal uses them |
+| scroll back / forward through output | `Alt+PageUp` / `Alt+PageDown` | no shell, vim, or terminal uses them |
 
 Scrolling back shows earlier output; typing anything returns the view to the bottom, as
 in a standalone terminal.
+
+The first build used `Ctrl+PageDown`/`Ctrl+PageUp` (VS Code's and browsers' tab keys) and
+`Shift+PageUp`/`Shift+PageDown` (what standalone terminals scroll with). Testing on
+2026-10-12 showed why that was wrong: **those keys are the outer terminal's own**, so they
+never reach Trail. WezTerm switches its tabs with `Ctrl+PageUp/Down` and scrolls its own
+window with `Shift+PageUp/Down`; GNOME Terminal and Konsole do the same, and Windows
+Terminal keeps `Ctrl+Shift+PageUp/Down`. A key that only works in some terminals is a
+bug report, so all four moved to `Alt`, which none of those terminals binds with
+`PageUp`/`PageDown`, and no shell or vim does either. Scrolling, the more frequent of the
+two, got the shorter chord.
 
 ### 6.3 Commands
 
@@ -267,8 +278,8 @@ What the user can set, without committing to key names (settled at implementatio
 | Close confirmation (`:term close`): same values | `when_busy` |
 | Toggle key | `Ctrl+.` |
 | Focus key | `F12` |
-| Next / previous shell keys | `Ctrl+PageDown` / `Ctrl+PageUp` |
-| Scroll back / forward keys | `Shift+PageUp` / `Shift+PageDown` |
+| Next / previous shell keys | `Alt+Shift+PageDown` / `Alt+Shift+PageUp` |
+| Scroll back / forward keys | `Alt+PageUp` / `Alt+PageDown` |
 
 Every setting follows Trail's existing rules: strict parsing (an unknown key is an
 error), documented in `configuration_guide.md`, adjustable at runtime with `:set` where

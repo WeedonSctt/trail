@@ -369,10 +369,10 @@ by a character or a key name — `f1`–`f12`, `pageup`, `pagedown`, `home`, `en
 |---|---|---|
 | `toggle` | `ctrl-.` | everywhere — show or hide the panel |
 | `focus` | `f12` | everywhere — move the keyboard between the file list and the shell |
-| `next_shell` | `ctrl-pagedown` | while the shell has the keyboard |
-| `prev_shell` | `ctrl-pageup` | while the shell has the keyboard |
-| `scroll_up` | `shift-pageup` | while the shell has the keyboard |
-| `scroll_down` | `shift-pagedown` | while the shell has the keyboard |
+| `next_shell` | `alt-shift-pagedown` | while the shell has the keyboard |
+| `prev_shell` | `alt-shift-pageup` | while the shell has the keyboard |
+| `scroll_up` | `alt-pageup` | while the shell has the keyboard |
+| `scroll_down` | `alt-pagedown` | while the shell has the keyboard |
 
 Every key here is one no program in the panel can receive, so choose ones your shells do not
 use. Avoid `alt-.` (insert last argument in bash, zsh and PowerShell), `ctrl-` + a letter

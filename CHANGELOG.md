@@ -33,8 +33,8 @@ the commits said rather than what the users saw.
 
 - **A terminal panel**: real, interactive shells in a panel under the file list, so you can
   browse and use a shell at the same time. `Ctrl-.` shows and hides it, `F12` moves the
-  keyboard between the file list and the shell, `Ctrl-PageDown`/`Ctrl-PageUp` switch shells
-  and `Shift-PageUp`/`Shift-PageDown` scroll back. `:term new [profile]`, `:term close`,
+  keyboard between the file list and the shell, `Alt-Shift-PageDown`/`Alt-Shift-PageUp`
+  switch shells and `Alt-PageUp`/`Alt-PageDown` scroll back. `:term new [profile]`, `:term close`,
   `:term <n>` and `:term max` do the rest. Each shell starts in the folder Trail is showing
   and is independent of it after that; `!command` is unchanged.
 - `[terminal]` config: `default_profile`, `height` (35% by default), `confirm_quit` and
@@ -43,6 +43,12 @@ the commits said rather than what the users saw.
   runs PowerShell on Windows and `$SHELL` elsewhere.
 - `[keymap.terminal]`: `toggle`, `focus`, `next_shell`, `prev_shell`, `scroll_up`,
   `scroll_down`.
+
+### Fixed
+
+- Narrowing the window no longer leaves the screen broken into a staircase of half rows.
+  The terminal re-wraps the old frame after Trail has already redrawn it, so Trail now
+  draws the whole screen once more when the resizing stops.
 
 ## [1.9.2] - 2026-10-04
 

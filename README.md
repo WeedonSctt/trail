@@ -369,8 +369,8 @@ neither moves the other.
 |---|---|
 | `Ctrl-.` | Show / hide the panel (starts a shell the first time) |
 | `F12` | Move the keyboard between the file list and the shell |
-| `Ctrl-PageDown` / `Ctrl-PageUp` | Next / previous shell |
-| `Shift-PageUp` / `Shift-PageDown` | Scroll back through the shell's output |
+| `Alt-Shift-PageDown` / `Alt-Shift-PageUp` | Next / previous shell |
+| `Alt-PageUp` / `Alt-PageDown` | Scroll back through the shell's output |
 
 While the shell has the keyboard, every other key goes to it. Shells come from
 `[[terminal.profile]]` entries (PowerShell by default on Windows); quitting Trail asks first if

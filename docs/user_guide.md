@@ -299,8 +299,8 @@ it runs: you can go back to browsing with the shell still open, and come back to
 |---|---|
 | `Ctrl-.` | Show the panel and give it the keyboard — starting a shell if there is none — or hide it. Hiding never stops a shell. |
 | `F12` | Move the keyboard to the other side: from the file list to the shell, or back. The panel stays open. With the panel hidden, it opens it. |
-| `Ctrl-PageDown` / `Ctrl-PageUp` | Next / previous shell |
-| `Shift-PageUp` / `Shift-PageDown` | Scroll back through the shell's output. Typing anything returns to the bottom. |
+| `Alt-Shift-PageDown` / `Alt-Shift-PageUp` | Next / previous shell |
+| `Alt-PageUp` / `Alt-PageDown` | Scroll back through the shell's output. Typing anything returns to the bottom. |
 
 While the shell has the keyboard the status bar says **TERMINAL**, and **every other key
 goes to the shell** — `q`, `Esc`, `Ctrl-c` and all of Trail's own keys included. That is

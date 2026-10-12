@@ -230,13 +230,16 @@ delete_char = "backspace"
 # toggle and focus work from anywhere.  The other four are taken only while the
 # shell has the keyboard, and every key here is one no program in the shell can
 # receive -- which is why they avoid everything shells, vim and Windows Terminal
-# already use.  F12 in particular is used by none of them.
+# already use.  F12 in particular is used by none of them.  The four PageUp /
+# PageDown keys carry Alt because terminals keep Ctrl- and Shift-PageUp for
+# themselves (WezTerm switches tabs and scrolls its own window with them), so
+# Trail would never see them.
 toggle = "ctrl-."
 focus = "f12"
-next_shell = "ctrl-pagedown"
-prev_shell = "ctrl-pageup"
-scroll_up = "shift-pageup"
-scroll_down = "shift-pagedown"
+next_shell = "alt-shift-pagedown"
+prev_shell = "alt-shift-pageup"
+scroll_up = "alt-pageup"
+scroll_down = "alt-pagedown"
 
 [plugins]
 enabled = []

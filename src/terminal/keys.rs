@@ -10,7 +10,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// One key plus the modifiers that must be held with it, as written in
-/// `[keymap.terminal]` — `ctrl-.`, `f12`, `shift-pageup`.
+/// `[keymap.terminal]` — `ctrl-.`, `f12`, `alt-pageup`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyChord {
     code: KeyCode,
@@ -18,7 +18,7 @@ pub struct KeyChord {
 }
 
 /// Explanation attached to a binding [`KeyChord::parse`] rejects.
-pub const KEY_CHORD_REASON: &str = "expected a key such as f12, ctrl-., alt-x or shift-pageup";
+pub const KEY_CHORD_REASON: &str = "expected a key such as f12, ctrl-., alt-x or alt-pageup";
 
 impl KeyChord {
     /// Parses a binding: any of `ctrl-`, `alt-`, `shift-` in any order, then a
@@ -282,8 +282,10 @@ mod tests {
         assert!(focus.matches(&plain(KeyCode::F(12))));
         assert!(!focus.matches(&key(KeyCode::F(12), KeyModifiers::SHIFT)));
 
-        let next = KeyChord::parse("ctrl-pagedown").unwrap();
-        assert!(next.matches(&key(KeyCode::PageDown, KeyModifiers::CONTROL)));
+        let next = KeyChord::parse("alt-shift-pagedown").unwrap();
+        let alt = KeyModifiers::ALT;
+        assert!(next.matches(&key(KeyCode::PageDown, alt | KeyModifiers::SHIFT)));
+        assert!(!next.matches(&key(KeyCode::PageDown, alt)));
         assert!(!next.matches(&plain(KeyCode::PageDown)));
     }
 

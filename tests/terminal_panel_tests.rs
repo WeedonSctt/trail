@@ -159,7 +159,7 @@ fn several_shells_switch_and_close() {
     let frame = render(&mut state);
     assert!(frame.contains("1:sh") && frame.contains("2:sh"), "{frame}");
 
-    let next = key(KeyCode::PageDown, KeyModifiers::CONTROL);
+    let next = key(KeyCode::PageDown, KeyModifiers::ALT | KeyModifiers::SHIFT);
     terminal::handle_key(&mut state, &next);
     assert_eq!(state.terminal.active(), 0, "wraps around");
 
