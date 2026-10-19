@@ -46,8 +46,9 @@ the commits said rather than what the users saw.
 - **Visual mode**, `v`: extend a range with `j`/`k`/`G`/`gg` as in Vim, then `Space` or `v` to
   mark it, `h`/`l` to mark it and move on, `dd` to delete it, or `Esc` to abandon it.
   `Shift`-arrows still scroll the preview.
-- **`@` repeats the last command.** It runs the newest `:` or `!` command again without
-  opening the command line, on whatever is selected or marked now.
+- **`@` repeats the last file operation**: the newest `:` or `!` command, or `dd`, `pp` or
+  `pm`, whichever came last, on whatever is selected or marked now. A repeated `dd` still
+  asks before deleting.
 - **`:config write`** saves the session's `:set` changes into your `trail.toml`, touching
   only those keys and keeping every comment. With no config file loaded it creates one in
   Trail's config directory and loads it from then on.

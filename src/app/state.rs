@@ -549,6 +549,8 @@ pub struct AppState {
     pub marks: crate::app::marks::MarkSet,
     /// The `:set` changes made this session, for `:config write`.
     pub settings: crate::config::persist::SessionSettings,
+    /// The last file operation, for `@` to do again.
+    pub last_repeatable: Option<crate::actions::Repeatable>,
 }
 
 impl AppState {
@@ -623,6 +625,7 @@ impl AppState {
             transfers: crate::actions::transfer::Transfers::default(),
             marks: crate::app::marks::MarkSet::default(),
             settings: crate::config::persist::SessionSettings::default(),
+            last_repeatable: None,
         };
 
         state.load_dir(&cwd)?;

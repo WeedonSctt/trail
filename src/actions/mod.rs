@@ -100,9 +100,9 @@ pub enum Action {
     // ── Command Mode ──────────────────────────────────────────────────────
     /// Feed a single key event into the Command Mode buffer.
     CommandKey(crossterm::event::KeyEvent),
-    /// Run the most recent `:` or `!` command again without opening the
-    /// command line (`@`). Like Vim's `.`, a `:mv` repeated acts on whatever
-    /// is selected — or marked — now.
+    /// Do the last file operation again (`@`): the newest `:`/`!` command, or
+    /// `dd`, `pp` or `pm`, whichever came last — see [`Repeatable`]. Like
+    /// Vim's `.`, it acts on whatever is selected — or marked — now.
     RepeatLastCommand,
 
     // ── Filesystem mutations (Phase 3) ────────────────────────────────────
@@ -184,6 +184,21 @@ pub enum Action {
     SwitchTabNext,
     /// Switch focus to the previous tab, wrapping from the first to the last.
     SwitchTabPrev,
+}
+
+/// What `@` repeats: the last file operation, typed or pressed.
+///
+/// Only operations are recorded — commands and the keys that change files
+/// (`dd`, `pp`, `pm`). Moving, marking and yanking are not, so `j` between a
+/// `dd` and an `@` does not replace the `dd`; it is what makes `dd`, `j`, `@`
+/// work the way Vim's `.` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Repeatable {
+    /// A `:` command without its `:`, or a `!` command with its `!`.
+    CommandLine(String),
+    /// A key's action, replayed as if the key were pressed again. A repeated
+    /// `dd` therefore still asks for confirmation.
+    Key(Action),
 }
 
 /// Applies `action` to `state`, returning an error if a filesystem operation
@@ -498,17 +513,22 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     state.mode = Mode::Navigation;
                     state.dirty = true;
 
+                    if !submitted_buf.trim().is_empty() {
+                        state.last_repeatable =
+                            Some(Repeatable::CommandLine(submitted_buf.clone()));
+                    }
                     run_command_line(state, &submitted_buf)?;
                 }
             }
         }
 
-        Action::RepeatLastCommand => match state.command_history.prev(0).map(str::to_owned) {
-            Some(line) => {
+        Action::RepeatLastCommand => match state.last_repeatable.clone() {
+            Some(Repeatable::CommandLine(line)) => {
                 state.clear_notice();
                 run_command_line(state, &line)?;
             }
-            None => state.notify("no command to repeat yet — : or ! runs one"),
+            Some(Repeatable::Key(action)) => apply(action, state)?,
+            None => state.notify("nothing to repeat yet — @ repeats a command, dd, pp or pm"),
         },
 
         // ── Filesystem command execution ──────────────────────────────────────
@@ -552,6 +572,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 || !state.marks.is_empty()
                 || matches!(state.mode, Mode::Visual { .. });
             if has_target {
+                state.last_repeatable = Some(Repeatable::Key(Action::BeginDelete));
                 state.pending_delete = true;
                 state.clear_notice();
                 state.dirty = true;
@@ -636,7 +657,10 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             }
         }
 
-        Action::PasteMarks(kind) => paste_marks(state, kind),
+        Action::PasteMarks(kind) => {
+            state.last_repeatable = Some(Repeatable::Key(Action::PasteMarks(kind)));
+            paste_marks(state, kind);
+        }
 
         Action::SetPendingNavKey(ch) => {
             state.pending_nav_key = Some(ch);

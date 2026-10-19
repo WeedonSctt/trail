@@ -851,6 +851,11 @@ for the marker, the range highlight and the `3 marked` count.
 
 > *"a key for repeating the last command immediately, whether '!' or trail command."*
 
+> **Widened 2026-10-19**, after the maintainer tested it: `@` also repeats the keys that
+> change files — `dd`, `pp`, `pm` — whichever operation came last. Movement, marking and
+> yanking are not recorded, so `dd`, `j`, `@` works like Vim's `.`; a repeated `dd` still
+> asks for confirmation.
+
 Every submitted command already lands in one history, prefix included
 (`state.command_history.push`, `src/actions/mod.rs:453`). A repeat key takes the newest
 entry and runs it through the same parse-and-execute path as `Enter`, without opening the

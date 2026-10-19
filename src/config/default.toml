@@ -216,7 +216,8 @@ paste_move = "pm"
 # Space or v adds the range to the marks, h/l add it and then navigate, dd
 # deletes it, Esc abandons it.
 enter_visual = "v"
-# Run the last : or ! command again without opening the command line.  @ works
+# Repeat the last file operation: a : or ! command, or dd, pp or pm, whichever
+# came last (a repeated dd still asks).  Moving and marking never replace it.  @ works
 # however your layout types it: Shift+2 on US English, AltGr+Q on Spanish and
 # Latin American, AltGr+Q on German.
 repeat_command = "@"

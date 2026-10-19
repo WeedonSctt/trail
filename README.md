@@ -324,7 +324,7 @@ While anything is marked, `:mv`, `:cp` and `dd` act on the marks instead of the 
 |---|---|
 | `/` | Enter Search mode |
 | `:` | Enter Command mode |
-| `@` | Run the last `:` or `!` command again, on the current selection or marks |
+| `@` | Repeat the last file operation — a `:`/`!` command, `dd`, `pp` or `pm` — on the current selection or marks |
 | `q` | Quit — your shell cd's here if the wrapper is sourced |
 | `Ctrl-c` | Quit without changing directory |
 

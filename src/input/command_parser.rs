@@ -667,6 +667,8 @@ impl CommandHistory {
     ///
     /// `prev(0)` → most-recent; `prev(1)` → second-most-recent; etc.
     /// Returns `None` when `offset` exceeds the number of entries.
+    // clippy: dead_code — used in command_parser_tests.rs integration tests.
+    #[allow(dead_code)]
     pub fn prev(&self, offset: usize) -> Option<&str> {
         let n = self.entries.len();
         n.checked_sub(offset + 1).and_then(|i| self.get(i))

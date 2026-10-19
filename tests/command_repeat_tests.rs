@@ -1,40 +1,37 @@
-//! `@`: run the last command again (§2.21 of `upcoming_features.md`).
+//! `@`: do the last file operation again (§2.21 of `upcoming_features.md`) —
+//! a `:`/`!` command, or one of the keys that change files: `dd`, `pp`, `pm`.
 
 use std::fs;
 
-use trail::actions::{apply, Action};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use trail::actions::transfer::TransferKind;
+use trail::actions::{apply, Action, Repeatable};
 use trail::app::state::AppState;
 
-#[test]
-fn at_runs_the_newest_command_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut state = AppState::new(dir.path().to_owned()).unwrap();
-    // History holds what was typed after the `:`.
-    state.command_history.push("mkdir first".to_owned());
-    state
-        .command_history
-        .push("touch made-by-repeat".to_owned());
-
-    apply(Action::RepeatLastCommand, &mut state).unwrap();
-
-    assert!(dir.path().join("made-by-repeat").is_file());
-    assert!(!dir.path().join("first").exists(), "only the newest runs");
+/// Types `line` into Command Mode and presses Enter, as a user would.
+fn type_command(state: &mut AppState, line: &str) {
+    apply(Action::EnterCommand, state).unwrap();
+    for ch in line.chars() {
+        let key = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+        apply(Action::CommandKey(key), state).unwrap();
+    }
+    let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+    apply(Action::CommandKey(enter), state).unwrap();
 }
 
-/// The Vim `.` behaviour the plan asks for: a repeated `:mv` acts on whatever
-/// is selected now, so `:mv archive`, `j`, `@` files the next entry too.
 #[test]
-fn a_repeated_mv_follows_the_selection() {
+fn at_runs_the_last_typed_command_again() {
     let dir = tempfile::tempdir().unwrap();
     fs::create_dir(dir.path().join("archive")).unwrap();
     fs::write(dir.path().join("a.txt"), b"").unwrap();
     fs::write(dir.path().join("b.txt"), b"").unwrap();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
-    state.command_history.push("mv archive".to_owned());
 
-    // Listing: archive/, a.txt, b.txt. Select a.txt and repeat, twice.
+    // Listing: archive/, a.txt, b.txt. `:mv archive` on a.txt, then `@`: the
+    // selection has fallen to b.txt, so it follows — Vim's `.`.
     apply(Action::MoveDown, &mut state).unwrap();
-    apply(Action::RepeatLastCommand, &mut state).unwrap();
+    type_command(&mut state, "mv archive");
     apply(Action::RepeatLastCommand, &mut state).unwrap();
 
     assert!(dir.path().join("archive/a.txt").exists());
@@ -42,22 +39,78 @@ fn a_repeated_mv_follows_the_selection() {
 }
 
 #[test]
-fn with_no_history_it_says_so() {
+fn at_repeats_dd_and_still_asks_first() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), b"").unwrap();
+    fs::write(dir.path().join("b.txt"), b"").unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.general.delete_mode = "permanent".to_owned();
+
+    apply(Action::BeginDelete, &mut state).unwrap();
+    apply(Action::ConfirmDelete, &mut state).unwrap();
+    assert!(!dir.path().join("a.txt").exists());
+
+    apply(Action::RepeatLastCommand, &mut state).unwrap();
+    assert!(state.pending_delete, "a repeated delete asks again");
+    assert!(dir.path().join("b.txt").exists(), "nothing gone until `y`");
+    apply(Action::ConfirmDelete, &mut state).unwrap();
+    assert!(!dir.path().join("b.txt").exists());
+}
+
+#[test]
+fn at_repeats_a_paste_into_another_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    for sub in ["src", "one", "two"] {
+        fs::create_dir(dir.path().join(sub)).unwrap();
+    }
+    fs::write(dir.path().join("src/a.txt"), b"a").unwrap();
+    let mut state = AppState::new(dir.path().join("src")).unwrap();
+    apply(Action::ToggleMark, &mut state).unwrap();
+
+    state.enter_dir(dir.path().join("one")).unwrap();
+    apply(Action::PasteMarks(TransferKind::Copy), &mut state).unwrap();
+    state.enter_dir(dir.path().join("two")).unwrap();
+    apply(Action::RepeatLastCommand, &mut state).unwrap();
+
+    assert!(dir.path().join("one/a.txt").exists());
+    assert!(dir.path().join("two/a.txt").exists());
+}
+
+/// Whichever operation came last is the one repeated, command or key.
+#[test]
+fn the_newest_operation_wins_and_moving_does_not_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    type_command(&mut state, "mkdir x");
+    apply(Action::BeginDelete, &mut state).unwrap();
+    apply(Action::CancelDelete, &mut state).unwrap();
+    apply(Action::MoveDown, &mut state).unwrap();
+
+    assert_eq!(
+        state.last_repeatable,
+        Some(Repeatable::Key(Action::BeginDelete)),
+        "the later `dd` replaced the command; `j` replaced nothing"
+    );
+}
+
+#[test]
+fn with_nothing_done_yet_it_says_so() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
 
     apply(Action::RepeatLastCommand, &mut state).unwrap();
 
     let notice = state.notice.as_ref().expect("a hint").text.clone();
-    assert!(notice.contains("no command to repeat"), "{notice}");
-    assert_eq!(state.error_text(), None, "an empty history is not an error");
+    assert!(notice.contains("nothing to repeat"), "{notice}");
+    assert_eq!(state.error_text(), None, "it is not an error");
 }
 
 #[test]
 fn a_repeated_shell_command_keeps_its_bang() {
     let dir = tempfile::tempdir().unwrap();
     let mut state = AppState::new(dir.path().to_owned()).unwrap();
-    state.command_history.push("!echo hi".to_owned());
+    state.last_repeatable = Some(Repeatable::CommandLine("!echo hi".to_owned()));
 
     apply(Action::RepeatLastCommand, &mut state).unwrap();
 
