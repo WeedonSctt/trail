@@ -151,7 +151,7 @@ pub fn wrapper_candidates() -> Vec<PathBuf> {
 /// that can be piped or redirected.
 pub fn report() -> String {
     let mut lines = vec![
-        format!("trail {}", env!("CARGO_PKG_VERSION")),
+        format!("trail {}", crate::version::LONG_VERSION),
         String::new(),
     ];
 

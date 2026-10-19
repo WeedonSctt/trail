@@ -57,6 +57,7 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Status bar | Pure reflection of current state — mode badge, tab indicator, filter, mark count and transfer progress, branch, entry count. **Not** the path: Command Mode takes the whole row, so anything that must stay visible while a command is typed cannot live here (see the navigation panel's borders) |
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
 | Command mode parser | History, completion, validation for parameterized actions (rename, create, shell exec) |
+| Build label (`src/version.rs`) | What this binary was built as. `build.rs` asks git whether the commit is the one tagged `v<version>` with a clean tree (or the release workflow says so through `TRAIL_RELEASE`) and bakes in either the bare version or a dev label such as `1.10.1-dev.3+f7863b6`. `--version`, `--paths` and the preview's version badge all read it, so they cannot disagree; nothing is computed at run time |
 | Path formatter | Single place that decides how a path is spelled for a person versus for the OS (`src/pathfmt.rs`) |
 
 ### Path rendering

@@ -590,7 +590,7 @@ async fn the_delete_prompt_says_where_the_entry_is_going() {
 
 /// The version Trail was built as, spelled the way the badge spells it.
 fn expected_version_badge() -> String {
-    format!("v{}", env!("CARGO_PKG_VERSION"))
+    format!("v{}", trail::version::VERSION)
 }
 
 #[tokio::test]

@@ -22,4 +22,5 @@ pub mod preview;
 pub mod session;
 pub mod terminal;
 pub mod ui;
+pub mod version;
 pub mod workers;

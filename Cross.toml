@@ -1,0 +1,7 @@
+# Configuration for cross-rs, which builds the aarch64 Linux release inside a
+# container. Only what the container cannot see on its own belongs here.
+
+[build.env]
+# build.rs reads this to label the binary a release (see release.yml); the
+# container may have no git to work it out from the tag.
+passthrough = ["TRAIL_RELEASE"]

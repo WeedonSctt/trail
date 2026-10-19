@@ -92,6 +92,14 @@ jobs:
     needs: quality-gate
     runs-on: ${{ matrix.os }}
 
+    # Tells build.rs this is the release of the tag being built, so the binary
+    # reports the bare version rather than a dev label. git would conclude the
+    # same from the tagged checkout, but the `cross` container may have no git;
+    # Cross.toml passes this through to it. build.rs ignores the variable unless
+    # it equals `v<Cargo.toml version>`.
+    env:
+      TRAIL_RELEASE: ${{ github.ref_name }}
+
     strategy:
       fail-fast: true
       matrix:
@@ -166,6 +174,21 @@ jobs:
           else
             echo "path=target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" >> "$GITHUB_OUTPUT"
             echo "name=${{ env.BIN_NAME }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Check the binary calls itself a release ───────────────────────────
+      # A tag that disagrees with Cargo.toml would otherwise ship a binary
+      # labelled as a dev build. Skipped where the runner cannot execute the
+      # target (aarch64 Linux under cross, x86_64 macOS on an arm64 runner).
+      - name: Verify reported version
+        if: "!matrix.use_cross && matrix.target != 'x86_64-apple-darwin'"
+        shell: bash
+        run: |
+          reported="$("${{ steps.bin.outputs.path }}" --version)"
+          expected="trail ${GITHUB_REF_NAME#v}"
+          if [[ "$reported" != "$expected" ]]; then
+            echo "::error::binary reports '$reported', expected '$expected'"
+            exit 1
           fi
 
       # ── Package archive ───────────────────────────────────────────────────

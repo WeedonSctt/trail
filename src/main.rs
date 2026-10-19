@@ -22,6 +22,7 @@ mod preview;
 mod session;
 mod terminal;
 mod ui;
+mod version;
 mod workers;
 
 use std::io::{self, stdout};

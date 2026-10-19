@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 /// Trail — a terminal file manager.
 #[derive(Parser, Debug)]
-#[command(name = "trail", version, about = "A terminal file manager")]
+#[command(name = "trail", version = crate::version::LONG_VERSION, about = "A terminal file manager")]
 pub struct Cli {
     /// Path to write the final working directory on normal exit.
     ///

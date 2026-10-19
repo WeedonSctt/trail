@@ -31,6 +31,11 @@ the commits said rather than what the users saw.
 
 ### Added
 
+- **Dev builds say so.** A binary not built from a tagged release now reports itself as one:
+  `trail --version` and the `[general] show_version` badge read `1.10.1-dev.3+f7863b6`
+  (three commits past v1.10.1, at commit `f7863b6`, with `.dirty` if built with uncommitted
+  changes) instead of passing for `1.10.1`, and the badge is drawn in the `[theme] git_dirty`
+  colour. Released binaries still read a plain `1.10.1`.
 - **Marks that survive navigation.** `Space` marks the selection and moves down; go anywhere
   — another directory, another tab — and `pp` copies the marked entries there, `pm` moves
   them. `Esc` or `:unmark` clears the marks. Marked entries carry a `*`, and the status

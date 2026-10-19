@@ -399,5 +399,11 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   — a separate grammar from `keymap.rs`, so they never touch `NAMED_KEYS`. Real-terminal
   behaviour (ConPTY resizing, which keys a terminal delivers) is not testable here; the
   tests run real `cmd.exe`/`sh` sessions against `TestBackend`.
+- `build.rs` labels every binary: the bare version only when built from the commit tagged
+  `v<Cargo.toml version>` with a clean tree (or with `TRAIL_RELEASE=v<version>`, which
+  `release.yml` sets and `Cross.toml` passes into the cross container); otherwise
+  `X.Y.Z-dev.N+<hash>[.dirty]`. Read it through `trail::version`, never `CARGO_PKG_VERSION`,
+  or a dev build will show as the release. `release.yml` fails the build if a native binary
+  does not report exactly `trail X.Y.Z`.
 - Line endings: the working tree is CRLF on Windows, the repo is LF. `git diff` warnings
   about this are expected and not something to fix.

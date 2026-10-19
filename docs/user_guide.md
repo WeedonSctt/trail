@@ -169,6 +169,20 @@ overwrite a running `trail.exe` — the installer renames the old one aside — 
 you left open keep running the previous build and are otherwise indistinguishable from
 new ones.
 
+The label also tells a release from a **dev build**. A release reads `v1.10.1`. A binary
+built from anything other than the tagged, unmodified release commit reads like
+`v1.10.1-dev.3+f7863b6`: three commits past v1.10.1, built from commit `f7863b6`. A trailing
+`.dirty` means it was built with uncommitted changes. On a dev build the badge is drawn in
+the `[theme] git_dirty` colour, so it stands out before you read it. `trail --version`
+prints the same label, and for a dev build adds a sentence saying what it is:
+
+```
+trail 1.10.1-dev.3+f7863b6 (dev build — 3 commits past v1.10.1)
+```
+
+So when something unreleased needs testing, the badge says which build you are in and
+that it is not a release; once the release is installed it goes back to a plain `v1.10.2`.
+
 ### Sorting
 
 `s` is a prefix; the second key picks what the listing is ordered by.

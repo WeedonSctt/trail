@@ -67,6 +67,7 @@ The release workflow:
 
 1. Runs `fmt`, `clippy`, `test`, and `doc` — fails fast if any gate fails.
 2. Builds release binaries for all five targets in parallel.
+   It sets `TRAIL_RELEASE` to the tag, which `build.rs` accepts only when it equals `v` + the `Cargo.toml` version, and then checks that each binary it can run reports exactly `trail X.Y.Z`. A tag that disagrees with `Cargo.toml` fails here rather than shipping a binary labelled as a dev build.
 3. Packages each binary with the shell wrappers into an archive.
 4. Generates `checksums.txt`.
 5. Creates a **draft** GitHub Release and uploads all assets.

@@ -55,11 +55,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     // `[general] show_version` asks for it. This is the frame's last unoccupied
     // surface: the navigation panel's border carries the directory name and the
     // sort badge, and the status bar's right section already overflows at 80
-    // columns.
+    // columns. A dev build takes the uncommitted-changes colour, so a build
+    // under test stands out from a release before the label is even read.
+    let badge_style = if crate::version::is_release() {
+        styles.status
+    } else {
+        styles.git_dirty
+    };
     let block = match version_badge(state, title.chars().count(), area.width) {
-        Some(badge) => block.title_top(
-            Line::from(Span::styled(format!(" {badge} "), styles.status)).right_aligned(),
-        ),
+        Some(badge) => block
+            .title_top(Line::from(Span::styled(format!(" {badge} "), badge_style)).right_aligned()),
         None => block,
     };
 
@@ -269,8 +274,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
 /// Trail's version as the top border should show it, or `None` when it is
 /// switched off or there is no room for it beside the file name.
 ///
-/// The string is `CARGO_PKG_VERSION`, a compile-time constant that clap already
-/// puts behind `--version` — nothing is read, computed or stored per frame.
+/// The string is [`crate::version::VERSION`], the compile-time label that also
+/// leads `--version`, so a dev build reads as one (`v1.10.1-dev.3+f7863b6`)
+/// rather than passing for the release it descends from. Nothing is read,
+/// computed or stored per frame.
 ///
 /// Budgeted like the navigation panel's sort badge: the file name is what the
 /// pane is *about*, so when the two cannot share the border the version stands
@@ -280,7 +287,7 @@ fn version_badge(state: &AppState, title_width: usize, area_width: u16) -> Optio
     if !state.config.general.show_version {
         return None;
     }
-    let badge = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let badge = format!("v{}", crate::version::VERSION);
     // The row less its two border columns, then: the name, the badge, a space
     // each side of the badge, and one column between the two so they never
     // touch.
