@@ -20,7 +20,7 @@ of listing:
       directory name            sort order    selected file        version (optional)
              │                       │              │                       │
              ▼                       ▼              ▼                       ▼
-     ╭ my-project ─────────── size↓ ╮╭ README.md ─────────────────── v1.10.1 ╮
+     ╭ my-project ─────────── size↓ ╮╭ README.md ─────────────────── v1.11.0 ╮
      │>  src/                      —││    1  # Trail                         │
      │   README.md          17.06 kB││    2                                  │
      │   Cargo.toml          3.22 kB││    3  A terminal-first workspace…     │
@@ -169,15 +169,15 @@ overwrite a running `trail.exe` — the installer renames the old one aside — 
 you left open keep running the previous build and are otherwise indistinguishable from
 new ones.
 
-The label also tells a release from a **dev build**. A release reads `v1.10.1`. A binary
+The label also tells a release from a **dev build**. A release reads `v1.11.0`. A binary
 built from anything other than the tagged, unmodified release commit reads like
-`v1.10.1-dev.3+f7863b6`: three commits past v1.10.1, built from commit `f7863b6`. A trailing
+`v1.11.0-dev.3+a1b2c3d`: three commits past v1.11.0, built from commit `a1b2c3d`. A trailing
 `.dirty` means it was built with uncommitted changes. On a dev build the badge is drawn in
 the `[theme] git_dirty` colour, so it stands out before you read it. `trail --version`
 prints the same label, and for a dev build adds a sentence saying what it is:
 
 ```
-trail 1.10.1-dev.3+f7863b6 (dev build — 3 commits past v1.10.1)
+trail 1.11.0-dev.3+a1b2c3d (dev build — 3 commits past v1.11.0)
 ```
 
 So when something unreleased needs testing, the badge says which build you are in and

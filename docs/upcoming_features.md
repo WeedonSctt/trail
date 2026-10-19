@@ -41,7 +41,8 @@ a Vim-style visual mode for selecting ranges. The maintainer accepted the recomm
 answers to §2.20's decisions, and on 2026-10-19 settled the rest: `Shift`-arrows keep
 scrolling the preview (so the release stays MINOR), `Esc` clears the marks, `@` repeats
 the last command, `@name` names a bookmark on the command line, and `U` returns from
-jumps. Items 23–25 are smaller and independent.
+jumps. Items 23–25 are smaller and independent. All of the round shipped in v1.11.0,
+together with `:config write` (§5.1).
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -63,7 +64,7 @@ test itself).
 | 8 | One path on screen, not two | redundant path top and bottom | **done** |
 | 9 | Recycle bin instead of permanent delete | `dd` is irreversible | **done** — `[general] delete_mode` |
 | 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | **done** — patterns only; marking entries is still open, §5.3 |
-| 11 | `:set` persistence | `:set` is session-only | **in progress** — §5.1, `:config write`; built, not yet released |
+| 11 | `:set` persistence | `:set` is session-only | **done** — v1.11.0, `:config write`; §5.1 |
 | 12 | Run a command without leaving the view | wanted a second window | **done** — a built-in terminal panel, shipped in v1.10.0; spec in [`terminal_panel.md`](terminal_panel.md); §5.2 |
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
@@ -74,10 +75,10 @@ test itself).
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 | 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
 | 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **planned** — §2.19 |
-| 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **in progress** — §2.20; built, not yet released |
-| 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **in progress** — §2.21, `@`; built, not yet released |
-| 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **in progress** — §2.22, `@name`; built, not yet released |
-| 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **in progress** — §2.23, `U`; built, not yet released |
+| 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **done** — v1.11.0; §2.20 |
+| 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **done** — v1.11.0, `@` (also repeats `dd`, `pp`, `pm`); §2.21 |
+| 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
+| 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 
 ---
 
