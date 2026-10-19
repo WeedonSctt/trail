@@ -285,9 +285,22 @@ pub fn start(state: &mut AppState, kind: TransferKind, label: &str, items: Vec<T
     });
 }
 
-/// Applies a finished transfer: says what happened and re-lists the directory.
+/// Applies a finished transfer: says what happened, drops marks that no longer
+/// name anything, and re-lists the directory.
 pub fn finish(state: &mut AppState, report: TransferReport) {
     state.transfers.active.retain(|t| t.id != report.id);
+
+    // A moved entry is no longer where its mark says, and a vanished one is
+    // nowhere: neither can be pasted again. A copied or skipped entry is still
+    // where it was, so its mark stays and the same set can be pasted twice.
+    if report.kind == TransferKind::Move {
+        for (source, _) in &report.done {
+            state.marks.remove(source);
+        }
+    }
+    for source in &report.vanished {
+        state.marks.remove(source);
+    }
 
     let summary = report.summary();
     if report.has_failures() {

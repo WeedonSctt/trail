@@ -194,6 +194,17 @@ copy_relative_path = "yr"
 copy_filename = "yn"
 copy_content = "yc"
 delete = "dd"
+# Marks survive navigation: mark here, paste somewhere else.  Space marks the
+# selection and moves down; Esc clears every mark (it does nothing else in
+# Navigation Mode, so nothing is lost by giving it this job).
+toggle_mark = "space"
+clear_marks = "esc"
+# Paste the marked entries into the directory you are looking at.  `p` is a
+# prefix: pp copies (the marks stay, so the same set can be pasted again), pm
+# moves (the moved entries leave the mark set).  A name already taken here is
+# skipped and reported, never overwritten.
+paste_copy = "pp"
+paste_move = "pm"
 enter_search = "/"
 enter_command = ":"
 quit = "q"

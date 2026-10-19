@@ -252,7 +252,16 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, offset: usize) {
                 Some(GitFileStatus::Clean) | None => None,
             };
 
-            let mut spans = vec![Span::styled(format!(" {label}"), base_style)];
+            // A marked entry takes a `*` in the column every row leaves blank,
+            // so marking costs no width and never shifts a name.
+            let mut spans = if state.marks.contains(&entry.path) {
+                vec![
+                    Span::styled(MARK_SYMBOL, styles.command.add_modifier(Modifier::BOLD)),
+                    Span::styled(label, base_style.add_modifier(Modifier::BOLD)),
+                ]
+            } else {
+                vec![Span::styled(format!(" {label}"), base_style)]
+            };
             if let Some(badge) = git_span {
                 spans.push(badge);
             }
@@ -385,6 +394,10 @@ fn fit_badge(
 /// Named because the details column's budget depends on its width; a literal in
 /// two places is a two-column layout bug waiting to happen.
 const HIGHLIGHT_SYMBOL: &str = "> ";
+
+/// What a marked entry carries in front of its name, in the column an
+/// unmarked one leaves blank. ASCII, so it is one column on every terminal.
+const MARK_SYMBOL: &str = "*";
 
 /// The value the details column shows for `entry`, unpadded.
 fn details_text(entry: &Entry, layout: DetailsLayout) -> String {

@@ -10,7 +10,7 @@
 //!           | "!" shell_string
 //!
 //! verb    ::= "mkdir" | "touch" | "rename" | "mv" | "cp" | "git" | "set"
-//!           | "sort" | "bookmark" | "jump" | "plugin" | "term"
+//!           | "sort" | "bookmark" | "jump" | "unmark" | "plugin" | "term"
 //! ```
 //!
 //! `:git` and `:set` are syntactically accepted and validated here; their
@@ -82,6 +82,8 @@ pub enum ParsedCommand {
     /// Drive the terminal panel: `:term`, `:term new [profile]`,
     /// `:term close`, `:term <n>`, `:term max`.
     Term(crate::terminal::TermCommand),
+    /// Unmark every marked entry: `:unmark`.
+    Unmark,
 }
 
 // ── Parse error ────────────────────────────────────────────────────────────────
@@ -90,7 +92,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :plugin, :term")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :unmark, :plugin, :term")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -297,6 +299,15 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
 
         "term" => parse_term(rest),
 
+        "unmark" => {
+            if !rest.is_empty() {
+                return Err(ParseError::InvalidArgument(
+                    "unmark takes no argument".to_owned(),
+                ));
+            }
+            Ok(ParsedCommand::Unmark)
+        }
+
         other => Err(ParseError::UnknownVerb(other.to_owned())),
     }
 }
@@ -400,7 +411,7 @@ pub fn completions_with_plugins(
         let prefix = trimmed;
         let verbs = [
             "mkdir", "touch", "rename", "mv", "cp", "git", "set", "sort", "bookmark", "jump",
-            "plugin", "term",
+            "unmark", "plugin", "term",
         ];
         return verbs
             .iter()
@@ -1171,7 +1182,7 @@ mod tests {
             got,
             vec![
                 "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
-                "term", "touch",
+                "term", "touch", "unmark",
             ]
         );
     }

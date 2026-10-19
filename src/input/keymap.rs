@@ -5,6 +5,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use crate::actions::transfer::TransferKind;
 use crate::actions::Action;
 use crate::app::sort::SortBy;
 use crate::app::state::AppState;
@@ -165,6 +166,7 @@ const NAMED_KEYS: &[&str] = &[
     "down",
     "home",
     "end",
+    "space",
 ];
 
 /// Whether `binding` names a single key — `tab`, `ctrl-r`, `shift-end` — as
@@ -217,6 +219,10 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "copy_filename" => Some(Action::CopyFilename),
         "copy_content" => Some(Action::CopyContent),
         "delete" => Some(Action::BeginDelete),
+        "toggle_mark" => Some(Action::ToggleMark),
+        "clear_marks" => Some(Action::ClearMarks),
+        "paste_copy" => Some(Action::PasteMarks(TransferKind::Copy)),
+        "paste_move" => Some(Action::PasteMarks(TransferKind::Move)),
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
         "quit" => Some(Action::Quit),
@@ -272,6 +278,9 @@ fn key_to_config_string(key: KeyEvent) -> Option<String> {
         KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
             return Some(format!("ctrl-{ch}").to_ascii_lowercase());
         }
+        // A space is spelled out: a binding of " " would be invisible in the
+        // config file, and easy to take for an empty string.
+        KeyCode::Char(' ') => "space",
         KeyCode::Char(ch) => return Some(ch.to_string()),
         KeyCode::Enter => "enter",
         KeyCode::Esc => "esc",
@@ -346,6 +355,7 @@ mod tests {
             KeyCode::Down,
             KeyCode::Home,
             KeyCode::End,
+            KeyCode::Char(' '),
         ];
         for code in codes {
             for modifiers in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
@@ -568,6 +578,35 @@ mod tests {
         assert_eq!(
             key_to_config_string(shifted(KeyCode::Tab)),
             Some("shift-tab".to_owned())
+        );
+    }
+
+    #[test]
+    fn mark_and_paste_bindings_resolve_from_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+
+        assert_eq!(
+            navigation(key(KeyCode::Char(' ')), &mut ctx, &state),
+            Some(Action::ToggleMark)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Esc), &mut ctx, &state),
+            Some(Action::ClearMarks)
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Char('p')), &mut ctx, &state),
+            Some(Action::SetPendingNavKey('p'))
+        );
+        state.pending_nav_key = Some('p');
+        assert_eq!(
+            navigation(key(KeyCode::Char('p')), &mut ctx, &state),
+            Some(Action::PasteMarks(TransferKind::Copy))
+        );
+        assert_eq!(
+            navigation(key(KeyCode::Char('m')), &mut ctx, &state),
+            Some(Action::PasteMarks(TransferKind::Move))
         );
     }
 

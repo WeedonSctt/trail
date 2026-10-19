@@ -942,3 +942,31 @@ fn a_zero_scroll_margin_lets_the_selection_ride_the_edge() {
     }
     assert_eq!(selected_row(&mut terminal, &mut state), 10);
 }
+
+// ── Marks ─────────────────────────────────────────────────────────────────────
+
+/// A marked entry carries `*` where an unmarked one has a blank, and the status
+/// bar counts the marks — they are usually out of sight once the user has
+/// moved on to where they will be pasted.
+#[tokio::test]
+async fn marked_entries_are_starred_and_counted() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    for entry in state.entries.clone() {
+        state.marks.toggle(&entry.path);
+    }
+
+    let out = render_to_string(&mut state, 100, 12).await;
+    assert!(out.contains("*alpha_dir/"), "{out}");
+    assert!(out.contains("*b_file.txt"), "{out}");
+    assert!(out.contains("2 marked"), "{out}");
+}
+
+#[tokio::test]
+async fn nothing_marked_draws_no_star_and_no_count() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    let out = render_to_string(&mut state, 100, 12).await;
+    assert!(!out.contains("*alpha_dir"), "{out}");
+    assert!(!out.contains("marked"), "{out}");
+}

@@ -90,6 +90,22 @@ to do nothing.
   directory this takes everything inside it.
 - `o`: Open the selected item with the OS default application
 
+### Marking, and Pasting Somewhere Else
+Pick files in one place and copy or move them to another — even another tab.
+
+- `Space`: Mark the selected item (or unmark it) and move down, so `Space Space Space`
+  marks three in a row. A marked item has a `*` in front of its name.
+- `Esc`: Clear every mark. `:unmark` does the same.
+- `pp`: Copy every marked item into the directory you are looking at. The marks stay, so
+  you can paste the same set again somewhere else.
+- `pm`: Move every marked item here. Moved items leave the mark set.
+
+Marks survive navigation and are shared by every tab; the status bar shows `3 marked` for
+as long as any exist, because they are usually out of sight. A name already taken where you
+paste is skipped and reported (`paste: 2 copied, 1 skipped: exists`) — nothing is ever
+overwritten — and a marked file deleted in the meantime is dropped and counted. Pasting runs
+in the background, like `:cp`. Marks are not saved: they end when Trail does.
+
 ### Preview Pane
 The preview scrolls independently of the selection, so you can read through a long
 file without opening it and without losing your place in the listing.
@@ -236,6 +252,7 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   on its own flips whichever order is already in use
 - `:bookmark <name>` (or `:bm`): Bookmark the current directory (defaults to directory base name if no name provided)
 - `:jump <name>` (or `:j`): Jump to a previously saved bookmark
+- `:unmark`: Clear every mark (the same as `Esc` in Navigation Mode)
 - `:term`, `:term new [profile]`, `:term close`, `:term <n>`, `:term max`: Drive the
   terminal panel — see [Terminal Panel](#5-terminal-panel)
 

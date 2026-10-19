@@ -210,17 +210,24 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
     })
 }
 
-/// Standing information for the centre section outside Search Mode: transfers
-/// still running, as `copying 3/10`.
+/// Standing information for the centre section outside Search Mode: how many
+/// entries are marked, and transfers still running, as
+/// `3 marked · copying 3/10`.
 ///
-/// The centre is otherwise empty there, and this is exactly the kind of thing
-/// that has to stay visible while the user moves on to something else.
+/// The centre is otherwise empty there, and both are things that have to stay
+/// visible while the user is somewhere else — marked files are usually out of
+/// sight, in another directory.
 fn activity(state: &AppState) -> Option<String> {
-    let parts: Vec<String> = state
-        .transfers
-        .active()
-        .iter()
-        .map(|t| format!("{} {}/{}", t.kind.progressive(), t.done, t.total))
+    let marked = (!state.marks.is_empty()).then(|| format!("{} marked", state.marks.len()));
+    let parts: Vec<String> = marked
+        .into_iter()
+        .chain(
+            state
+                .transfers
+                .active()
+                .iter()
+                .map(|t| format!("{} {}/{}", t.kind.progressive(), t.done, t.total)),
+        )
         .collect();
     (!parts.is_empty()).then(|| parts.join(" · "))
 }

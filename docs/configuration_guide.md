@@ -298,7 +298,7 @@ Customizes the UI colors.
 Overrides keybindings for Navigation Mode. 
 **Valid Key Formats:** 
 - Single characters (`"j"`, `"/"`).
-- Named keys: `"enter"`, `"esc"`, `"backspace"`, `"tab"`, `"left"`, `"right"`, `"up"`, `"down"`.
+- Named keys: `"enter"`, `"esc"`, `"backspace"`, `"tab"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, `"end"`, `"space"`.
 - Control chords: `"ctrl-r"`, `"ctrl-w"`.
 
 **Allowed Action Names:**
@@ -317,6 +317,10 @@ Overrides keybindings for Navigation Mode.
 - `copy_filename`: Copy filename of selection
 - `copy_content`: Copy content of selection (file text, or directory listing)
 - `delete`: Prompt to delete selection
+- `toggle_mark`: Mark or unmark the selection and move down (default `space`)
+- `clear_marks`: Clear every mark (default `esc`)
+- `paste_copy`: Copy the marked entries into the current directory (default `pp`)
+- `paste_move`: Move the marked entries into the current directory (default `pm`)
 - `enter_search`: Enter Search Mode
 - `enter_command`: Enter Command Mode
 - `quit`: Exit Trail

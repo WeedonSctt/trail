@@ -29,6 +29,16 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Added
+
+- **Marks that survive navigation.** `Space` marks the selection and moves down; go anywhere
+  — another directory, another tab — and `pp` copies the marked entries there, `pm` moves
+  them. `Esc` or `:unmark` clears the marks. Marked entries carry a `*`, and the status
+  bar shows `3 marked` while any exist. A name already taken where you paste is skipped
+  and reported, never overwritten.
+- `p` is now a prefix (for `pp` and `pm`). If you had bound a longer key starting with `p`
+  in `[keymap.navigation]`, check that it still does what you expect.
+
 ### Changed
 
 - `:cp` and `:mv` run in the background. Copying a large folder no longer freezes Trail;

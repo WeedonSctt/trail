@@ -115,6 +115,13 @@ pub enum Action {
     ConfirmDelete,
     /// Cancel the pending delete confirmation.
     CancelDelete,
+    /// Mark or unmark the selected entry, then move down (`Space`), so a run
+    /// of entries is marked by pressing it repeatedly.
+    ToggleMark,
+    /// Unmark everything (`Esc` in Navigation Mode, `:unmark`).
+    ClearMarks,
+    /// Copy (`pp`) or move (`pm`) every marked entry into `cwd`.
+    PasteMarks(TransferKind),
     /// Set `state.pending_nav_key` to begin a multi-key Navigation Mode
     /// sequence (`y` for clipboard, `d` for delete). The following key
     /// resolves the sequence in `keymap::navigation`.
@@ -554,6 +561,18 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             state.dirty = true;
         }
 
+        Action::ToggleMark => {
+            if let Some(entry) = state.selected_entry().cloned() {
+                state.marks.toggle(&entry.path);
+                state.move_down();
+                state.dirty = true;
+            }
+        }
+
+        Action::ClearMarks => clear_marks(state),
+
+        Action::PasteMarks(kind) => paste_marks(state, kind),
+
         Action::SetPendingNavKey(ch) => {
             state.pending_nav_key = Some(ch);
             state.dirty = true;
@@ -632,6 +651,39 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
     }
     Ok(())
 }
+
+/// Unmarks everything, saying how many marks went. Silent when there were
+/// none, because `Esc` reaches here on every press in Navigation Mode.
+fn clear_marks(state: &mut AppState) {
+    let count = state.marks.clear();
+    if count > 0 {
+        state.notify(format!("{count} unmarked"));
+    }
+}
+
+/// Copies or moves every marked entry into `cwd`, under its own name.
+///
+/// Marks that have vanished since they were made go into the job anyway, so
+/// the report counts them and [`transfer::finish`] drops them from the set.
+fn paste_marks(state: &mut AppState, kind: TransferKind) {
+    if state.marks.is_empty() {
+        state.notify(NOTHING_MARKED_HINT);
+        return;
+    }
+    let cwd = state.cwd.clone();
+    let items = state
+        .marks
+        .paths()
+        .map(|source| TransferItem {
+            source: source.clone(),
+            dest: cwd.join(source.file_name().unwrap_or_default()),
+        })
+        .collect();
+    transfer::start(state, kind, "paste", items);
+}
+
+/// Shown when a paste is asked for with nothing marked.
+const NOTHING_MARKED_HINT: &str = "nothing is marked — Space marks the selection";
 
 /// The verb a transfer is reported under: `cp` or `mv`.
 fn transfer_verb(kind: TransferKind) -> &'static str {
@@ -948,6 +1000,14 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
         },
 
         ParsedCommand::Term(command) => crate::terminal::run_command(state, command),
+
+        ParsedCommand::Unmark => {
+            if state.marks.is_empty() {
+                state.notify(NOTHING_MARKED_HINT);
+            } else {
+                clear_marks(state);
+            }
+        }
 
         ParsedCommand::Plugin { name, arg } => {
             if let Some(engine) = &state.plugin_engine {

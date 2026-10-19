@@ -544,6 +544,9 @@ pub struct AppState {
     pub terminal: crate::terminal::TerminalPanel,
     /// Copies and moves running in the background.
     pub transfers: crate::actions::transfer::Transfers,
+    /// Entries marked for a paste, move, copy or delete. One set for every
+    /// tab, so marks made in one can be pasted from another.
+    pub marks: crate::app::marks::MarkSet,
 }
 
 impl AppState {
@@ -616,6 +619,7 @@ impl AppState {
             recent_dirs: crate::session::RecentDirs::default(),
             terminal: crate::terminal::TerminalPanel::default(),
             transfers: crate::actions::transfer::Transfers::default(),
+            marks: crate::app::marks::MarkSet::default(),
         };
 
         state.load_dir(&cwd)?;

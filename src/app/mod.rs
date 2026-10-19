@@ -4,6 +4,7 @@
 //! history, tabs, and the dirty flag that drives rendering.
 
 pub mod history;
+pub mod marks;
 pub mod mode;
 pub mod scroll;
 pub mod sort;
