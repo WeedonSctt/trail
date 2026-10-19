@@ -106,6 +106,11 @@ paste is skipped and reported (`paste: 2 copied, 1 skipped: exists`) — nothing
 overwritten — and a marked file deleted in the meantime is dropped and counted. Pasting runs
 in the background, like `:cp`. Marks are not saved: they end when Trail does.
 
+**While anything is marked, `:mv`, `:cp` and `dd` act on the marks, not the selection.**
+`:mv ..rchive\x60 moves every marked entry there (with several marked, the destination has to
+be an existing directory), and `dd` asks once for the whole set — `Recycle 4 marked?`.
+`:mv *.md docs\x60 still names its own files, marks or not.
+
 ### Preview Pane
 The preview scrolls independently of the selection, so you can read through a long
 file without opening it and without losing your place in the listing.

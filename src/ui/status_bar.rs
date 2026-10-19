@@ -180,10 +180,17 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
     }
 
     if state.pending_delete {
-        let name = state
-            .selected_entry()
-            .map(|e| e.file_name.as_str())
-            .unwrap_or("selected entry");
+        // With marks, `dd` deletes the marks — not the selection, which may
+        // not even be one of them — and the prompt has to say so.
+        let name = if state.marks.is_empty() {
+            let name = state
+                .selected_entry()
+                .map(|e| e.file_name.as_str())
+                .unwrap_or("selected entry");
+            format!("'{name}'")
+        } else {
+            format!("{} marked", state.marks.len())
+        };
         // The prompt names the outcome, not just the act: one of these can be
         // undone from the desktop's recycle bin and the other cannot, and `dd` on
         // a directory takes everything under it.
@@ -192,7 +199,7 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
             _ => "Recycle",
         };
         return Some((
-            format!(" {verb} '{name}'? [y/Enter=yes, n/Esc=cancel] "),
+            format!(" {verb} {name}? [y/Enter=yes, n/Esc=cancel] "),
             Style::default()
                 .fg(Color::Black)
                 .bg(theme::parse_color(&state.config.theme.error))

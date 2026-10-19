@@ -36,6 +36,8 @@ the commits said rather than what the users saw.
   them. `Esc` or `:unmark` clears the marks. Marked entries carry a `*`, and the status
   bar shows `3 marked` while any exist. A name already taken where you paste is skipped
   and reported, never overwritten.
+- While anything is marked, `:mv`, `:cp` and `dd` act on the marked entries instead of the
+  selection; `dd` asks once for the whole set (`Recycle 4 marked?`).
 - `p` is now a prefix (for `pp` and `pm`). If you had bound a longer key starting with `p`
   in `[keymap.navigation]`, check that it still does what you expect.
 

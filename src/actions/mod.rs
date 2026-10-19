@@ -8,7 +8,7 @@ pub mod fs_ops;
 pub mod shell_exec;
 pub mod transfer;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::app::state::{AppState, StateError};
 use crate::input::command_parser::ParsedCommand;
@@ -518,7 +518,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // ── Delete with confirmation ───────────────────────────────────────────
         Action::BeginDelete => {
-            if state.selected_entry().is_some() {
+            if state.selected_entry().is_some() || !state.marks.is_empty() {
                 state.pending_delete = true;
                 state.clear_notice();
                 state.dirty = true;
@@ -530,7 +530,9 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 return Ok(());
             }
             state.pending_delete = false;
-            if let Some(entry) = state.selected_entry().cloned() {
+            if !state.marks.is_empty() {
+                delete_marks(state)?;
+            } else if let Some(entry) = state.selected_entry().cloned() {
                 let mode = configured_delete_mode(state);
                 match fs_ops::delete(&entry.path, mode) {
                     Ok(()) => {
@@ -682,6 +684,56 @@ fn paste_marks(state: &mut AppState, kind: TransferKind) {
     transfer::start(state, kind, "paste", items);
 }
 
+/// Deletes every marked entry, after the single confirmation `dd` asked for.
+///
+/// Each entry goes the way `[general] delete_mode` says, the same as a `dd` of
+/// one. Deleted and vanished entries leave the mark set; one that could not be
+/// deleted stays marked, so the user can see which and try again.
+///
+/// # Errors
+///
+/// Returns [`StateError`] only if re-listing the directory afterwards fails.
+fn delete_marks(state: &mut AppState) -> Result<(), StateError> {
+    let mode = configured_delete_mode(state);
+    let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
+    let mut deleted = 0usize;
+    let mut gone = 0usize;
+    let mut first_failure = None;
+    let mut failed = 0usize;
+
+    for path in marked {
+        if path.symlink_metadata().is_err() {
+            gone += 1;
+            state.marks.remove(&path);
+            continue;
+        }
+        match fs_ops::delete(&path, mode) {
+            Ok(()) => {
+                deleted += 1;
+                state.marks.remove(&path);
+            }
+            Err(e) => {
+                failed += 1;
+                first_failure.get_or_insert(e.to_string());
+            }
+        }
+    }
+
+    let verb = match mode {
+        fs_ops::DeleteMode::Trash => "moved to the recycle bin",
+        fs_ops::DeleteMode::Permanent => "deleted",
+    };
+    let mut report = format!("{deleted} {verb}");
+    if gone > 0 {
+        report.push_str(&format!(", {gone} gone"));
+    }
+    match first_failure {
+        Some(reason) => state.set_error(format!("{report}, {failed} failed ({reason})")),
+        None => state.notify(report),
+    }
+    state.refresh()
+}
+
 /// Shown when a paste is asked for with nothing marked.
 const NOTHING_MARKED_HINT: &str = "nothing is marked — Space marks the selection";
 
@@ -698,6 +750,10 @@ fn transfer_verb(kind: TransferKind) -> &'static str {
 /// Only the destination is resolved here; the copy or move itself runs in the
 /// background (see [`transfer`]) and reports when it is done.
 fn transfer_selection(state: &mut AppState, kind: TransferKind, dest: &str) {
+    if !state.marks.is_empty() {
+        transfer_marks(state, kind, dest);
+        return;
+    }
     let Some(entry) = state.selected_entry().cloned() else {
         return;
     };
@@ -711,6 +767,31 @@ fn transfer_selection(state: &mut AppState, kind: TransferKind, dest: &str) {
             dest: target,
         }],
     );
+}
+
+/// Starts a `:cp`/`:mv` of every marked entry to `dest`.
+///
+/// One mark behaves exactly like the selection would: `dest` may be a new
+/// name. Several need `dest` to be an existing directory, for the same reason
+/// a pattern does — several entries cannot all become one path.
+fn transfer_marks(state: &mut AppState, kind: TransferKind, dest: &str) {
+    let verb = transfer_verb(kind);
+    let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
+    if marked.len() > 1 && !fs_ops::resolve_dest(dest, &state.cwd).is_dir() {
+        state.set_error(format!(
+            "{verb}: '{dest}' is not a directory, and {} entries are marked",
+            marked.len()
+        ));
+        return;
+    }
+    let items = marked
+        .into_iter()
+        .map(|source| TransferItem {
+            dest: fs_ops::resolve_target(&source, dest, &state.cwd),
+            source,
+        })
+        .collect();
+    transfer::start(state, kind, verb, items);
 }
 
 /// Starts a `:cp`/`:mv` of every entry in `cwd` matching `pattern`.
@@ -737,11 +818,7 @@ fn transfer_matches(state: &mut AppState, kind: TransferKind, pattern: &str, des
         return;
     }
 
-    let dest_path = if Path::new(dest).is_absolute() {
-        PathBuf::from(dest)
-    } else {
-        cwd.join(dest)
-    };
+    let dest_path = fs_ops::resolve_dest(dest, &cwd);
     if !dest_path.is_dir() {
         state.set_error(format!(
             "{verb}: '{dest}' is not a directory, and '{pattern}' matches {} entries",

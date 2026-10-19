@@ -305,6 +305,8 @@ what was loaded; raise `[preview] max_lines` to load more of it.
 | `pp` | Copy the marked entries here — the marks stay |
 | `pm` | Move the marked entries here |
 
+While anything is marked, `:mv`, `:cp` and `dd` act on the marks instead of the selection.
+
 **Tabs**
 
 | Key | Action |

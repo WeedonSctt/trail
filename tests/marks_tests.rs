@@ -12,6 +12,7 @@ use tempfile::TempDir;
 use trail::actions::transfer::TransferKind;
 use trail::actions::{apply, Action};
 use trail::app::state::AppState;
+use trail::input::command_parser::ParsedCommand;
 
 /// ```text
 /// <tmp>/
@@ -166,4 +167,67 @@ fn pasting_with_nothing_marked_says_how_to_mark() {
     apply(Action::PasteMarks(TransferKind::Copy), &mut state).unwrap();
     let notice = state.notice.as_ref().expect("a hint").text.clone();
     assert!(notice.contains("Space"), "{notice}");
+}
+
+// ── :mv, :cp and dd act on the marks ─────────────────────────────────────────
+
+fn run(state: &mut AppState, cmd: ParsedCommand) {
+    apply(Action::ExecuteCommand(cmd), state).unwrap();
+}
+
+#[test]
+fn mv_with_marks_moves_the_marks_not_the_selection() {
+    let dir = layout();
+    let mut state = marked_in_src(dir.path());
+    // The selection is on c.txt, which is not marked.
+    let dst = dir.path().join("dst");
+    run(&mut state, ParsedCommand::Mv(dst.display().to_string()));
+
+    assert!(dst.join("a.txt").exists());
+    assert!(dst.join("b.txt").exists());
+    assert!(dir.path().join("src/c.txt").exists(), "the selection stays");
+    assert!(state.marks.is_empty());
+}
+
+#[test]
+fn cp_with_marks_keeps_them() {
+    let dir = layout();
+    let mut state = marked_in_src(dir.path());
+    run(&mut state, ParsedCommand::Cp("../dst".to_owned()));
+
+    assert!(dir.path().join("dst/a.txt").exists());
+    assert_eq!(state.marks.len(), 2);
+}
+
+#[test]
+fn several_marks_need_a_directory_to_go_into() {
+    let dir = layout();
+    let mut state = marked_in_src(dir.path());
+    run(&mut state, ParsedCommand::Mv("one-name.txt".to_owned()));
+
+    let err = state.error_text().expect("refused").to_owned();
+    assert!(err.contains("2 entries are marked"), "{err}");
+    assert!(dir.path().join("src/a.txt").exists());
+}
+
+#[test]
+fn dd_with_marks_deletes_them_after_one_confirmation() {
+    let dir = layout();
+    let mut state = marked_in_src(dir.path());
+    // Permanent, so the test does not fill the machine's recycle bin.
+    state.config.general.delete_mode = "permanent".to_owned();
+
+    apply(Action::BeginDelete, &mut state).unwrap();
+    assert!(state.pending_delete);
+    apply(Action::ConfirmDelete, &mut state).unwrap();
+
+    assert!(!dir.path().join("src/a.txt").exists());
+    assert!(!dir.path().join("src/b.txt").exists());
+    assert!(
+        dir.path().join("src/c.txt").exists(),
+        "the selection is spared"
+    );
+    assert!(state.marks.is_empty());
+    let notice = state.notice.as_ref().expect("a report").text.clone();
+    assert_eq!(notice, "2 deleted");
 }

@@ -433,8 +433,8 @@ fn validate_simple_name(name: &str) -> Result<(), FsError> {
 }
 
 /// Resolves a destination string to an absolute path, treating relative paths
-/// as relative to `cwd`.
-fn resolve_dest(dest_str: &str, cwd: &Path) -> PathBuf {
+/// as relative to `cwd`. Does not touch the filesystem.
+pub fn resolve_dest(dest_str: &str, cwd: &Path) -> PathBuf {
     let p = PathBuf::from(dest_str);
     if p.is_absolute() {
         p

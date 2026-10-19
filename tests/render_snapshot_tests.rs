@@ -970,3 +970,18 @@ async fn nothing_marked_draws_no_star_and_no_count() {
     assert!(!out.contains("*alpha_dir"), "{out}");
     assert!(!out.contains("marked"), "{out}");
 }
+
+/// With marks, `dd` deletes the marks, so its prompt counts them rather than
+/// naming the selection.
+#[tokio::test]
+async fn the_delete_prompt_counts_the_marks() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    for entry in state.entries.clone() {
+        state.marks.toggle(&entry.path);
+    }
+    state.pending_delete = true;
+
+    let out = render_to_string(&mut state, 100, 12).await;
+    assert!(out.contains("Recycle 2 marked?"), "{out}");
+}
