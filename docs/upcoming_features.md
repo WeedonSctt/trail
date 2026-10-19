@@ -38,9 +38,10 @@ about doing more with fewer keystrokes. The largest, item 22, is
 [§5.3](#53-marking-entries-for-bulk-operations) resurfacing with the decision it was
 waiting on: marks survive navigation, so you can select here and paste there. It also gains
 a Vim-style visual mode for selecting ranges. The maintainer accepted the recommended
-answers to §2.20's decisions; the `Shift`-arrow question is still open, because answering
-it one way makes the release MAJOR. Items 23–25 are smaller and independent, and two of
-them still have a question open.
+answers to §2.20's decisions, and on 2026-10-19 settled the rest: `Shift`-arrows keep
+scrolling the preview (so the release stays MINOR), `Esc` clears the marks, `@` repeats
+the last command, `@name` names a bookmark on the command line, and `U` returns from
+jumps. Items 23–25 are smaller and independent.
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -73,10 +74,10 @@ test itself).
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 | 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
 | 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **planned** — §2.19 |
-| 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **planned** — §2.20; `Shift`-arrows still to decide |
-| 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **planned** — §2.21; key still to confirm |
-| 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **planned** — §2.22; prefix still to confirm |
-| 25 | `u` for jumps | `u` steps back through every directory, not only through jumps | **needs a decision** — §2.23 |
+| 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **planned** — §2.20 |
+| 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **planned** — §2.21, `@` |
+| 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **planned** — §2.22, `@name` |
+| 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **planned** — §2.23 |
 
 ---
 
@@ -783,14 +784,17 @@ cannot cross directories.
 | Marking key | `Space`, toggling and moving down |
 | Paste keys | `pp` copy here, `pm` move here |
 | Marks after pasting | cleared after a move (those paths no longer exist); kept after a copy, so the same set can be pasted twice |
-| Clearing by hand | `:unmark`; plus a key, to be chosen with the binding table |
+| Clearing by hand | `:unmark`, and `Esc` in Navigation Mode (unbound before) — answered 2026-10-19 |
 | Scope | one mark set shared by every tab, so you can mark in one tab and paste in another |
 | Name already taken at the destination | skip that entry and report it (`2 copied, 1 skipped: exists`); never overwrite, as `:mv` does today |
 | `dd` with marks | one confirmation for the set: `delete 4 marked? y/n` |
 | A marked file disappears before the paste | dropped from the set and counted in the report |
 | Across sessions | not persisted; marks end when Trail does |
 
-#### Still open: `Shift`-arrows
+#### `Shift`-arrows — answered 2026-10-19: they keep scrolling the preview
+
+Selection is `v` alone, and the release stays MINOR. `Shift`-selection may be offered as
+opt-in configuration later. The original question follows.
 
 The maintainer asked for `Shift` to select, as in a GUI file manager: `Shift-↓`/`Shift-↑`
 extending a range straight from Navigation Mode, entering visual mode implicitly. Those two
@@ -853,8 +857,11 @@ command line.
 Because `:mv` / `:cp` act on the selection, this behaves like Vim's `.`: `:mv archive\`,
 `j`, repeat — the next file follows. With §2.20's marks, a repeated `:mv` acts on the marks.
 
-- **Key:** `@` is recommended — free, and Vim users know `@:` as "repeat last command".
-  `.` is taken by `toggle_hidden`. Not yet confirmed by the maintainer.
+- **Key:** `@` — confirmed 2026-10-19. Free, and Vim users know `@:` as "repeat last
+  command". `.` is taken by `toggle_hidden`. The maintainer asked that it work on every
+  keyboard layout: on Spanish and Latin American layouts `@` is an AltGr chord, which
+  Windows reports as Ctrl+Alt (the §2.18 trap), so Navigation Mode has to read Ctrl+Alt+char
+  as the bare character, as Command and Search Mode already do.
 - **Empty history:** the history is not persisted yet (`CommandHistory::with_path` is unused,
   marked for Phase 7), so in a fresh session the key reports that there is nothing to repeat.
 
@@ -874,7 +881,7 @@ mean a bookmark or a local folder called `docs` — so the bookmark needs a mark
 - A real folder whose name starts with `@` is reached as `.\@folder`.
 - Tab completion offers bookmark names after `@`.
 
-The `@` prefix is recommended and not yet confirmed. It does not collide with §2.21's `@`
+The `@` prefix was confirmed on 2026-10-19. It does not collide with §2.21's `@`
 key: one is typed on the command line, the other pressed in Navigation Mode.
 
 Small, and independent of §2.20 — though the two together are where it pays off.
@@ -889,8 +896,20 @@ does not do is skip the steps in between — jump, then `l` three times, and get
 four `u`. A Vim-style jump list (`Ctrl-o` / `Ctrl-i`) would record only the long moves —
 `:jump`, a pasted path — and walk those alone.
 
-**Needs a decision:** whether today's `u` is what was meant (in which case this is done), or a
-separate jump list on two new keys.
+**Answered 2026-10-19: a separate jump list.** The maintainer's example: in `dir1`, jump to a
+bookmark (`dir2`), wander on to `dir3`, `dir4`, `dir5` — one key should return to `dir1`,
+because it returns from *jumps*, not from every directory entered. The key was left to the
+implementer: **`U`**, the shifted `u`, unbound today and a plain letter on every layout.
+
+- A *jump* is a move that does not follow the tree: today that is `:jump` to a bookmark, and
+  any later way of going straight to a path should record one too. `h`/`l`, `u` and
+  `ctrl-r` are not jumps. The directory left behind is pushed onto
+  a jump list.
+- `U` pops the list and goes back there, repeatedly; it does not itself push.
+- A directory that no longer exists is skipped with a notice. Held per tab, like `u`'s
+  history, and not persisted.
+- The Vim pair `Ctrl-o`/`Ctrl-i` was rejected: terminals send `Ctrl-i` as `Tab`, which
+  switches tabs.
 
 ---
 
@@ -959,7 +978,8 @@ now a prefix, and `:mv`/`:cp`/`dd` act on the marks whenever any exist. Taking
 `configuration_guide.md` already documents that. Auto-writing on every `:set` would
 serialize the config back and erase the comments in it, which here are the documentation
 of each trade-off. If persistence is wanted, it should be an explicit `:set!` or
-`:config write` built on `toml_edit` so comments survive. Needs a decision on which.
+`:config write` built on `toml_edit` so comments survive. **Answered 2026-10-19: `:config write`**, which
+writes the session's `:set` changes into `trail.toml` and keeps its comments.
 
 ### 5.2 A second window for commands
 
