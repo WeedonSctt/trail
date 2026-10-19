@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-18
+
 ### Fixed
 
 - The preview could not scroll to the end of a file whose lines are wider than the pane: a
@@ -141,7 +143,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.10.1...HEAD
+[1.10.1]: https://github.com/WeedonSctt/trail/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/WeedonSctt/trail/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/WeedonSctt/trail/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/WeedonSctt/trail/compare/v1.9.0...v1.9.1
