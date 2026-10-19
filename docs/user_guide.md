@@ -302,6 +302,11 @@ work. Setting `shell = "pwsh -NoProfile -Command"` makes the `./` spelling work 
   border throughout, so a relative `:mv` or `:cp` destination can be typed against
   something you can still see.
 - **History**: Use `↑` and `↓` arrows to scroll through previously executed commands.
+- **Repeat**: Press `@` in Navigation Mode to run the last `:` or `!` command again without
+  opening the command line. Like Vim's `.`, it acts on what is selected *now*: `:mv archive`,
+  `j`, `@` files the next entry too, and with marks it acts on the marks. `@` works however
+  your keyboard types it — `Shift`+`2` on US English, `AltGr`+`Q` on Spanish, Latin American
+  or German layouts.
 - **Auto-completion**: Press `Tab` to cycle through command completions. Command verbs (e.g. `mkdir`, `mv`) and file paths (for `mv` and `cp` destinations) are auto-completed. A destination that is a whole route is completed against the directory that route names, not against the current directory, so `Tab` walks into `nested/`, `../dst/` or an absolute path you pasted in. Directory candidates come back with a trailing separator, so you can keep pressing `Tab` to descend.
 
 ### Paths on Windows

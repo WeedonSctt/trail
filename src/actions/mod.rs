@@ -97,6 +97,10 @@ pub enum Action {
     // ── Command Mode ──────────────────────────────────────────────────────
     /// Feed a single key event into the Command Mode buffer.
     CommandKey(crossterm::event::KeyEvent),
+    /// Run the most recent `:` or `!` command again without opening the
+    /// command line (`@`). Like Vim's `.`, a `:mv` repeated acts on whatever
+    /// is selected — or marked — now.
+    RepeatLastCommand,
 
     // ── Filesystem mutations (Phase 3) ────────────────────────────────────
     /// Execute a validated, parsed command (dispatched after Command Mode submit).
@@ -443,19 +447,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     state.dirty = true;
                 }
                 FeedResult::Submit(submitted_buf) => {
-                    // Determine whether the buffer was a `!`-shell command or `:` command.
-                    // The submitted buffer is the raw text including any leading `!`.
-                    let (raw_buf, is_shell_submit) =
-                        if let Some(rest) = submitted_buf.strip_prefix('!') {
-                            (rest.to_owned(), true)
-                        } else {
-                            (submitted_buf.clone(), false)
-                        };
-
-                    // Parse the command.
-                    let parse_result =
-                        crate::input::command_parser::parse(&raw_buf, is_shell_submit);
-
                     // Push to history regardless of validity (so the user can
                     // edit and re-submit — but only non-empty strings).
                     if !submitted_buf.trim().is_empty() {
@@ -466,20 +457,18 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     state.mode = Mode::Navigation;
                     state.dirty = true;
 
-                    match parse_result {
-                        Ok(cmd) => {
-                            state.clear_notice();
-                            // Apply the parsed command.
-                            apply(Action::ExecuteCommand(cmd), state)?;
-                        }
-                        Err(e) => {
-                            // Surface validation error in the status bar.
-                            state.set_error(e.to_string());
-                        }
-                    }
+                    run_command_line(state, &submitted_buf)?;
                 }
             }
         }
+
+        Action::RepeatLastCommand => match state.command_history.prev(0).map(str::to_owned) {
+            Some(line) => {
+                state.clear_notice();
+                run_command_line(state, &line)?;
+            }
+            None => state.notify("no command to repeat yet — : or ! runs one"),
+        },
 
         // ── Filesystem command execution ──────────────────────────────────────
         Action::ExecuteCommand(cmd) => {
@@ -685,6 +674,32 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
     }
     Ok(())
+}
+
+/// Parses and runs one command line exactly as typed — `:` commands without
+/// their `:`, shell commands with their `!`. Shared by `Enter` in Command Mode
+/// and by `@`, so a repeated command cannot behave differently from the
+/// original.
+///
+/// # Errors
+///
+/// Returns [`StateError`] if the command's own action fails that way; a parse
+/// error is reported in the status bar instead.
+fn run_command_line(state: &mut AppState, line: &str) -> Result<(), StateError> {
+    let (text, is_shell) = match line.strip_prefix('!') {
+        Some(rest) => (rest, true),
+        None => (line, false),
+    };
+    match crate::input::command_parser::parse(text, is_shell) {
+        Ok(cmd) => {
+            state.clear_notice();
+            apply(Action::ExecuteCommand(cmd), state)
+        }
+        Err(e) => {
+            state.set_error(e.to_string());
+            Ok(())
+        }
+    }
 }
 
 /// Unmarks everything, saying how many marks went. Silent when there were

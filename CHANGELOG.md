@@ -41,6 +41,8 @@ the commits said rather than what the users saw.
 - **Visual mode**, `v`: extend a range with `j`/`k`/`G`/`gg` as in Vim, then `Space` or `v` to
   mark it, `h`/`l` to mark it and move on, `dd` to delete it, or `Esc` to abandon it.
   `Shift`-arrows still scroll the preview.
+- **`@` repeats the last command.** It runs the newest `:` or `!` command again without
+  opening the command line, on whatever is selected or marked now.
 - `p` is now a prefix (for `pp` and `pm`). If you had bound a longer key starting with `p`
   in `[keymap.navigation]`, check that it still does what you expect.
 
@@ -55,6 +57,9 @@ the commits said rather than what the users saw.
 
 ### Fixed
 
+- A Navigation Mode binding to a symbol typed with `AltGr` (`@`, `|`, `~` on Spanish, Latin
+  American and German layouts) could never be pressed: Windows reports `AltGr` as
+  `Ctrl`+`Alt`, which Trail read as a `ctrl-` chord.
 - `:mv` to another drive (`C:` to `D:`) failed, because a rename cannot cross drives. It
   now copies and then removes the original, and removes the original only once the copy
   has fully succeeded.

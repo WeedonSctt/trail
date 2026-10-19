@@ -321,6 +321,7 @@ Overrides keybindings for Navigation Mode.
 - `clear_marks`: Clear every mark (default `esc`)
 - `paste_copy`: Copy the marked entries into the current directory (default `pp`)
 - `paste_move`: Move the marked entries into the current directory (default `pm`)
+- `repeat_command`: Run the last `:` or `!` command again (default `@`)
 - `enter_visual`: Enter visual mode, to mark a range (default `v`). Visual mode uses the
   Navigation Mode bindings for moving, so it has no table of its own
 - `enter_search`: Enter Search Mode
@@ -341,6 +342,11 @@ Overrides keybindings for Navigation Mode.
 `Shift-↓` and `Shift-↑` are built-in aliases for `preview_scroll_down` and
 `preview_scroll_up`, the same way the plain arrows alias `move_down`/`move_up`.
 Rebinding those two actions does not remove the arrow aliases.
+
+A symbol your layout types with `AltGr` — `@`, `|`, `~`, `{` on Spanish, Latin American or
+German keyboards — is bound as the symbol itself: `repeat_command = "@"` works whichever
+keys produce the `@`. Windows reports `AltGr` as `Ctrl`+`Alt`, and Trail reads that as text,
+not as a `ctrl-` chord.
 
 Shift is spelled out only on keys that are not text — `shift-down`, `shift-home`,
 `shift-end`, `shift-tab`. A shifted character is written as the capital itself:

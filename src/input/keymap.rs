@@ -55,13 +55,11 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
         KeyCode::Enter | KeyCode::Right => Some(Action::EnterOrOpen),
         KeyCode::Backspace | KeyCode::Left => Some(Action::GoParent),
         // Ctrl+C cancels Trail without writing --cwd-file.
-        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::Cancel),
+        KeyCode::Char('c') if is_ctrl_chord(key.modifiers) => Some(Action::Cancel),
         // Phase 8: tab management built-in fallbacks.
         // These fire when not overridden by a configured keymap binding.
-        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Action::NewTab),
-        KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            Some(Action::CloseTab)
-        }
+        KeyCode::Char('t') if is_ctrl_chord(key.modifiers) => Some(Action::NewTab),
+        KeyCode::Char('w') if is_ctrl_chord(key.modifiers) => Some(Action::CloseTab),
         KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => Some(Action::SwitchTabPrev),
         KeyCode::Tab => Some(Action::SwitchTabNext),
         KeyCode::Esc => None,
@@ -183,7 +181,7 @@ fn configured_nav_prefix(key: KeyEvent, keymap: &KeymapConfig) -> Option<char> {
     let KeyCode::Char(ch) = key.code else {
         return None;
     };
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
+    if is_ctrl_chord(key.modifiers) {
         return None;
     }
     keymap
@@ -192,6 +190,18 @@ fn configured_nav_prefix(key: KeyEvent, keymap: &KeymapConfig) -> Option<char> {
         .filter(|binding| !is_named_key(binding))
         .any(|binding| binding.len() > ch.len_utf8() && binding.starts_with(ch))
         .then_some(ch)
+}
+
+/// Whether a character key with `modifiers` is a Ctrl chord rather than a
+/// typed character.
+///
+/// Ctrl **and** Alt together is how Windows reports AltGr, which Spanish,
+/// Latin American, German and many other layouts need for `@`, `\`, `|`,
+/// `~`, `{` and `[`. Read as Ctrl, AltGr+Q on es-MX arrived as `ctrl-@` and
+/// matched nothing, so a binding of `@` could never be pressed there — the
+/// same trap §2.18 fixed for Command and Search Mode.
+fn is_ctrl_chord(modifiers: KeyModifiers) -> bool {
+    modifiers.contains(KeyModifiers::CONTROL) && !super::is_text_modifiers(modifiers)
 }
 
 /// Every key name [`key_to_config_string`] can produce without a modifier.
@@ -264,6 +274,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "paste_copy" => Some(Action::PasteMarks(TransferKind::Copy)),
         "paste_move" => Some(Action::PasteMarks(TransferKind::Move)),
         "enter_visual" => Some(Action::EnterVisual),
+        "repeat_command" => Some(Action::RepeatLastCommand),
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
         "quit" => Some(Action::Quit),
@@ -299,7 +310,7 @@ fn append_to_sequence(prefix: char, key: KeyEvent) -> Option<String> {
     let KeyCode::Char(ch) = key.code else {
         return None;
     };
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
+    if is_ctrl_chord(key.modifiers) {
         return None;
     }
     Some(format!("{prefix}{ch}"))
@@ -316,7 +327,7 @@ fn append_to_sequence(prefix: char, key: KeyEvent) -> Option<String> {
 /// selection.
 fn key_to_config_string(key: KeyEvent) -> Option<String> {
     let named = match key.code {
-        KeyCode::Char(ch) if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Char(ch) if is_ctrl_chord(key.modifiers) => {
             return Some(format!("ctrl-{ch}").to_ascii_lowercase());
         }
         // A space is spelled out: a binding of " " would be invisible in the
@@ -687,6 +698,49 @@ mod tests {
             "no quitting mid-range"
         );
         assert_eq!(visual_key(KeyCode::Char('/')), None);
+    }
+
+    /// The maintainer types on Spanish (Latin America), where `@` is AltGr+Q
+    /// and Windows reports AltGr as Ctrl+Alt. `@` has to work typed that way,
+    /// with Shift (US English), and bare (a terminal that drops the modifier).
+    #[test]
+    fn at_repeats_the_last_command_on_every_layout() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+        for modifiers in [
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+            KeyModifiers::SHIFT,
+            KeyModifiers::NONE,
+        ] {
+            let at = KeyEvent {
+                modifiers,
+                ..key(KeyCode::Char('@'))
+            };
+            assert_eq!(
+                navigation(at, &mut ctx, &state),
+                Some(Action::RepeatLastCommand),
+                "@ with {modifiers:?}"
+            );
+        }
+    }
+
+    /// AltGr must not make a character into a Ctrl chord — but a real Ctrl
+    /// chord must stay one, or `Ctrl-c` would stop cancelling.
+    #[test]
+    fn altgr_is_text_and_ctrl_is_still_a_chord() {
+        let event = |modifiers| KeyEvent {
+            modifiers,
+            ..key(KeyCode::Char('c'))
+        };
+        assert_eq!(
+            key_to_config_string(event(KeyModifiers::CONTROL | KeyModifiers::ALT)),
+            Some("c".to_owned())
+        );
+        assert_eq!(
+            key_to_config_string(event(KeyModifiers::CONTROL)),
+            Some("ctrl-c".to_owned())
+        );
     }
 
     #[test]
