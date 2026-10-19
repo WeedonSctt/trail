@@ -11,6 +11,7 @@ use tempfile::TempDir;
 
 use trail::actions::transfer::TransferKind;
 use trail::actions::{apply, Action};
+use trail::app::mode::Mode;
 use trail::app::state::AppState;
 use trail::input::command_parser::ParsedCommand;
 
@@ -230,4 +231,90 @@ fn dd_with_marks_deletes_them_after_one_confirmation() {
     assert!(state.marks.is_empty());
     let notice = state.notice.as_ref().expect("a report").text.clone();
     assert_eq!(notice, "2 deleted");
+}
+
+// ── Visual mode ───────────────────────────────────────────────────────────────
+
+/// A state in `<tmp>/src`, on `a.txt`, in visual mode.
+fn visual_in_src(dir: &Path) -> AppState {
+    let mut state = AppState::new(dir.join("src")).unwrap();
+    apply(Action::EnterVisual, &mut state).unwrap();
+    assert!(matches!(state.mode, Mode::Visual { .. }));
+    state
+}
+
+#[test]
+fn g_from_the_anchor_marks_through_the_last_entry() {
+    let dir = layout();
+    let mut state = visual_in_src(dir.path());
+    apply(Action::JumpBottom, &mut state).unwrap();
+    apply(Action::CommitVisual(None), &mut state).unwrap();
+
+    assert_eq!(state.mode, Mode::Navigation);
+    assert_eq!(state.marks.len(), 3);
+}
+
+#[test]
+fn the_range_runs_upwards_too() {
+    let dir = layout();
+    let mut state = AppState::new(dir.path().join("src")).unwrap();
+    apply(Action::JumpBottom, &mut state).unwrap();
+    apply(Action::EnterVisual, &mut state).unwrap();
+    apply(Action::MoveUp, &mut state).unwrap();
+    apply(Action::CommitVisual(None), &mut state).unwrap();
+
+    let marked: Vec<_> = state.marks.paths().collect();
+    assert_eq!(marked.len(), 2);
+    assert!(marked[0].ends_with("b.txt") && marked[1].ends_with("c.txt"));
+}
+
+#[test]
+fn esc_leaves_visual_mode_and_the_marks_as_they_were() {
+    let dir = layout();
+    let mut state = visual_in_src(dir.path());
+    apply(Action::JumpBottom, &mut state).unwrap();
+    apply(Action::ExitMode, &mut state).unwrap();
+
+    assert_eq!(state.mode, Mode::Navigation);
+    assert!(state.marks.is_empty());
+}
+
+#[test]
+fn leaving_the_directory_commits_the_range_first() {
+    let dir = layout();
+    let mut state = visual_in_src(dir.path());
+    apply(Action::MoveDown, &mut state).unwrap();
+    apply(
+        Action::CommitVisual(Some(Box::new(Action::GoParent))),
+        &mut state,
+    )
+    .unwrap();
+
+    assert_eq!(state.marks.len(), 2);
+    assert!(
+        state.entries.iter().any(|e| e.file_name == "dst"),
+        "it navigated"
+    );
+}
+
+#[test]
+fn dd_in_visual_mode_deletes_the_range_only() {
+    let dir = layout();
+    let mut state = AppState::new(dir.path().join("src")).unwrap();
+    state.config.general.delete_mode = "permanent".to_owned();
+    // c.txt is marked beforehand and outside the range: it must survive.
+    apply(Action::JumpBottom, &mut state).unwrap();
+    apply(Action::ToggleMark, &mut state).unwrap();
+    apply(Action::JumpTop, &mut state).unwrap();
+    apply(Action::EnterVisual, &mut state).unwrap();
+    apply(Action::MoveDown, &mut state).unwrap();
+
+    apply(Action::BeginDelete, &mut state).unwrap();
+    apply(Action::ConfirmDelete, &mut state).unwrap();
+
+    assert!(!dir.path().join("src/a.txt").exists());
+    assert!(!dir.path().join("src/b.txt").exists());
+    assert!(dir.path().join("src/c.txt").exists());
+    assert_eq!(state.marks.len(), 1, "the earlier mark is untouched");
+    assert_eq!(state.mode, Mode::Navigation);
 }

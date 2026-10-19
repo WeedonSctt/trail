@@ -304,6 +304,7 @@ what was loaded; raise `[preview] max_lines` to load more of it.
 | `Esc` | Clear every mark (`:unmark`) |
 | `pp` | Copy the marked entries here — the marks stay |
 | `pm` | Move the marked entries here |
+| `v` | Visual mode: extend a range with `j`/`k`/`G`/`gg`, then `Space` or `v` to mark it, `h`/`l` to mark it and go, `dd` to delete it, `Esc` to abandon it |
 
 While anything is marked, `:mv`, `:cp` and `dd` act on the marks instead of the selection.
 

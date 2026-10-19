@@ -195,9 +195,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, offset: usize) {
         .saturating_sub(HIGHLIGHT_SYMBOL.len());
     let details = state.config.navigation.details().fit(row_width);
 
+    // Visual mode's range, drawn as a selection that spans rows.
+    let range = crate::app::marks::visual_bounds(state);
+
     let items: Vec<ListItem> = state
         .filtered_entries()
-        .map(|(_, entry)| {
+        .enumerate()
+        .map(|(row, (_, entry))| {
             let base_style = match entry.kind {
                 EntryKind::Dir => {
                     let s = styles.directory;
@@ -283,7 +287,13 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, offset: usize) {
                 ));
             }
 
-            ListItem::new(Line::from(spans))
+            let item = ListItem::new(Line::from(spans));
+            match range {
+                Some((first, last)) if (first..=last).contains(&row) => {
+                    item.style(styles.selection)
+                }
+                _ => item,
+            }
         })
         .collect();
 

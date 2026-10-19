@@ -10,6 +10,7 @@ pub mod transfer;
 
 use std::path::PathBuf;
 
+use crate::app::mode::Mode;
 use crate::app::state::{AppState, StateError};
 use crate::input::command_parser::ParsedCommand;
 use transfer::{TransferItem, TransferKind};
@@ -122,6 +123,12 @@ pub enum Action {
     ClearMarks,
     /// Copy (`pp`) or move (`pm`) every marked entry into `cwd`.
     PasteMarks(TransferKind),
+    /// Enter visual mode (`v`), anchoring a range at the selection.
+    EnterVisual,
+    /// Add the visual range to the marks and return to Navigation Mode, then
+    /// apply the follow-up action if there is one — so `h`/`l` in visual mode
+    /// mark the range and navigate in one key.
+    CommitVisual(Option<Box<Action>>),
     /// Set `state.pending_nav_key` to begin a multi-key Navigation Mode
     /// sequence (`y` for clipboard, `d` for delete). The following key
     /// resolves the sequence in `keymap::navigation`.
@@ -266,7 +273,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // Mode transitions.
         Action::EnterSearch => {
-            use crate::app::mode::Mode;
             state.mode = Mode::Search {
                 query: String::new(),
                 matches: Vec::new(),
@@ -277,7 +283,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::EnterCommand => {
-            use crate::app::mode::Mode;
             state.mode = Mode::Command {
                 buffer: String::new(),
                 cursor: 0,
@@ -288,7 +293,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::ExitMode => {
-            use crate::app::mode::Mode;
             if state.mode != Mode::Navigation {
                 state.mode = Mode::Navigation;
                 state.filter = None;
@@ -301,7 +305,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // Search Mode actions.
         Action::SearchAppendChar(ch) => {
-            use crate::app::mode::Mode;
             let new_query = if let Mode::Search { query, .. } = &state.mode {
                 let mut q = query.clone();
                 q.push(ch);
@@ -313,7 +316,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::SearchDeleteChar => {
-            use crate::app::mode::Mode;
             let new_query = if let Mode::Search { query, .. } = &state.mode {
                 let mut q = query.clone();
                 // Remove the last Unicode scalar (pop handles multi-byte chars).
@@ -334,7 +336,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::SearchConfirm => {
-            use crate::app::mode::Mode;
             if let Some(entry) = state.selected_entry().cloned() {
                 use crate::app::state::EntryKind;
                 match entry.kind {
@@ -362,7 +363,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // ── Command Mode ─────────────────────────────────────────────────────
         Action::CommandKey(key) => {
-            use crate::app::mode::Mode;
             use crate::input::command_parser::{feed_with_plugins, FeedResult};
 
             // Extract buffer/cursor/history_index from the mode.
@@ -518,7 +518,10 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // ── Delete with confirmation ───────────────────────────────────────────
         Action::BeginDelete => {
-            if state.selected_entry().is_some() || !state.marks.is_empty() {
+            let has_target = state.selected_entry().is_some()
+                || !state.marks.is_empty()
+                || matches!(state.mode, Mode::Visual { .. });
+            if has_target {
                 state.pending_delete = true;
                 state.clear_notice();
                 state.dirty = true;
@@ -530,8 +533,15 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 return Ok(());
             }
             state.pending_delete = false;
-            if !state.marks.is_empty() {
-                delete_marks(state)?;
+            // What `dd` deletes, most specific first: a visual range is what the
+            // user is looking at right now, then the marks, then the selection.
+            if matches!(state.mode, Mode::Visual { .. }) {
+                let range = crate::app::marks::visual_paths(state);
+                state.mode = Mode::Navigation;
+                delete_paths(state, range)?;
+            } else if !state.marks.is_empty() {
+                let marked = state.marks.paths().cloned().collect();
+                delete_paths(state, marked)?;
             } else if let Some(entry) = state.selected_entry().cloned() {
                 let mode = configured_delete_mode(state);
                 match fs_ops::delete(&entry.path, mode) {
@@ -572,6 +582,29 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         }
 
         Action::ClearMarks => clear_marks(state),
+
+        Action::EnterVisual => {
+            if state.mode == Mode::Navigation {
+                if let Some(entry) = state.selected_entry() {
+                    state.mode = Mode::Visual {
+                        anchor: entry.path.clone(),
+                    };
+                    state.dirty = true;
+                }
+            }
+        }
+
+        Action::CommitVisual(then) => {
+            if matches!(state.mode, Mode::Visual { .. }) {
+                let range = crate::app::marks::visual_paths(state);
+                state.marks.extend(range);
+                state.mode = Mode::Navigation;
+                state.dirty = true;
+            }
+            if let Some(next) = then {
+                apply(*next, state)?;
+            }
+        }
 
         Action::PasteMarks(kind) => paste_marks(state, kind),
 
@@ -684,7 +717,8 @@ fn paste_marks(state: &mut AppState, kind: TransferKind) {
     transfer::start(state, kind, "paste", items);
 }
 
-/// Deletes every marked entry, after the single confirmation `dd` asked for.
+/// Deletes `paths` — the marks, or a visual range — after the single
+/// confirmation `dd` asked for.
 ///
 /// Each entry goes the way `[general] delete_mode` says, the same as a `dd` of
 /// one. Deleted and vanished entries leave the mark set; one that could not be
@@ -693,15 +727,14 @@ fn paste_marks(state: &mut AppState, kind: TransferKind) {
 /// # Errors
 ///
 /// Returns [`StateError`] only if re-listing the directory afterwards fails.
-fn delete_marks(state: &mut AppState) -> Result<(), StateError> {
+fn delete_paths(state: &mut AppState, paths: Vec<PathBuf>) -> Result<(), StateError> {
     let mode = configured_delete_mode(state);
-    let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
     let mut deleted = 0usize;
     let mut gone = 0usize;
     let mut first_failure = None;
     let mut failed = 0usize;
 
-    for path in marked {
+    for path in paths {
         if path.symlink_metadata().is_err() {
             gone += 1;
             state.marks.remove(&path);

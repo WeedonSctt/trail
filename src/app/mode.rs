@@ -1,4 +1,4 @@
-//! Mode enum: Navigation, Search, and Command.
+//! Mode enum: Navigation, Visual, Search, and Command.
 //!
 //! Determines how keystrokes are dispatched and what the status bar displays.
 //! All three variants are defined here so the state shape is complete from
@@ -40,6 +40,16 @@ pub enum Mode {
         /// Index into the command history when scrolling through past commands.
         history_index: Option<usize>,
     },
+
+    /// Visual mode, entered with `v`: moving the selection extends a range
+    /// from `anchor` to it, the way Vim's visual mode does. The range is
+    /// added to the marks (`Space`, `v`, `h`/`l`), deleted (`dd`) or
+    /// abandoned (`Esc`).
+    Visual {
+        /// The entry the range started on. A path, not a row, so a refresh
+        /// that re-orders the listing cannot move it.
+        anchor: std::path::PathBuf,
+    },
 }
 
 impl Mode {
@@ -49,6 +59,7 @@ impl Mode {
             Mode::Navigation => "NORMAL",
             Mode::Search { .. } => "SEARCH",
             Mode::Command { .. } => "COMMAND",
+            Mode::Visual { .. } => "VISUAL",
         }
     }
 }

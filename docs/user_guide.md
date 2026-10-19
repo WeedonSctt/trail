@@ -99,6 +99,13 @@ Pick files in one place and copy or move them to another — even another tab.
 - `pp`: Copy every marked item into the directory you are looking at. The marks stay, so
   you can paste the same set again somewhere else.
 - `pm`: Move every marked item here. Moved items leave the mark set.
+- `v`: Visual mode, for marking a range. `v` anchors it on the selection; `j`/`k`, the
+  arrows, `G` and `gg` extend it, and it is highlighted as you go (the status bar reads
+  `VISUAL` and `4 selected`). Then:
+  - `Space` or `v` adds the range to the marks;
+  - `h` or `l` adds it and then goes up or in, so selecting and leaving is one key;
+  - `dd` deletes the range — only the range, not other marks — after one confirmation;
+  - `Esc` abandons it and leaves the marks as they were.
 
 Marks survive navigation and are shared by every tab; the status bar shows `3 marked` for
 as long as any exist, because they are usually out of sight. A name already taken where you

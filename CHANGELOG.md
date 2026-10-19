@@ -38,6 +38,9 @@ the commits said rather than what the users saw.
   and reported, never overwritten.
 - While anything is marked, `:mv`, `:cp` and `dd` act on the marked entries instead of the
   selection; `dd` asks once for the whole set (`Recycle 4 marked?`).
+- **Visual mode**, `v`: extend a range with `j`/`k`/`G`/`gg` as in Vim, then `Space` or `v` to
+  mark it, `h`/`l` to mark it and move on, `dd` to delete it, or `Esc` to abandon it.
+  `Shift`-arrows still scroll the preview.
 - `p` is now a prefix (for `pp` and `pm`). If you had bound a longer key starting with `p`
   in `[keymap.navigation]`, check that it still does what you expect.
 

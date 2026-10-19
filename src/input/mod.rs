@@ -67,6 +67,8 @@ pub fn dispatch(key: KeyEvent, state: &AppState, ctx: &mut InputCtx) -> Option<A
     match &state.mode {
         Mode::Navigation => keymap::navigation(key, ctx, state),
 
+        Mode::Visual { .. } => keymap::visual(key, ctx, state),
+
         Mode::Search { .. } => keymap::search(key, &state.config.keymap),
 
         Mode::Command { .. } => {

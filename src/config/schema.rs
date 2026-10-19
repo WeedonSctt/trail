@@ -739,6 +739,7 @@ const NAV_ACTIONS: &[&str] = &[
     "clear_marks",
     "paste_copy",
     "paste_move",
+    "enter_visual",
     "enter_search",
     "enter_command",
     "quit",

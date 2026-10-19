@@ -205,6 +205,10 @@ clear_marks = "esc"
 # skipped and reported, never overwritten.
 paste_copy = "pp"
 paste_move = "pm"
+# Visual mode: v anchors a range at the selection, and moving extends it.
+# Space or v adds the range to the marks, h/l add it and then navigate, dd
+# deletes it, Esc abandons it.
+enter_visual = "v"
 enter_search = "/"
 enter_command = ":"
 quit = "q"

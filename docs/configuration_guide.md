@@ -321,6 +321,8 @@ Overrides keybindings for Navigation Mode.
 - `clear_marks`: Clear every mark (default `esc`)
 - `paste_copy`: Copy the marked entries into the current directory (default `pp`)
 - `paste_move`: Move the marked entries into the current directory (default `pm`)
+- `enter_visual`: Enter visual mode, to mark a range (default `v`). Visual mode uses the
+  Navigation Mode bindings for moving, so it has no table of its own
 - `enter_search`: Enter Search Mode
 - `enter_command`: Enter Command Mode
 - `quit`: Exit Trail

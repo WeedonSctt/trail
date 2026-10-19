@@ -77,6 +77,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             .fg(Color::Black)
             .bg(theme::parse_color(&state.config.theme.search))
             .add_modifier(Modifier::BOLD),
+        Mode::Visual { .. } => Style::default()
+            .fg(Color::Black)
+            .bg(theme::parse_color(&state.config.theme.search))
+            .add_modifier(Modifier::BOLD),
         Mode::Command { .. } => Style::default()
             .fg(Color::Black)
             .bg(theme::parse_color(&state.config.theme.command))
@@ -182,7 +186,9 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
     if state.pending_delete {
         // With marks, `dd` deletes the marks — not the selection, which may
         // not even be one of them — and the prompt has to say so.
-        let name = if state.marks.is_empty() {
+        let name = if let Some((first, last)) = crate::app::marks::visual_bounds(state) {
+            format!("{} selected", last - first + 1)
+        } else if state.marks.is_empty() {
             let name = state
                 .selected_entry()
                 .map(|e| e.file_name.as_str())
@@ -226,8 +232,11 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
 /// sight, in another directory.
 fn activity(state: &AppState) -> Option<String> {
     let marked = (!state.marks.is_empty()).then(|| format!("{} marked", state.marks.len()));
-    let parts: Vec<String> = marked
+    let selecting = crate::app::marks::visual_bounds(state)
+        .map(|(first, last)| format!("{} selected", last - first + 1));
+    let parts: Vec<String> = selecting
         .into_iter()
+        .chain(marked)
         .chain(
             state
                 .transfers

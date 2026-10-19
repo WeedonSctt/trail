@@ -6,9 +6,15 @@
 //! re-sort and a refresh. There is one set for the whole session, shared by
 //! every tab, so entries can be marked in one tab and pasted from another. It
 //! is not persisted: marks end when Trail does.
+//!
+//! Visual mode is another way of filling the set: its range is worked out here
+//! from the anchor and the selection.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+
+use crate::app::mode::Mode;
+use crate::app::state::AppState;
 
 /// The marked entries, in path order.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -26,6 +32,11 @@ impl MarkSet {
             self.paths.insert(path.to_owned());
             true
         }
+    }
+
+    /// Marks every path in `paths`, leaving those already marked as they are.
+    pub fn extend(&mut self, paths: impl IntoIterator<Item = PathBuf>) {
+        self.paths.extend(paths);
     }
 
     /// Whether `path` is marked.
@@ -58,6 +69,39 @@ impl MarkSet {
     /// The marked paths, in path order.
     pub fn paths(&self) -> impl Iterator<Item = &PathBuf> {
         self.paths.iter()
+    }
+}
+
+/// The rows, first and last inclusive, that visual mode's range covers in the
+/// list the user is looking at — or `None` outside visual mode.
+///
+/// Counted the way `AppState::selected` is, so the range follows the sort, the
+/// hidden-file setting and any filter. An anchor that has left the listing (a
+/// refresh removed it) collapses the range onto the selection.
+pub fn visual_bounds(state: &AppState) -> Option<(usize, usize)> {
+    let Mode::Visual { anchor } = &state.mode else {
+        return None;
+    };
+    let anchor_row = state
+        .filtered_entries()
+        .position(|(_, e)| &e.path == anchor)
+        .unwrap_or(state.selected);
+    Some((
+        anchor_row.min(state.selected),
+        anchor_row.max(state.selected),
+    ))
+}
+
+/// The paths visual mode's range covers, top to bottom; empty outside it.
+pub fn visual_paths(state: &AppState) -> Vec<PathBuf> {
+    match visual_bounds(state) {
+        Some((first, last)) => state
+            .filtered_entries()
+            .skip(first)
+            .take(last - first + 1)
+            .map(|(_, e)| e.path.clone())
+            .collect(),
+        None => Vec::new(),
     }
 }
 

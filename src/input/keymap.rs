@@ -69,6 +69,46 @@ pub fn navigation(key: KeyEvent, _ctx: &mut InputCtx, state: &AppState) -> Optio
     }
 }
 
+/// Translates a `KeyEvent` in Visual Mode into an `Action`.
+///
+/// Visual mode shares Navigation Mode's bindings — `j`, `k`, `G`, `gg` and the
+/// arrows move exactly as they do there, which is what extends the range — and
+/// reinterprets the few that end it:
+///
+/// - `Space` and `v` add the range to the marks;
+/// - `h`/`l` (and the other ways of leaving the directory) add it and then go;
+/// - `Esc` abandons it, leaving the marks as they were;
+/// - `dd` deletes it, after one confirmation.
+///
+/// Everything else is ignored: a yank or a paste in the middle of selecting is
+/// more likely a slip than a request.
+pub fn visual(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
+    let action = navigation(key, ctx, state)?;
+    match action {
+        Action::MoveDown
+        | Action::MoveUp
+        | Action::JumpTop
+        | Action::JumpBottom
+        | Action::SetPendingNavKey(_)
+        | Action::BeginDelete
+        | Action::ConfirmDelete
+        | Action::CancelDelete
+        | Action::Cancel
+        | Action::PreviewScrollDown
+        | Action::PreviewScrollUp
+        | Action::PreviewPageDown
+        | Action::PreviewPageUp
+        | Action::PreviewScrollTop
+        | Action::PreviewScrollBottom => Some(action),
+        Action::ToggleMark | Action::EnterVisual => Some(Action::CommitVisual(None)),
+        Action::GoParent | Action::EnterOrOpen | Action::HistoryBack | Action::HistoryForward => {
+            Some(Action::CommitVisual(Some(Box::new(action))))
+        }
+        Action::ClearMarks => Some(Action::ExitMode),
+        _ => None,
+    }
+}
+
 /// Translates a `KeyEvent` in Search Mode into an `Action`.
 ///
 /// Search Mode is a typing mode, so an unmodified printable character is
@@ -223,6 +263,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "clear_marks" => Some(Action::ClearMarks),
         "paste_copy" => Some(Action::PasteMarks(TransferKind::Copy)),
         "paste_move" => Some(Action::PasteMarks(TransferKind::Move)),
+        "enter_visual" => Some(Action::EnterVisual),
         "enter_search" => Some(Action::EnterSearch),
         "enter_command" => Some(Action::EnterCommand),
         "quit" => Some(Action::Quit),
@@ -608,6 +649,44 @@ mod tests {
             navigation(key(KeyCode::Char('m')), &mut ctx, &state),
             Some(Action::PasteMarks(TransferKind::Move))
         );
+    }
+
+    #[test]
+    fn visual_mode_moves_commits_cancels_and_ignores_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a"), b"").unwrap();
+        let mut state = AppState::new(dir.path().to_owned()).unwrap();
+        let mut ctx = InputCtx::default();
+        assert_eq!(
+            navigation(key(KeyCode::Char('v')), &mut ctx, &state),
+            Some(Action::EnterVisual)
+        );
+        state.mode = crate::app::mode::Mode::Visual {
+            anchor: state.entries[0].path.clone(),
+        };
+
+        let mut visual_key = |code| visual(key(code), &mut ctx, &state);
+        assert_eq!(visual_key(KeyCode::Char('j')), Some(Action::MoveDown));
+        assert_eq!(visual_key(KeyCode::Char('G')), Some(Action::JumpBottom));
+        assert_eq!(
+            visual_key(KeyCode::Char(' ')),
+            Some(Action::CommitVisual(None))
+        );
+        assert_eq!(
+            visual_key(KeyCode::Char('v')),
+            Some(Action::CommitVisual(None))
+        );
+        assert_eq!(
+            visual_key(KeyCode::Char('l')),
+            Some(Action::CommitVisual(Some(Box::new(Action::EnterOrOpen))))
+        );
+        assert_eq!(visual_key(KeyCode::Esc), Some(Action::ExitMode));
+        assert_eq!(
+            visual_key(KeyCode::Char('q')),
+            None,
+            "no quitting mid-range"
+        );
+        assert_eq!(visual_key(KeyCode::Char('/')), None);
     }
 
     #[test]

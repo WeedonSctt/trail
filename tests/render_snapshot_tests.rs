@@ -985,3 +985,18 @@ async fn the_delete_prompt_counts_the_marks() {
     let out = render_to_string(&mut state, 100, 12).await;
     assert!(out.contains("Recycle 2 marked?"), "{out}");
 }
+
+/// Visual mode says so in the badge, counts the range, and does not count it
+/// as marked until it is committed.
+#[tokio::test]
+async fn visual_mode_shows_its_badge_and_the_range_size() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    trail::actions::apply(trail::actions::Action::EnterVisual, &mut state).unwrap();
+    trail::actions::apply(trail::actions::Action::MoveDown, &mut state).unwrap();
+
+    let out = render_to_string(&mut state, 100, 12).await;
+    assert!(out.contains("VISUAL"), "{out}");
+    assert!(out.contains("2 selected"), "{out}");
+    assert!(!out.contains("marked"), "{out}");
+}
