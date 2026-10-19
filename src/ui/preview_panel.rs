@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui_image::StatefulImage;
 
 use crate::app::state::{AppState, PreviewSlot};
-use crate::preview::provider::PreviewContent;
+use crate::preview::provider::{line_number_gutter, PreviewContent};
 use crate::ui::theme;
 
 /// Draws the preview panel into `area`.
@@ -29,12 +29,13 @@ use crate::ui::theme;
 ///
 /// Line-based content is scrolled by slicing: only the rows the pane can show
 /// are turned into `Line`s, starting at `state.preview.scroll`. The offset is
-/// therefore a logical line rather than a wrapped row, which is what makes it
-/// exactly clampable — and it keeps per-frame work proportional to the pane,
-/// not to the length of the file.
+/// therefore a logical line rather than a wrapped row — and it keeps per-frame
+/// work proportional to the pane, not to the length of the file. A long line
+/// still wraps onto several rows; the pane's width is recorded alongside its
+/// height so the scroll limit and the footer can count those rows.
 ///
 /// Takes `state` mutably because `Image` re-encodes itself when the pane
-/// changes size, and because the pane's height is recorded here for the scroll
+/// changes size, and because the pane's size is recorded here for the scroll
 /// actions to clamp against.
 pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     let styles = theme::resolve(&state.config.theme);
@@ -64,8 +65,10 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
 
     // Resolve the scroll offset before borrowing `content` below: the pane
     // height is only known here, and the clamp needs the whole slot.
-    let height = usize::from(block.inner(area).height);
+    let inner = block.inner(area);
+    let height = usize::from(inner.height);
     state.preview.viewport_height = height;
+    state.preview.viewport_width = inner.width;
     state.preview.clamp_scroll();
     let offset = state.preview.scroll;
     let block = match scroll_footer(&state.preview) {
@@ -128,7 +131,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
                     // Line number prefix (same style as plain-text path).
                     // `enumerate` runs before `skip`, so the number is the line's
                     // position in the file, not in the visible slice.
-                    ratatui_spans.push(Span::styled(format!("{:>4}  ", idx + 1), styles.status));
+                    ratatui_spans.push(Span::styled(line_number_gutter(idx + 1), styles.status));
 
                     // Highlighted spans from syntect.
                     for s in spans {
@@ -291,13 +294,15 @@ fn version_badge(state: &AppState, title_width: usize, area_width: u16) -> Optio
 /// The form is `first–last/total`, with a trailing `+` when the file continues
 /// past the loaded window (see [`PreviewSlot::truncated`]) — so a preview cut
 /// by `[preview] max_lines` says so instead of pretending to be the whole file.
+/// `last` is the last line drawn whole, so wrapped lines shrink the range
+/// rather than it overstating what is on screen.
 fn scroll_footer(slot: &PreviewSlot) -> Option<String> {
     let total = slot.content.scrollable_len()?;
-    if total <= slot.viewport_height && !slot.truncated {
+    if slot.scroll == 0 && slot.max_scroll() == 0 && !slot.truncated {
         return None;
     }
     let first = slot.scroll + 1;
-    let last = (slot.scroll + slot.viewport_height).min(total);
+    let last = (slot.scroll + slot.lines_visible_from(slot.scroll)).min(total);
     let more = if slot.truncated { "+" } else { "" };
     Some(format!(" {first}–{last}/{total}{more} "))
 }

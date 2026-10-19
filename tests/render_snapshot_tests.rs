@@ -279,6 +279,39 @@ async fn scrolled_preview_shows_later_lines_with_their_own_numbers() {
     );
 }
 
+/// Lines wider than the pane wrap onto extra rows. Scrolling to the end must
+/// still bring the file's last line on screen, and the footer must not claim
+/// more lines than are drawn — the regression was a limit counted in lines, so
+/// the final wrapped lines sat below the pane's edge, out of reach.
+#[tokio::test]
+async fn scrolling_to_the_end_shows_the_last_line_when_lines_wrap() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let body: String = (1..=200)
+        .map(|i| format!("L{i:04} {} END{i:04}\n", "word ".repeat(15)))
+        .collect();
+    fs::write(dir.path().join("wrapped.txt"), body).unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // The first frame records the pane's size; the jump needs it.
+    render_to_string(&mut state, 80, 24).await;
+    state.scroll_preview_to_edge(true);
+    let rendered = render_to_string(&mut state, 80, 24).await;
+
+    assert!(
+        rendered.contains("END0200"),
+        "the last line must be reachable, end and all:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("–200/200"),
+        "the footer must end at the last line:\n{rendered}"
+    );
+    let first = state.preview.scroll + 1;
+    assert!(
+        !rendered.contains(&format!("{first}–{}/200", first + PREVIEW_ROWS - 1)),
+        "wrapped lines take extra rows, so fewer than {PREVIEW_ROWS} fit:\n{rendered}"
+    );
+}
+
 #[tokio::test]
 async fn preview_that_fits_has_no_position_footer() {
     let dir = make_fixture_dir();

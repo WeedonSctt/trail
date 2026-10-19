@@ -996,6 +996,63 @@ fn clamp_scroll_follows_a_shrinking_pane() {
     assert_eq!(state.preview.scroll, 40);
 }
 
+/// 30 lines in a 10-row, 20-column pane, the last of them 45 columns wide — so
+/// it wraps onto three rows.
+fn state_with_a_wrapping_last_line() -> AppState {
+    let mut state = state_with_text_preview(30, 10);
+    if let PreviewContent::Text(lines) = &mut state.preview.content {
+        if let Some(last) = lines.last_mut() {
+            *last = "x".repeat(45);
+        }
+    }
+    state.preview.viewport_width = 20;
+    state
+}
+
+#[test]
+fn preview_scroll_counts_the_rows_a_wrapped_line_takes() {
+    let mut state = state_with_a_wrapping_last_line();
+
+    state.scroll_preview_to_edge(true);
+
+    // The last screen holds the 3-row line plus the 7 lines above it, so it
+    // starts at index 22 — not 20, which would push the long line off the pane.
+    assert_eq!(state.preview.scroll, 22);
+    assert_eq!(state.preview.lines_visible_from(22), 8);
+}
+
+#[test]
+fn preview_page_scroll_steps_by_the_lines_on_screen() {
+    let mut state = state_with_a_wrapping_last_line();
+    state.preview.scroll = 15;
+
+    // From 15 the pane holds lines 15..=24, so a page would move 10 - 2 = 8
+    // lines, to 23 — past the last screen, which the long line pulls back to 22.
+    state.scroll_preview_pages(1);
+    assert_eq!(state.preview.scroll, 22, "clamped to the last screen");
+
+    // Back up: the screen ending two lines into this one starts at 14.
+    state.scroll_preview_pages(-1);
+    assert_eq!(state.preview.scroll, 14);
+}
+
+#[test]
+fn a_line_taller_than_the_pane_still_scrolls_past() {
+    let mut state = state_with_text_preview(5, 2);
+    if let PreviewContent::Text(lines) = &mut state.preview.content {
+        lines[1] = "y".repeat(100);
+    }
+    state.preview.viewport_width = 20;
+    state.scroll_preview_lines(1);
+    assert_eq!(state.preview.scroll, 1);
+
+    state.scroll_preview_pages(1);
+    assert_eq!(
+        state.preview.scroll, 2,
+        "a page always advances at least a line"
+    );
+}
+
 /// Re-previewing the *same* path must keep the reader in place — this is what
 /// makes watching a file that is being appended to usable.
 #[test]

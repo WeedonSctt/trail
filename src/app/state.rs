@@ -186,7 +186,8 @@ pub struct PreviewSlot {
     ///
     /// Counted in *logical* lines (one entry of the content's line vector), not
     /// wrapped terminal rows, because the render path slices the line vector
-    /// rather than offsetting a `Paragraph`.
+    /// rather than offsetting a `Paragraph`. The limits it is clamped to do
+    /// count wrapped rows — see [`Self::viewport_width`].
     pub scroll: usize,
     /// Height in rows of the pane's interior, recorded by the render pass.
     ///
@@ -195,6 +196,12 @@ pub struct PreviewSlot {
     /// render, which makes every scroll request a no-op — harmless, because no
     /// key can be pressed before the first frame is drawn.
     pub viewport_height: usize,
+    /// Width in columns of the pane's interior, recorded by the render pass.
+    ///
+    /// A line wider than this wraps onto further rows, so the scroll limit and
+    /// the page step measure rows with it rather than assuming one row per
+    /// line. Zero until the first render, which counts every line as one row.
+    pub viewport_width: u16,
     /// Whether the loaded content stops short of the end of the file.
     ///
     /// Set from `WorkerMsg::Preview` when the highlight worker hit
@@ -235,15 +242,63 @@ impl PreviewSlot {
     }
 
     /// Returns the largest useful scroll offset: the offset at which the last
-    /// content line sits on the pane's last row.
+    /// content line ends on the pane's last row.
+    ///
+    /// Wrapped lines count for every row they take, so a file with long lines
+    /// can still be scrolled until its end is on screen.
     ///
     /// Returns `0` for content that does not scroll (an image, a placeholder)
     /// and for content that fits the pane.
     pub fn max_scroll(&self) -> usize {
-        self.content
-            .scrollable_len()
-            .unwrap_or(0)
-            .saturating_sub(self.viewport_height)
+        let len = self.content.scrollable_len().unwrap_or(0);
+        len - self.lines_fitting_before(len)
+    }
+
+    /// Number of logical lines drawn whole when the pane starts at line `start`.
+    ///
+    /// At least `1` while `start` is inside the content and the pane has a row:
+    /// a single line taller than the pane still counts as the one being shown,
+    /// so a page step always advances. `0` past the end or for content that
+    /// does not scroll.
+    pub fn lines_visible_from(&self, start: usize) -> usize {
+        let len = self.content.scrollable_len().unwrap_or(0);
+        let mut rows = 0;
+        let mut count = 0;
+        for index in start..len {
+            rows += self.content.display_rows(index, self.viewport_width);
+            if rows > self.viewport_height {
+                break;
+            }
+            count += 1;
+        }
+        self.at_least_one(count, start < len)
+    }
+
+    /// Number of logical lines ending just above line `end` that the pane can
+    /// show whole — the lines a screen ending there would hold.
+    ///
+    /// The mirror of [`Self::lines_visible_from`], with the same floor of `1`.
+    fn lines_fitting_before(&self, end: usize) -> usize {
+        let mut rows = 0;
+        let mut count = 0;
+        for index in (0..end).rev() {
+            rows += self.content.display_rows(index, self.viewport_width);
+            if rows > self.viewport_height {
+                break;
+            }
+            count += 1;
+        }
+        self.at_least_one(count, end > 0)
+    }
+
+    /// Raises a line count of zero to one when there is a line to show and a
+    /// row to show it in, so an over-tall line never stalls the scroll.
+    fn at_least_one(&self, count: usize, has_line: bool) -> usize {
+        if has_line && self.viewport_height > 0 {
+            count.max(1)
+        } else {
+            count
+        }
     }
 
     /// Clamps `scroll` into range, leaving it alone for content that does not
@@ -259,12 +314,24 @@ impl PreviewSlot {
         self.scroll = self.scroll.min(self.max_scroll());
     }
 
-    /// Number of lines one page scroll moves: the pane height less
-    /// [`PAGE_OVERLAP_LINES`], and never less than one line.
-    fn page_lines(&self) -> usize {
-        self.viewport_height
+    /// The scroll offset one page down from `from`: the lines on screen less
+    /// [`PAGE_OVERLAP_LINES`], and never less than one line on.
+    fn page_down_from(&self, from: usize) -> usize {
+        let step = self
+            .lines_visible_from(from)
             .saturating_sub(PAGE_OVERLAP_LINES)
-            .max(1)
+            .max(1);
+        from.saturating_add(step)
+    }
+
+    /// The scroll offset one page up from `from`: the screen that ends
+    /// [`PAGE_OVERLAP_LINES`] into the current one, and never less than one
+    /// line back.
+    fn page_up_from(&self, from: usize) -> usize {
+        let len = self.content.scrollable_len().unwrap_or(0);
+        let end = from.saturating_add(PAGE_OVERLAP_LINES).min(len);
+        let target = end.saturating_sub(self.lines_fitting_before(end));
+        target.min(from.saturating_sub(1))
     }
 }
 
@@ -923,11 +990,19 @@ impl AppState {
 
     /// Scrolls the preview pane by `pages` screenfuls, positive for down.
     ///
-    /// A page is the pane height less a two-line overlap, so consecutive pages
-    /// share context.
+    /// A page is the lines on screen less a two-line overlap, so consecutive
+    /// pages share context. Lines are counted whole: a wrapped line takes all
+    /// its rows, so a page of long lines moves fewer of them.
     pub fn scroll_preview_pages(&mut self, pages: isize) {
-        let step = self.preview.page_lines() as isize;
-        self.set_preview_scroll(offset_by(self.preview.scroll, pages.saturating_mul(step)));
+        let mut target = self.preview.scroll;
+        for _ in 0..pages.unsigned_abs() {
+            target = if pages > 0 {
+                self.preview.page_down_from(target)
+            } else {
+                self.preview.page_up_from(target)
+            };
+        }
+        self.set_preview_scroll(target);
     }
 
     /// Jumps the preview pane to the end of the loaded content (`to_end`) or

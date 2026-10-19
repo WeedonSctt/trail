@@ -13,6 +13,8 @@
 use std::path::PathBuf;
 
 use ratatui::style::Color;
+use ratatui::text::Line;
+use ratatui::widgets::{Paragraph, Wrap};
 use thiserror::Error;
 use tokio::sync::mpsc;
 
@@ -181,6 +183,53 @@ impl PreviewContent {
             Self::Directory { entries, .. } => Some(entries.len() + DIRECTORY_HEADER_LINES),
         }
     }
+
+    /// Number of terminal rows logical line `index` occupies in a pane `width`
+    /// columns wide.
+    ///
+    /// The text, binary and highlighted previews word-wrap, so a line longer
+    /// than the pane spills onto further rows; this measures it with the same
+    /// wrapper the renderer draws with, which is what keeps the scroll limit
+    /// and the position footer honest. The directory listing does not wrap, so
+    /// each of its lines is one row.
+    ///
+    /// Never returns less than `1`: an empty line still takes a row. A `width`
+    /// of zero (no frame drawn yet) and an out-of-range `index` also count as
+    /// one row, so callers can treat the result as a plain line count.
+    pub fn display_rows(&self, index: usize, width: u16) -> usize {
+        if width == 0 {
+            return 1;
+        }
+        let text = match self {
+            Self::Text(lines) | Self::Binary(lines) => match lines.get(index) {
+                Some(line) => line.clone(),
+                None => return 1,
+            },
+            Self::Highlighted(lines) => match lines.get(index) {
+                Some(spans) => {
+                    let mut text = line_number_gutter(index + 1);
+                    text.extend(spans.iter().map(|s| s.text.as_str()));
+                    text
+                }
+                None => return 1,
+            },
+            Self::Empty | Self::Loading | Self::Image(_) | Self::Directory { .. } => return 1,
+        };
+        Paragraph::new(Line::raw(text))
+            .wrap(Wrap { trim: false })
+            .line_count(width)
+            .max(1)
+    }
+}
+
+/// The line-number column drawn ahead of a highlighted line, for the 1-based
+/// line `number`.
+///
+/// Shared by the renderer and [`PreviewContent::display_rows`]: the gutter
+/// takes up width, so the two must agree on it or the wrap measurement drifts
+/// from what is drawn.
+pub fn line_number_gutter(number: usize) -> String {
+    format!("{number:>4}  ")
 }
 
 // ── PreviewOutcome ────────────────────────────────────────────────────────────

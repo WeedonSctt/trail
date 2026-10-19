@@ -29,6 +29,13 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- The preview could not scroll to the end of a file whose lines are wider than the pane: a
+  wrapped line takes more than one row, so the last lines stayed below the bottom edge.
+  Scrolling now counts those rows, and the `first–last/total` footer shows the lines
+  actually on screen.
+
 ## [1.10.0] - 2026-10-12
 
 ### Added

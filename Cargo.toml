@@ -34,7 +34,10 @@ path = "src/main.rs"
 
 [dependencies]
 # --- UI ---
-ratatui = "0.28"
+# `unstable-rendered-line-info` exposes `Paragraph::line_count`, which the
+# preview's scroll limit uses to count the rows a wrapped line takes. It is the
+# same word wrapper the pane draws with; a home-grown count would drift from it.
+ratatui = { version = "0.28", features = ["unstable-rendered-line-info"] }
 crossterm = { version = "0.28", features = ["event-stream"] }
 
 # --- Async runtime (worker pool) ---
