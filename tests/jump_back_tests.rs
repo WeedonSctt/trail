@@ -109,3 +109,16 @@ fn each_tab_has_its_own_jumps() {
     apply(Action::ReturnFromJump, &mut state).unwrap();
     assert!(ends_in(&state, "dir1"), "the first tab still has its jump");
 }
+
+/// `u` and `Ctrl-r` at the end of the history used to do nothing visible.
+#[test]
+fn history_at_either_end_says_so() {
+    let (_dir, mut state) = setup();
+    apply(Action::HistoryBack, &mut state).unwrap();
+    let notice = state.notice.as_ref().expect("a hint").text.clone();
+    assert!(notice.contains("no earlier directory"), "{notice}");
+
+    apply(Action::HistoryForward, &mut state).unwrap();
+    let notice = state.notice.as_ref().expect("a hint").text.clone();
+    assert!(notice.contains("no later directory"), "{notice}");
+}

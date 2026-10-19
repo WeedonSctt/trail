@@ -1000,3 +1000,15 @@ async fn visual_mode_shows_its_badge_and_the_range_size() {
     assert!(out.contains("2 selected"), "{out}");
     assert!(!out.contains("marked"), "{out}");
 }
+
+/// A half-typed sequence is shown, so `g` waiting for its second `g` no longer
+/// looks like a keystroke that was swallowed.
+#[tokio::test]
+async fn a_pending_prefix_is_shown_in_the_status_bar() {
+    let dir = make_fixture_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.pending_nav_key = Some('g');
+
+    let out = render_to_string(&mut state, 100, 12).await;
+    assert!(out.contains("g…"), "{out}");
+}

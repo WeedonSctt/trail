@@ -406,7 +406,9 @@ could render it in the space the tab indicator uses.
 `ctrl-` or `shift-` — before the prefix test. A unit test walks every key
 `key_to_config_string` can name and asserts `is_named_key` accepts it, so a named key
 added later cannot quietly reopen the bug. The pending-prefix indicator was not part of
-the patch; it adds something to the frame rather than fixing it, and is still open.
+the patch; it adds something to the frame rather than fixing it. It was built on
+2026-10-19: the status bar shows `g…` after the mode badge while a sequence waits for its
+second key.
 
 ### 2.16 No way to tell which build you are looking at
 

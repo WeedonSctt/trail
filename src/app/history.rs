@@ -88,13 +88,11 @@ impl NavigationHistory {
     }
 
     /// Returns `true` if there is at least one entry to go back to.
-    #[allow(dead_code)] // TODO(phase-something): Used for UI indicator
     pub fn can_go_back(&self) -> bool {
         !self.back.is_empty()
     }
 
     /// Returns `true` if there is at least one entry to go forward to.
-    #[allow(dead_code)] // TODO(phase-something): Used for UI indicator
     pub fn can_go_forward(&self) -> bool {
         !self.forward.is_empty()
     }

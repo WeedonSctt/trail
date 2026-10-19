@@ -378,10 +378,9 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   Otherwise its first letter becomes a prefix that swallows the next keystroke — how `t`
   (from `tab`) and `c` (from `ctrl-r`) were dead keys until v1.9.1. A unit test enumerates
   the translated names and will fail if one is missing.
-- Three `// TODO(phase-N):` markers outlive their phases (`phase-4` in
-  `command_parser.rs`, `phase-5` in `tests/fixtures/.keep`, two `phase-something` in
-  `history.rs`). The release checklist gates on these; they have shipped unfixed since
-  before v1.7.2.
+- No `// TODO(phase-N):` markers remain (the last three were resolved on 2026-10-19), and
+  the release checklist gates on that staying true. Do not add one: say what is missing in a
+  plain comment, or do it.
 - `ratatui-image` must resolve against the **same** `ratatui` the crate uses (0.28). Its
   dependency range also admits ratatui 0.30, and a `cargo update` will happily re-split
   the graph into two ratatui versions — at which point `StatefulImage` no longer matches

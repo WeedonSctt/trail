@@ -241,12 +241,23 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             state.go_parent()?;
         }
 
+        // At either end of the history these used to do nothing at all, which
+        // reads as a key that is not working — the same reason a tab switch
+        // with one tab says so.
         Action::HistoryBack => {
-            state.history_back()?;
+            if state.history.can_go_back() {
+                state.history_back()?;
+            } else {
+                state.notify("no earlier directory — u goes back once you have moved");
+            }
         }
 
         Action::HistoryForward => {
-            state.history_forward()?;
+            if state.history.can_go_forward() {
+                state.history_forward()?;
+            } else {
+                state.notify("no later directory — Ctrl-r goes forward after u");
+            }
         }
 
         Action::ReturnFromJump => {

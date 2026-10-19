@@ -14,8 +14,9 @@
 //!           | "term"
 //! ```
 //!
-//! `:git` and `:set` are syntactically accepted and validated here; their
-//! real backing (the git worker, the config schema) lands in Phases 4 and 7.
+//! Parsing only validates shape; what a command does is `actions::mod`'s
+//! business. `:git` runs `git` through the configured shell, and `:set` goes
+//! through `TrailConfig::set_value`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -55,11 +56,11 @@ pub enum ParsedCommand {
         /// Destination, which has to be an existing directory.
         dest: String,
     },
-    /// Run a git subcommand string (e.g. `"init"`, `"status --short"`).
-    /// The git worker will be wired in Phase 4; syntactically accepted now.
+    /// Run a git subcommand string (e.g. `"init"`, `"status --short"`) as
+    /// `git <subcommand>` through `[general] shell`, holding the screen
+    /// afterwards per `[general] shell_pause`.
     Git(String),
-    /// Set a runtime config key to a value.
-    /// The config schema will be wired in Phase 7; syntactically accepted now.
+    /// Set a runtime config key to a value, through `TrailConfig::set_value`.
     Set { key: String, value: String },
     /// Re-order the active tab's listing: `:sort [key] [reverse]`.
     ///
@@ -207,7 +208,6 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
             if rest.is_empty() {
                 return Err(ParseError::MissingArgument("git".to_owned()));
             }
-            // TODO(phase-4): Wire to the git worker.
             Ok(ParsedCommand::Git(rest.to_owned()))
         }
 

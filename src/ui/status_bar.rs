@@ -118,6 +118,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             styles.command,
         ));
     }
+    // A half-typed sequence — `g` waiting for its second `g`, `d` for `d` —
+    // used to look exactly like a swallowed keystroke. Shown the way Vim shows
+    // it, so the user can see the next key will finish something.
+    if let Some(pending) = state.pending_nav_key {
+        left_spans.push(Span::styled(format!("{pending}… "), styles.command));
+    }
     frame.render_widget(Paragraph::new(Line::from(left_spans)), sections[0]);
 
     // ── A message takes the rest of the row ───────────────────────────────────

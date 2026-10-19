@@ -57,6 +57,9 @@ the commits said rather than what the users saw.
 
 ### Changed
 
+- A half-typed key sequence is shown in the status bar — `g…` while `g` waits for its second
+  `g`, `d…` for `dd` — so it no longer looks like a keystroke that was swallowed.
+- `u` and `Ctrl-r` at either end of the history say so, instead of doing nothing visible.
 - `:cp` and `:mv` run in the background. Copying a large folder no longer freezes Trail;
   the status bar shows `copying 3/10` while it works and says what happened when it is
   done.
