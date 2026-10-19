@@ -4,7 +4,7 @@
 # Regenerate after any PKGBUILD change with:
 #   makepkg --printsrcinfo > .SRCINFO
 #
-# NOTE: The sha256sums below are the v1.10.1 digests, from its checksums.txt.
+# NOTE: The sha256sums below are the v1.11.0 digests, from its checksums.txt.
 # This file is generated — after changing PKGBUILD, regenerate it with
 # `makepkg --printsrcinfo > .SRCINFO` rather than editing it by hand.
 
@@ -21,9 +21,9 @@ pkgbase = trail
 	install = trail.install
 
 	source_x86_64 = trail-v1.11.0-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.11.0/trail-v1.11.0-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums_x86_64 = d42f7f30bf32987e5ba263e1adf0e65817229829c6230b0c5f866b27d5077aa7
+	sha256sums_x86_64 = e655cb2a5062613b6b1d20ed26af1d6097aa59e092fe7f66c942ca1bce09d0aa
 
 	source_aarch64 = trail-v1.11.0-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.11.0/trail-v1.11.0-aarch64-unknown-linux-gnu.tar.gz
-	sha256sums_aarch64 = 6b0da5fae012c748032b9759afb08f5162aa4695a6876ccb89023da9b6c820e9
+	sha256sums_aarch64 = 9e4cf059006763a102da49df7d4a03030ea1c442ca0acd432ba3e9642fe4f3ba
 
 pkgname = trail
