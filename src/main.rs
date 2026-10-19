@@ -177,6 +177,8 @@ async fn main() -> Result<()> {
     let (worker_tx, worker_rx) = workers::channel();
     // The terminal panel's shells report output and exit on the same channel.
     state.terminal.attach(worker_tx.clone());
+    // Copies and moves run on the blocking pool and report here too.
+    state.transfers.attach(worker_tx.clone());
 
     // Set up the git cache (shared between the UI thread and worker tasks).
     let git_cache = workers::git::new_cache();
@@ -429,8 +431,14 @@ async fn run_event_loop(
         // would overwrite the just-merged content with `Loading` again.
         let mut needs_preview_refresh = false;
         while let Ok(msg) = worker_rx.try_recv() {
-            let is_listing_change =
-                matches!(&msg, WorkerMsg::Git { .. } | WorkerMsg::FsChanged { .. });
+            // A finished transfer re-lists the directory, so it can move the
+            // selection the same way a filesystem change can.
+            let is_listing_change = matches!(
+                &msg,
+                WorkerMsg::Git { .. }
+                    | WorkerMsg::FsChanged { .. }
+                    | WorkerMsg::TransferDone { .. }
+            );
             let prev_cwd = state.cwd.clone();
             handle_worker_msg(
                 msg,

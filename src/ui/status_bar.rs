@@ -140,6 +140,12 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     if let Mode::Search { query, .. } = &state.mode {
         let center = Paragraph::new(Line::from(Span::styled(format!("/{query}"), styles.search)));
         frame.render_widget(center, sections[1]);
+    } else if let Some(text) = activity(state) {
+        let elided = elide(&text, usize::from(sections[1].width));
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(elided, styles.command))),
+            sections[1],
+        );
     }
 
     // ── Right section: entry count + git branch ───────────────────────────────
@@ -202,6 +208,21 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
         NoticeLevel::Error => (format!(" Error: {} ", notice.text), styles.error),
         NoticeLevel::Info => (format!(" {} ", notice.text), styles.git_clean),
     })
+}
+
+/// Standing information for the centre section outside Search Mode: transfers
+/// still running, as `copying 3/10`.
+///
+/// The centre is otherwise empty there, and this is exactly the kind of thing
+/// that has to stay visible while the user moves on to something else.
+fn activity(state: &AppState) -> Option<String> {
+    let parts: Vec<String> = state
+        .transfers
+        .active()
+        .iter()
+        .map(|t| format!("{} {}/{}", t.kind.progressive(), t.done, t.total))
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 /// Draws the command line across `area` and puts the terminal cursor on it.

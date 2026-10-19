@@ -542,6 +542,8 @@ pub struct AppState {
     pub recent_dirs: crate::session::RecentDirs,
     /// The terminal panel and its shells.
     pub terminal: crate::terminal::TerminalPanel,
+    /// Copies and moves running in the background.
+    pub transfers: crate::actions::transfer::Transfers,
 }
 
 impl AppState {
@@ -613,6 +615,7 @@ impl AppState {
             plugin_engine: None,
             recent_dirs: crate::session::RecentDirs::default(),
             terminal: crate::terminal::TerminalPanel::default(),
+            transfers: crate::actions::transfer::Transfers::default(),
         };
 
         state.load_dir(&cwd)?;

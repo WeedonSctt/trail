@@ -29,6 +29,22 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Changed
+
+- `:cp` and `:mv` run in the background. Copying a large folder no longer freezes Trail;
+  the status bar shows `copying 3/10` while it works and says what happened when it is
+  done.
+- A `:cp` or `:mv` of several files (`:mv *.md docs\`) no longer stops at the first file
+  whose name is already taken at the destination: that file is skipped, the rest are
+  done, and the report counts both. Nothing is ever overwritten.
+
+### Fixed
+
+- `:mv` to another drive (`C:` to `D:`) failed, because a rename cannot cross drives. It
+  now copies and then removes the original, and removes the original only once the copy
+  has fully succeeded.
+- `:cp` of a folder into itself never finished. It is now refused.
+
 ## [1.10.1] - 2026-10-18
 
 ### Fixed

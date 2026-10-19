@@ -144,64 +144,118 @@ pub fn rename(source: &Path, new_name: &str) -> Result<PathBuf, FsError> {
     Ok(dest)
 }
 
-/// Moves `source` to `dest`.
+/// The path `source` would land on for a `:mv`/`:cp` to `dest_str`.
 ///
-/// `dest` may be absolute or relative to `cwd`. If `dest` is an existing
-/// directory, `source` is moved inside it.
-///
-/// # Errors
-///
-/// Returns [`FsError::SourceNotFound`] if `source` does not exist.
-/// Returns [`FsError::DestExists`] if the resulting path is occupied.
-/// Returns [`FsError::Io`] for other filesystem errors.
-pub fn mv(source: &Path, dest_str: &str, cwd: &Path) -> Result<PathBuf, FsError> {
-    if !source.exists() {
-        return Err(FsError::SourceNotFound(source.to_owned()));
-    }
+/// `dest_str` is resolved against `cwd` when relative. An existing directory
+/// means "into it, under the same name"; anything else is the new path itself.
+/// Only stats the destination, so it is cheap enough for the UI thread — the
+/// copy or move itself is not.
+pub fn resolve_target(source: &Path, dest_str: &str, cwd: &Path) -> PathBuf {
     let raw_dest = resolve_dest(dest_str, cwd);
-    let dest = if raw_dest.is_dir() {
-        // Moving into an existing directory: keep the source filename.
+    if raw_dest.is_dir() {
         raw_dest.join(source.file_name().unwrap_or_default())
     } else {
         raw_dest
-    };
-    if dest.exists() {
-        return Err(FsError::DestExists(dest));
     }
-    fs::rename(source, &dest).map_err(|e| io_err(format!("mv → {dest_str}"), e))?;
-    Ok(dest)
 }
 
-/// Copies `source` to `dest`.
+/// Moves `source` to exactly `dest`, across drives if it has to.
 ///
-/// `dest` may be absolute or relative to `cwd`. If `dest` is an existing
-/// directory, the source is copied inside it. Directories are copied
-/// recursively.
+/// A rename first, since on one volume that is instant and atomic. A rename
+/// cannot cross volumes, though — `C:` to `D:` on Windows, or two mounts
+/// elsewhere — and "move here" from another drive is the common case rather
+/// than the odd one. So when the rename fails for that reason the entry is
+/// copied and the source removed, and the source is removed **only** once the
+/// copy has fully succeeded.
+///
+/// The caller checks that `dest` is free; this does not overwrite, but it does
+/// not re-check either.
 ///
 /// # Errors
 ///
-/// Returns [`FsError::SourceNotFound`] if `source` does not exist.
-/// Returns [`FsError::DestExists`] if the resulting path is occupied.
-/// Returns [`FsError::Io`] for other filesystem errors.
-pub fn cp(source: &Path, dest_str: &str, cwd: &Path) -> Result<PathBuf, FsError> {
-    if !source.exists() {
-        return Err(FsError::SourceNotFound(source.to_owned()));
-    }
-    let raw_dest = resolve_dest(dest_str, cwd);
-    let dest = if raw_dest.is_dir() {
-        raw_dest.join(source.file_name().unwrap_or_default())
-    } else {
-        raw_dest
+/// Returns [`FsError::Io`] if the rename fails for any other reason, if the
+/// fallback copy fails (the partial copy is removed, the source is untouched),
+/// or if the source cannot be removed after a successful copy (both then
+/// exist, and the message says so).
+pub fn move_path(source: &Path, dest: &Path) -> Result<(), FsError> {
+    move_path_with(source, dest, |from, to| fs::rename(from, to))
+}
+
+/// [`move_path`] with the rename injected, so the cross-drive fallback can be
+/// tested on a machine with one drive.
+fn move_path_with(
+    source: &Path,
+    dest: &Path,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), FsError> {
+    let err = match rename(source, dest) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
     };
-    if dest.exists() {
-        return Err(FsError::DestExists(dest));
+    if !is_cross_device(&err) {
+        return Err(io_err(format!("mv → {}", dest.display()), err));
     }
+
+    if let Err(e) = copy_path(source, dest) {
+        // `dest` was free before the copy started, so whatever is there now is
+        // the half-finished copy. Leaving it would make a retry fail with
+        // "destination already exists".
+        let _ = remove_path(dest);
+        return Err(e);
+    }
+    remove_path(source).map_err(|e| FsError::Io {
+        context: format!(
+            "copied to {} but could not remove the original {}",
+            dest.display(),
+            source.display()
+        ),
+        source: e,
+    })
+}
+
+/// Whether a rename failed because source and destination are on different
+/// volumes — the one failure a copy can get around.
+///
+/// Matched on the raw OS code: `io::ErrorKind::CrossesDevices` is newer than
+/// this crate's minimum Rust version.
+fn is_cross_device(err: &std::io::Error) -> bool {
+    // ERROR_NOT_SAME_DEVICE on Windows, EXDEV elsewhere.
+    let code = if cfg!(windows) { 17 } else { 18 };
+    err.raw_os_error() == Some(code)
+}
+
+/// Copies `source` — a file, or a directory and everything under it — to
+/// exactly `dest`.
+///
+/// # Errors
+///
+/// Returns [`FsError::InvalidName`] if `dest` is inside `source`: copying a
+/// directory into itself never finishes, because every level it creates is
+/// another level to copy. Returns [`FsError::Io`] for filesystem errors.
+pub fn copy_path(source: &Path, dest: &Path) -> Result<(), FsError> {
     if source.is_dir() {
-        copy_dir_recursive(source, &dest)?;
+        if dest.starts_with(source) {
+            return Err(FsError::InvalidName(
+                dest.display().to_string(),
+                "cannot copy a directory into itself",
+            ));
+        }
+        copy_dir_recursive(source, dest)
     } else {
-        fs::copy(source, &dest).map_err(|e| io_err(format!("cp → {dest_str}"), e))?;
+        fs::copy(source, dest)
+            .map(|_| ())
+            .map_err(|e| io_err(format!("cp → {}", dest.display()), e))
     }
-    Ok(dest)
+}
+
+/// Unlinks `path`, recursively for a directory. No recycle bin: this is the
+/// second half of a move, not a delete the user asked for.
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    if path.is_dir() {
+        fs::remove_dir_all(path)
+    } else {
+        fs::remove_file(path)
+    }
 }
 
 /// Recursively copies directory `src` to `dst`.
@@ -401,6 +455,20 @@ mod tests {
         tempfile::tempdir().expect("tempdir")
     }
 
+    /// What a `:mv` does with one entry, minus the background thread.
+    fn mv(source: &Path, dest: &str, cwd: &Path) -> Result<PathBuf, FsError> {
+        let target = resolve_target(source, dest, cwd);
+        move_path(source, &target)?;
+        Ok(target)
+    }
+
+    /// What a `:cp` does with one entry, minus the background thread.
+    fn cp(source: &Path, dest: &str, cwd: &Path) -> Result<PathBuf, FsError> {
+        let target = resolve_target(source, dest, cwd);
+        copy_path(source, &target)?;
+        Ok(target)
+    }
+
     // ── mkdir ──────────────────────────────────────────────────────────────────
 
     #[test]
@@ -514,6 +582,73 @@ mod tests {
         fs::write(src.join("file.txt"), b"hi").unwrap();
         let dest = cp(&src, "dstdir", dir.path()).unwrap();
         assert!(dest.join("file.txt").exists());
+    }
+
+    #[test]
+    fn cp_refuses_to_copy_a_directory_into_itself() {
+        let dir = tmp();
+        let src = dir.path().join("srcdir");
+        fs::create_dir(&src).unwrap();
+        let err = cp(&src, "srcdir", dir.path()).unwrap_err();
+        assert!(matches!(err, FsError::InvalidName(..)), "{err}");
+    }
+
+    // ── move across drives ────────────────────────────────────────────────────
+
+    /// The rename failure a second volume gives. There is no second volume in
+    /// CI, so it is injected.
+    fn cross_device(_: &Path, _: &Path) -> std::io::Result<()> {
+        let code = if cfg!(windows) { 17 } else { 18 };
+        Err(std::io::Error::from_raw_os_error(code))
+    }
+
+    #[test]
+    fn a_move_across_drives_copies_then_removes_the_source() {
+        let dir = tmp();
+        let src = dir.path().join("tree");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("leaf.txt"), b"leaf").unwrap();
+        let dest = dir.path().join("moved");
+
+        move_path_with(&src, &dest, cross_device).unwrap();
+
+        assert!(!src.exists(), "the source goes once the copy is complete");
+        assert_eq!(fs::read(dest.join("leaf.txt")).unwrap(), b"leaf");
+    }
+
+    #[test]
+    fn a_failed_copy_keeps_the_source_and_cleans_up_the_partial_copy() {
+        let dir = tmp();
+        let src = dir.path().join("tree");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("leaf.txt"), b"leaf").unwrap();
+        // A destination inside the source makes the copy fail.
+        let dest = src.join("inside");
+
+        assert!(move_path_with(&src, &dest, cross_device).is_err());
+        assert!(src.join("leaf.txt").exists(), "the original is untouched");
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn any_other_rename_failure_is_reported_without_copying() {
+        let dir = tmp();
+        let src = dir.path().join("file.txt");
+        fs::write(&src, b"x").unwrap();
+        let dest = dir.path().join("dest.txt");
+
+        let denied = |_: &Path, _: &Path| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "denied",
+            ))
+        };
+        assert!(move_path_with(&src, &dest, denied).is_err());
+        assert!(src.exists());
+        assert!(
+            !dest.exists(),
+            "only a cross-drive failure falls back to a copy"
+        );
     }
 
     // ── delete ────────────────────────────────────────────────────────────────

@@ -6,11 +6,13 @@
 pub mod clipboard;
 pub mod fs_ops;
 pub mod shell_exec;
+pub mod transfer;
 
 use std::path::{Path, PathBuf};
 
 use crate::app::state::{AppState, StateError};
 use crate::input::command_parser::ParsedCommand;
+use transfer::{TransferItem, TransferKind};
 
 /// Every user-initiated state change is represented as one of these variants.
 ///
@@ -631,39 +633,56 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
     Ok(())
 }
 
-/// Runs `op` over every entry in `cwd` matching `pattern`, reporting the count.
+/// The verb a transfer is reported under: `cp` or `mv`.
+fn transfer_verb(kind: TransferKind) -> &'static str {
+    match kind {
+        TransferKind::Copy => "cp",
+        TransferKind::Move => "mv",
+    }
+}
+
+/// Starts a `:cp`/`:mv` of the selected entry to `dest`.
+///
+/// Only the destination is resolved here; the copy or move itself runs in the
+/// background (see [`transfer`]) and reports when it is done.
+fn transfer_selection(state: &mut AppState, kind: TransferKind, dest: &str) {
+    let Some(entry) = state.selected_entry().cloned() else {
+        return;
+    };
+    let target = fs_ops::resolve_target(&entry.path, dest, &state.cwd);
+    transfer::start(
+        state,
+        kind,
+        transfer_verb(kind),
+        vec![TransferItem {
+            source: entry.path,
+            dest: target,
+        }],
+    );
+}
+
+/// Starts a `:cp`/`:mv` of every entry in `cwd` matching `pattern`.
 ///
 /// `dest` must be an existing directory: a pattern names several files, and
 /// several files cannot be moved onto one path. Checking it first is what stops
 /// `:mv *.md notes.md` from copying each match over the last.
 ///
-/// A failure part-way through does not undo what already succeeded -- there is no
-/// transaction to roll back to -- so the report says how many of how many were
-/// done and why the run stopped.
-///
-/// # Errors
-///
-/// Returns [`StateError`] only if the listing refresh afterwards fails; the
-/// per-entry failures are reported through the notice channel.
-fn apply_to_matches(
-    state: &mut AppState,
-    pattern: &str,
-    dest: &str,
-    verb: &str,
-    op: fn(&Path, &str, &Path) -> Result<PathBuf, fs_ops::FsError>,
-) -> Result<(), StateError> {
+/// A failure part-way through does not undo what already succeeded -- there is
+/// no transaction to roll back to -- so the report says what became of each.
+fn transfer_matches(state: &mut AppState, kind: TransferKind, pattern: &str, dest: &str) {
+    let verb = transfer_verb(kind);
     let cwd = state.cwd.clone();
 
     let matches = match fs_ops::matching_entries(&cwd, pattern) {
         Ok(matches) => matches,
         Err(e) => {
             state.set_error(format!("{verb}: {e}"));
-            return Ok(());
+            return;
         }
     };
     if matches.is_empty() {
         state.set_error(format!("{verb}: nothing matches '{pattern}'"));
-        return Ok(());
+        return;
     }
 
     let dest_path = if Path::new(dest).is_absolute() {
@@ -676,27 +695,17 @@ fn apply_to_matches(
             "{verb}: '{dest}' is not a directory, and '{pattern}' matches {} entries",
             matches.len()
         ));
-        return Ok(());
+        return;
     }
 
-    let total = matches.len();
-    let mut done = 0usize;
-    let mut failure = None;
-    for source in matches {
-        match op(&source, dest, &cwd) {
-            Ok(_) => done += 1,
-            Err(e) => {
-                failure = Some(e);
-                break;
-            }
-        }
-    }
-
-    match failure {
-        None => state.notify(format!("{verb}: {done} entries → {dest}")),
-        Some(e) => state.set_error(format!("{verb}: {done} of {total} done, then {e}")),
-    }
-    state.refresh()
+    let items = matches
+        .into_iter()
+        .map(|source| TransferItem {
+            dest: dest_path.join(source.file_name().unwrap_or_default()),
+            source,
+        })
+        .collect();
+    transfer::start(state, kind, verb, items);
 }
 
 /// Where `dd` sends an entry, from `[general] delete_mode`.
@@ -816,40 +825,16 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             }
         }
 
-        ParsedCommand::Mv(dest) => {
-            if let Some(entry) = state.selected_entry().cloned() {
-                match fs_ops::mv(&entry.path, &dest, &cwd) {
-                    Ok(_) => {
-                        state.clear_notice();
-                        state.refresh()?;
-                    }
-                    Err(e) => {
-                        state.set_error(format!("mv: {e}"));
-                    }
-                }
-            }
-        }
+        ParsedCommand::Mv(dest) => transfer_selection(state, TransferKind::Move, &dest),
 
-        ParsedCommand::Cp(dest) => {
-            if let Some(entry) = state.selected_entry().cloned() {
-                match fs_ops::cp(&entry.path, &dest, &cwd) {
-                    Ok(_) => {
-                        state.clear_notice();
-                        state.refresh()?;
-                    }
-                    Err(e) => {
-                        state.set_error(format!("cp: {e}"));
-                    }
-                }
-            }
-        }
+        ParsedCommand::Cp(dest) => transfer_selection(state, TransferKind::Copy, &dest),
 
         ParsedCommand::MvMatching { pattern, dest } => {
-            apply_to_matches(state, &pattern, &dest, "mv", fs_ops::mv)?;
+            transfer_matches(state, TransferKind::Move, &pattern, &dest);
         }
 
         ParsedCommand::CpMatching { pattern, dest } => {
-            apply_to_matches(state, &pattern, &dest, "cp", fs_ops::cp)?;
+            transfer_matches(state, TransferKind::Copy, &pattern, &dest);
         }
 
         ParsedCommand::Git(subcmd) => {

@@ -239,6 +239,12 @@ Command mode allows you to execute powerful filesystem operations and shell comm
 - `:term`, `:term new [profile]`, `:term close`, `:term <n>`, `:term max`: Drive the
   terminal panel — see [Terminal Panel](#5-terminal-panel)
 
+`:mv` and `:cp` run in the background, so a large copy never freezes Trail: the status bar
+shows `copying 3/10` while it works, and reports what happened when it is done. They never
+overwrite: an entry whose name is already taken at the destination is skipped and counted
+(`cp: 4 copied, 1 skipped: exists`). Moving to another drive works too — Trail copies and
+then removes the original, and only once the copy has fully succeeded.
+
 ### Shell Commands
 You can run arbitrary shell commands by prefixing them with `!` instead of `:`.
 - `!<command>`: Execute a shell command (e.g., `!ls -la`)

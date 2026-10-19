@@ -129,6 +129,22 @@ pub enum WorkerMsg {
         /// Its exit code, when the platform reported one.
         code: Option<u32>,
     },
+
+    /// A background copy or move finished another entry.
+    TransferProgress {
+        /// The transfer job.
+        id: u64,
+        /// Entries finished so far.
+        done: usize,
+        /// Entries in the job.
+        total: usize,
+    },
+
+    /// A background copy or move finished.
+    TransferDone {
+        /// What became of each entry.
+        report: crate::actions::transfer::TransferReport,
+    },
 }
 
 // ── merge ─────────────────────────────────────────────────────────────────────
@@ -269,6 +285,16 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             if state.terminal.on_exit(id) {
                 state.dirty = true;
             }
+        }
+
+        WorkerMsg::TransferProgress { id, done, total } => {
+            if state.transfers.progress(id, done, total) {
+                state.dirty = true;
+            }
+        }
+
+        WorkerMsg::TransferDone { report } => {
+            crate::actions::transfer::finish(state, report);
         }
     }
 }
