@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-19
+
 ### Added
 
 - **Dev builds say so.** A binary not built from a tagged release now reports itself as one:
@@ -197,7 +199,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.10.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/WeedonSctt/trail/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/WeedonSctt/trail/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/WeedonSctt/trail/compare/v1.9.2...v1.10.0
 [1.9.2]: https://github.com/WeedonSctt/trail/compare/v1.9.1...v1.9.2
