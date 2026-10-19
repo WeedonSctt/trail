@@ -107,9 +107,9 @@ overwritten — and a marked file deleted in the meantime is dropped and counted
 in the background, like `:cp`. Marks are not saved: they end when Trail does.
 
 **While anything is marked, `:mv`, `:cp` and `dd` act on the marks, not the selection.**
-`:mv ..rchive\x60 moves every marked entry there (with several marked, the destination has to
+`:mv ..\archive\` moves every marked entry there (with several marked, the destination has to
 be an existing directory), and `dd` asks once for the whole set — `Recycle 4 marked?`.
-`:mv *.md docs\x60 still names its own files, marks or not.
+`:mv *.md docs\` still names its own files, marks or not.
 
 ### Preview Pane
 The preview scrolls independently of the selection, so you can read through a long
