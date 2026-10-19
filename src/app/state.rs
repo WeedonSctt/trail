@@ -547,6 +547,8 @@ pub struct AppState {
     /// Entries marked for a paste, move, copy or delete. One set for every
     /// tab, so marks made in one can be pasted from another.
     pub marks: crate::app::marks::MarkSet,
+    /// The `:set` changes made this session, for `:config write`.
+    pub settings: crate::config::persist::SessionSettings,
 }
 
 impl AppState {
@@ -620,6 +622,7 @@ impl AppState {
             terminal: crate::terminal::TerminalPanel::default(),
             transfers: crate::actions::transfer::Transfers::default(),
             marks: crate::app::marks::MarkSet::default(),
+            settings: crate::config::persist::SessionSettings::default(),
         };
 
         state.load_dir(&cwd)?;

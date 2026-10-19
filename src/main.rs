@@ -134,6 +134,15 @@ async fn main() -> Result<()> {
     let mut state = AppState::with_config(cli.start_path, config)
         .map_err(|e| anyhow::anyhow!("failed to open start directory: {e}"))?;
 
+    // The file `:config write` saves into: the one that loaded, if one did.
+    // A remembered file that failed to load is not in use, so it is not it.
+    state.settings.file = match &config_source {
+        config::ConfigSource::Explicit(path) => Some(path.clone()),
+        config::ConfigSource::Remembered(path) if config_warning.is_none() => Some(path.clone()),
+        _ => None,
+    };
+    state.settings.remember_in = Some(config_state_file.clone());
+
     // Surface a degraded remembered config in the status bar. Trail owns the
     // alternate screen, so this is the only channel available.
     if let Some(warning) = config_warning {

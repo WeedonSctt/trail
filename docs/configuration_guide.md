@@ -399,7 +399,22 @@ Enables specific Lua plugins to load at startup.
 ## 2. Runtime Configuration (`:set`)
 
 You can modify settings dynamically while Trail is running by using the `:set` command in Command Mode (press `:`). 
-Changes made via `:set` are validated exactly like the TOML config and take effect immediately, but **they are not saved** back to your `trail.toml` file.
+Changes made via `:set` are validated exactly like the TOML config and take effect immediately. They last for the session only, until you save them with `:config write`.
+
+### Saving changes: `:config write`
+
+`:config write` writes every key you changed with `:set` this session into your `trail.toml`.
+Only those keys change: every comment, blank line and other setting in the file stays exactly
+as it was, so the file remains your documentation. A key set twice is written once, with its
+last value, and each value is written with its proper type (`show_version = true`, not
+`"true"`).
+
+- With a config file loaded (`--config`, or the one remembered from an earlier run), that file
+  is the one written.
+- With none, Trail creates `trail.toml` in its config directory and remembers it, so the next
+  `trail` loads it.
+- A config file that is not valid TOML is left alone, and the error says why.
+- Once written, the changes are cleared: a second `:config write` with nothing new says so.
 
 ### Syntax
 ```

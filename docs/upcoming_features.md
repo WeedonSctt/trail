@@ -63,7 +63,7 @@ test itself).
 | 8 | One path on screen, not two | redundant path top and bottom | **done** |
 | 9 | Recycle bin instead of permanent delete | `dd` is irreversible | **done** — `[general] delete_mode` |
 | 10 | Globs for `:mv` and `:cp` | `:mv *.md` unsupported | **done** — patterns only; marking entries is still open, §5.3 |
-| 11 | `:set` persistence | `:set` is session-only | deferred — §5 |
+| 11 | `:set` persistence | `:set` is session-only | **in progress** — §5.1, `:config write`; built, not yet released |
 | 12 | Run a command without leaving the view | wanted a second window | **done** — a built-in terminal panel, shipped in v1.10.0; spec in [`terminal_panel.md`](terminal_panel.md); §5.2 |
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |

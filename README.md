@@ -357,6 +357,7 @@ Press `:` for operations that take arguments.
 | `:unmark` | Clear every mark |
 | `:git <subcommand>` | Run a git subcommand, e.g. `:git status --short` |
 | `:set <key> <value>` | Change a setting at runtime — see [Configuration](#configuration) |
+| `:config write` | Save this session's `:set` changes into `trail.toml`, comments intact |
 | `:bookmark [name]` / `:bm` | Bookmark the current directory (defaults to its base name) |
 | `:jump <name>` / `:j` | Jump to a saved bookmark |
 | `:plugin <name> [arg]` | Invoke an action registered by a Lua plugin |

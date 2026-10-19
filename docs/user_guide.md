@@ -266,7 +266,8 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   An unknown name is an error rather than a folder called `@docs`; to reach a real folder
   whose name starts with `@`, write `.\@folder`
 - `:git <subcommand>`: Run a git subcommand (e.g., `:git status --short`)
-- `:set <key> <value>`: Set a runtime configuration value
+- `:set <key> <value>`: Set a runtime configuration value, for this session
+- `:config write`: Save this session's `:set` changes into your `trail.toml`, keeping its comments
 - `:sort <key> [reverse]`: Re-order the active tab's listing. `<key>` is `name`, `size`,
   `modified` or `extension`; the two words may be given in either order, and `:sort reverse`
   on its own flips whichever order is already in use

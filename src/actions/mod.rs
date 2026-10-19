@@ -765,6 +765,46 @@ fn expand_destination(state: &mut AppState, kind: TransferKind, dest: &str) -> O
     }
 }
 
+/// Saves this session's `:set` changes into the config file (`:config write`).
+///
+/// Into the file this session loaded; with none, into `trail.toml` in the
+/// config directory, which is then remembered so the next start loads it —
+/// a written setting that the next start ignored would be worse than none.
+fn write_config(state: &mut AppState) {
+    use crate::config::persist;
+
+    if state.settings.changes().is_empty() {
+        state.notify("nothing to write — no :set changes this session");
+        return;
+    }
+    let config_dir = crate::paths::config_dir();
+    let Some(path) = persist::target_file(state.settings.file.as_deref(), config_dir.as_deref())
+    else {
+        state.set_error("config: no config file loaded, and no config directory to create one in");
+        return;
+    };
+    if let Err(e) = persist::write_settings(&path, state.settings.changes()) {
+        state.set_error(format!("config: {e}"));
+        return;
+    }
+
+    let count = state.settings.changes().len();
+    state.settings.clear();
+    let shown = crate::pathfmt::display(&path);
+    if state.settings.file.is_none() {
+        if let Some(state_file) = state.settings.remember_in.clone() {
+            if let Err(e) = crate::config::last_used::remember(&state_file, &path) {
+                state.set_error(format!(
+                    "config: wrote {shown}, but could not remember it for next time: {e}"
+                ));
+                return;
+            }
+        }
+        state.settings.file = Some(path);
+    }
+    state.notify(format!("wrote {count} setting(s) to {shown}"));
+}
+
 /// Unmarks everything, saying how many marks went. Silent when there were
 /// none, because `Esc` reaches here on every press in Navigation Mode.
 fn clear_marks(state: &mut AppState) {
@@ -1106,6 +1146,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
 
         ParsedCommand::Set { key, value } => match state.config.set_value(&key, &value) {
             Ok(()) => {
+                state.settings.record(&key, &value);
                 // `preview.*` keys feed process-wide graphics state rather than
                 // being read out of the config at render time, so it has to be
                 // rebuilt here. Cheap, and applies to the next preview.
@@ -1195,6 +1236,8 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
         },
 
         ParsedCommand::Term(command) => crate::terminal::run_command(state, command),
+
+        ParsedCommand::ConfigWrite => write_config(state),
 
         ParsedCommand::Unmark => {
             if state.marks.is_empty() {

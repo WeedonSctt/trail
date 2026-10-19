@@ -43,6 +43,9 @@ the commits said rather than what the users saw.
   `Shift`-arrows still scroll the preview.
 - **`@` repeats the last command.** It runs the newest `:` or `!` command again without
   opening the command line, on whatever is selected or marked now.
+- **`:config write`** saves the session's `:set` changes into your `trail.toml`, touching
+  only those keys and keeping every comment. With no config file loaded it creates one in
+  Trail's config directory and loads it from then on.
 - **`U` returns from a jump.** After `:jump`, however far you wander, `U` goes straight back
   to where you jumped from; `u` still steps back one directory at a time.
 - **Bookmarks as destinations.** `:mv @docs` moves into the directory bookmarked as `docs`,

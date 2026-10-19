@@ -10,7 +10,8 @@
 //!           | "!" shell_string
 //!
 //! verb    ::= "mkdir" | "touch" | "rename" | "mv" | "cp" | "git" | "set"
-//!           | "sort" | "bookmark" | "jump" | "unmark" | "plugin" | "term"
+//!           | "sort" | "bookmark" | "jump" | "unmark" | "config" | "plugin"
+//!           | "term"
 //! ```
 //!
 //! `:git` and `:set` are syntactically accepted and validated here; their
@@ -84,6 +85,9 @@ pub enum ParsedCommand {
     Term(crate::terminal::TermCommand),
     /// Unmark every marked entry: `:unmark`.
     Unmark,
+    /// Save this session's `:set` changes into the config file:
+    /// `:config write`.
+    ConfigWrite,
 }
 
 // ── Parse error ────────────────────────────────────────────────────────────────
@@ -92,7 +96,7 @@ pub enum ParsedCommand {
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// An unrecognised command verb was entered.
-    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :unmark, :plugin, :term")]
+    #[error("unknown command '{0}' — try :mkdir, :touch, :rename, :mv, :cp, :git, :set, :sort, :bookmark, :jump, :unmark, :config, :plugin, :term")]
     UnknownVerb(String),
     /// A required argument was not provided.
     #[error("{0} requires an argument")]
@@ -299,6 +303,16 @@ pub fn parse(buffer: &str, is_shell: bool) -> Result<ParsedCommand, ParseError> 
 
         "term" => parse_term(rest),
 
+        "config" => match rest {
+            "write" => Ok(ParsedCommand::ConfigWrite),
+            "" => Err(ParseError::MissingArgument(
+                "config needs a subcommand: write".to_owned(),
+            )),
+            other => Err(ParseError::InvalidArgument(format!(
+                "config: '{other}' is not a subcommand (write)"
+            ))),
+        },
+
         "unmark" => {
             if !rest.is_empty() {
                 return Err(ParseError::InvalidArgument(
@@ -422,7 +436,7 @@ pub fn completions_with_sources(
         let prefix = trimmed;
         let verbs = [
             "mkdir", "touch", "rename", "mv", "cp", "git", "set", "sort", "bookmark", "jump",
-            "unmark", "plugin", "term",
+            "unmark", "config", "plugin", "term",
         ];
         return verbs
             .iter()
@@ -1237,8 +1251,8 @@ mod tests {
         assert_eq!(
             got,
             vec![
-                "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
-                "term", "touch", "unmark",
+                "bookmark", "config", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename",
+                "set", "sort", "term", "touch", "unmark",
             ]
         );
     }

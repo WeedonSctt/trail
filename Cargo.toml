@@ -70,6 +70,10 @@ mlua = { version = "0.9", features = ["lua54", "vendored"] }  # bundles Lua, no 
 # --- Config ---
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+# Edits the user's trail.toml in place for `:config write`, keeping comments.
+# Already in the graph through `toml`; this pins the same version as a direct
+# dependency rather than adding a new one.
+toml_edit = "0.22.27"
 
 # --- CLI ---
 clap = { version = "4", features = ["derive"] }

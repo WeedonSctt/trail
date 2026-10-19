@@ -191,8 +191,8 @@ fn verb_completion_all_verbs_when_empty() {
     assert_eq!(
         got,
         vec![
-            "bookmark", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set", "sort",
-            "term", "touch", "unmark",
+            "bookmark", "config", "cp", "git", "jump", "mkdir", "mv", "plugin", "rename", "set",
+            "sort", "term", "touch", "unmark",
         ],
         "every verb should be offered for an empty prefix"
     );

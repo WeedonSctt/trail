@@ -4,6 +4,7 @@
 //! theme module. Strict-mode deserialization rejects unknown keys.
 
 pub mod last_used;
+pub mod persist;
 pub mod schema;
 pub mod terminal;
 
