@@ -33,6 +33,15 @@ maintainer and answered before this entry was written; §2.19 records the answer
 the plan, and the release gate it carries is stricter than the others' — a branch, a manual
 test by the maintainer, and performance budgets, before anything reaches `main`.
 
+**Fifth round (2026-10-13 and 2026-10-18, items 22–25).** Four feature requests, all
+about doing more with fewer keystrokes. The largest, item 22, is
+[§5.3](#53-marking-entries-for-bulk-operations) resurfacing with the decision it was
+waiting on: marks survive navigation, so you can select here and paste there. It also gains
+a Vim-style visual mode for selecting ranges. The maintainer accepted the recommended
+answers to §2.20's decisions; the `Shift`-arrow question is still open, because answering
+it one way makes the release MAJOR. Items 23–25 are smaller and independent, and two of
+them still have a question open.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -64,6 +73,10 @@ test itself).
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
 | 20 | `\` missing from a pasted path | AltGr characters dropped from the command line and search | **done** — v1.9.2, §2.18 |
 | 21 | External previewer tools per file type, toggled with `P` | PDFs show only metadata; Markdown only as source; no way to use `pdftotext`, `glow`, `chafa`, `ffprobe` | **planned** — §2.19 |
+| 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **planned** — §2.20; `Shift`-arrows still to decide |
+| 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **planned** — §2.21; key still to confirm |
+| 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **planned** — §2.22; prefix still to confirm |
+| 25 | `u` for jumps | `u` steps back through every directory, not only through jumps | **needs a decision** — §2.23 |
 
 ---
 
@@ -727,6 +740,158 @@ on purpose, and is reported as such at the end of every session that touches it.
 terminal — related to the open image-terminal question in §5.4; whether a console window
 still flashes on some Windows configuration only the maintainer's terminal shows.
 
+### 2.20 Marks, visual mode, and copy / move here
+
+> *"select an item and keep it selected while navigating … then navigate to another dir
+> and 'copy here' or 'move here'"* — and *"a visual mode as vim, which adds support for
+> SHIFT or other keybindings to select various items easily."*
+
+This is [§5.3](#53-marking-entries-for-bulk-operations), and it answers the question §5.3
+was waiting on: marks **survive navigation**, which is the whole point. Today
+`ParsedCommand::Mv` / `Cp` act on `state.selected_entry()` alone
+(`src/actions/mod.rs:819`), and the only way to act on several entries is a pattern, which
+cannot cross directories.
+
+#### The shape
+
+1. **Mark.** `Space` toggles a mark on the selected entry and moves down, so marking a run
+   is `Space Space Space`. Marked rows carry a marker in the listing.
+2. **Visual mode.** `v` sets an anchor at the cursor. `j`/`k`/`G`/`gg` (and the arrows) then
+   extend a highlighted range from the anchor, the way Vim's visual mode does. In it:
+   - `Space` or `v` adds the range to the marks and returns to Navigation Mode;
+   - `Esc` cancels and leaves the marks as they were;
+   - `h`/`l` add the range to the marks and then navigate, so "select, then go elsewhere"
+     takes no extra key;
+   - `dd` deletes the range, with one confirmation for the whole range.
+
+   It is a new `Mode::Visual { anchor }`, drawn like a selection that spans rows. The range is
+   over the **visible** entries, so it follows the current sort, the hidden-files setting and
+   any search filter.
+3. **Navigate anywhere** — `h`/`l`, `:jump`, `u`, another tab. The status bar shows
+   `3 marked` for as long as the mark set is non-empty, because the marked files are usually
+   out of sight.
+4. **Paste.** `pp` copies every marked entry into `cwd`; `pm` moves them there. `p` becomes
+   a prefix, the same way `s` did in v1.8.0. `P` stays free for §2.19's previewer toggle.
+5. **The other commands too.** While marks exist, `:mv <dest>`, `:cp <dest>` and `dd` act on
+   the mark set rather than the selection, so §2.22's `:mv @docs\next\` works on several
+   files at once.
+
+#### Decisions — answered 2026-10-18 (the recommendations were accepted)
+
+| Question | Answer |
+|---|---|
+| Marking key | `Space`, toggling and moving down |
+| Paste keys | `pp` copy here, `pm` move here |
+| Marks after pasting | cleared after a move (those paths no longer exist); kept after a copy, so the same set can be pasted twice |
+| Clearing by hand | `:unmark`; plus a key, to be chosen with the binding table |
+| Scope | one mark set shared by every tab, so you can mark in one tab and paste in another |
+| Name already taken at the destination | skip that entry and report it (`2 copied, 1 skipped: exists`); never overwrite, as `:mv` does today |
+| `dd` with marks | one confirmation for the set: `delete 4 marked? y/n` |
+| A marked file disappears before the paste | dropped from the set and counted in the report |
+| Across sessions | not persisted; marks end when Trail does |
+
+#### Still open: `Shift`-arrows
+
+The maintainer asked for `Shift` to select, as in a GUI file manager: `Shift-↓`/`Shift-↑`
+extending a range straight from Navigation Mode, entering visual mode implicitly. Those two
+chords are **already taken**: they are hard-coded aliases for preview scrolling
+(`src/input/keymap.rs:48`), documented in `default.toml` and the user guide. The two ways
+forward:
+
+- **Give them to selection.** `J`/`K` keep scrolling the preview, so nothing is lost but the
+  alias. This changes a default binding to something incompatible, and by `CLAUDE.md` §8
+  that makes the release **MAJOR** (v2.0.0). The notes would have to lead with it.
+- **Keep them for the preview, and select with `v` alone.** The release stays MINOR.
+  `Shift`-selection could be offered as opt-in configuration later.
+
+Whichever is chosen, whether a given terminal delivers `Shift`-arrows to Trail at all cannot
+be tested here.
+
+#### What it costs
+
+- **Copying blocks the UI thread today.** `fs_ops::cp` copies a whole directory tree
+  synchronously (`src/actions/fs_ops.rs:186`). For one file you picked, that is tolerable;
+  for "paste my 2 GB folder here" it freezes Trail for the duration, which breaks
+  invariant 1 (`CLAUDE.md` §4). Bulk paste has to run on the worker pool and report progress
+  and its result over `WorkerMsg`, with the listing refreshed when it lands. This is the
+  largest piece of the work, and the single-entry `:cp` should move onto it too.
+- **Moving across drives fails on Windows today.** `fs_ops::mv` is a bare `fs::rename`
+  (line 171), which cannot cross volumes — already noted in §2.10. "Move here" from `C:` to
+  `D:` is the common case, so it needs a copy-then-delete fallback, deleting the source only
+  once the copy succeeded.
+- **All of the mark state is new**: the set (paths, not indices — the §2.2 lesson), the
+  marker in the nav panel, the status bar count, and the visual-mode range drawing.
+- New bindings (`Space`, `v`, `pp`, `pm`, the clearing key) go through `keymap.rs`,
+  `docs/user_guide.md` and `README.md`. `space` is a named key, so it must be in
+  `NAMED_KEYS` (`CLAUDE.md` §9).
+
+#### Order of work
+
+The background copy and the cross-drive move first — they fix today's `:cp` and `:mv` on
+their own, and every later step depends on them. Then the mark set with `Space` and the
+status bar count; then `pp`/`pm`; then `:mv`/`:cp`/`dd` acting on marks; and visual mode
+last, since it is a way of filling a mark set that by then already works.
+
+#### Tests
+
+State tests for the mark set: toggling, surviving `enter_dir` and a tab switch, clearing
+after a move but not a copy, dropping a path that vanished. A visual-mode test that `G` from
+an anchor marks through the last visible entry, and that `Esc` changes nothing. `fs_ops`
+tests for a name collision being skipped, and for the copy-then-delete fallback (forced by
+injecting the rename failure, since a second volume is not available in CI). Render tests
+for the marker, the range highlight and the `3 marked` count.
+
+### 2.21 Repeat the last command
+
+> *"a key for repeating the last command immediately, whether '!' or trail command."*
+
+Every submitted command already lands in one history, prefix included
+(`state.command_history.push`, `src/actions/mod.rs:453`). A repeat key takes the newest
+entry and runs it through the same parse-and-execute path as `Enter`, without opening the
+command line.
+
+Because `:mv` / `:cp` act on the selection, this behaves like Vim's `.`: `:mv archive\`,
+`j`, repeat — the next file follows. With §2.20's marks, a repeated `:mv` acts on the marks.
+
+- **Key:** `@` is recommended — free, and Vim users know `@:` as "repeat last command".
+  `.` is taken by `toggle_hidden`. Not yet confirmed by the maintainer.
+- **Empty history:** the history is not persisted yet (`CommandHistory::with_path` is unused,
+  marked for Phase 7), so in a fresh session the key reports that there is nothing to repeat.
+
+Small: a new action, a binding, and the three binding documents.
+
+### 2.22 Bookmarks as `:mv` / `:cp` destinations
+
+> *"writing something like `:mv <bookmark>\next\route\`"*
+
+Every destination goes through one function, `resolve_dest` in `fs_ops.rs`, so one change
+covers `:mv`, `:cp` and their pattern forms. A bare name is ambiguous — `:mv docs\next\` may
+mean a bookmark or a local folder called `docs` — so the bookmark needs a marker:
+
+- `:mv @docs\next\route\` — `@name` at the start resolves through the bookmark store, and the
+  rest is joined onto it.
+- An unknown `@name` is an **error**, never a folder literally named `@docs`.
+- A real folder whose name starts with `@` is reached as `.\@folder`.
+- Tab completion offers bookmark names after `@`.
+
+The `@` prefix is recommended and not yet confirmed. It does not collide with §2.21's `@`
+key: one is typed on the command line, the other pressed in Navigation Mode.
+
+Small, and independent of §2.20 — though the two together are where it pays off.
+
+### 2.23 `u` for jumps
+
+> *"'u' key but for jumps?"*
+
+Part of this already works: `:jump` goes through `enter_dir`, which pushes the history
+(`src/app/state.rs:805`), so `u` straight after a jump returns to where you were. What `u`
+does not do is skip the steps in between — jump, then `l` three times, and getting back takes
+four `u`. A Vim-style jump list (`Ctrl-o` / `Ctrl-i`) would record only the long moves —
+`:jump`, a pasted path — and walk those alone.
+
+**Needs a decision:** whether today's `u` is what was meant (in which case this is done), or a
+separate jump list on two new keys.
+
 ---
 
 ## 3. Sequencing
@@ -777,6 +942,13 @@ The fourth round's §2.19 is MINOR: `[[preview.tool]]` defaults to an empty list
 as before, and `P` was unbound. The `can_handle` signature change is internal — the
 plugin API does not expose providers yet — so it does not count. Planned as v1.10.0.
 
+The fifth round is MINOR as long as `Shift`-arrows keep scrolling the preview: `Space`, `v`,
+`@` and the `p` prefix are all unbound today, and `:mv @name` gives a meaning to a spelling
+that resolved to nonexistent folders before. Two things belong in the notes even then: `p` is
+now a prefix, and `:mv`/`:cp`/`dd` act on the marks whenever any exist. Taking
+`Shift-↓`/`Shift-↑` for selection (§2.20) changes a default binding, which makes that release
+**MAJOR** — v2.0.0.
+
 ---
 
 ## 5. Deferred, and why
@@ -821,6 +993,9 @@ The second is the realistic one, and it needs a decision about a new pane or mod
 it can be built. §2.7's pause covers the immediate need for interactive commands.
 
 ### 5.3 Marking entries for bulk operations
+
+> **Promoted 2026-10-18** to planned work as [§2.20](#220-marks-visual-mode-and-copy--move-here),
+> which answers the questions below. The text is the original triage.
 
 `:mv *.md notes` now covers the common case, but the general feature is a mark set:
 `Space` to mark, marks shown in the listing, and `:mv`/`:cp`/`dd` acting on them. That
