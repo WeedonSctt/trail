@@ -43,6 +43,10 @@ the commits said rather than what the users saw.
   `Shift`-arrows still scroll the preview.
 - **`@` repeats the last command.** It runs the newest `:` or `!` command again without
   opening the command line, on whatever is selected or marked now.
+- **Bookmarks as destinations.** `:mv @docs` moves into the directory bookmarked as `docs`,
+  and `:cp @docs\next\` into a route under it; `Tab` after `@` completes bookmark names and
+  then the folders inside. An unknown name is an error. A real folder whose name starts
+  with `@` is now written `.\@folder`.
 - `p` is now a prefix (for `pp` and `pm`). If you had bound a longer key starting with `p`
   in `[keymap.navigation]`, check that it still does what you expect.
 

@@ -257,6 +257,11 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   Trail you mean several files, so a destination containing a space still works as before.
   The destination has to be an existing directory, hidden entries are skipped unless the
   pattern itself starts with a dot, and the status bar reports how many were moved
+- `@name` in a `:mv` or `:cp` destination is a bookmark: `:mv @docs` moves the selection into
+  the directory bookmarked as `docs`, and `:mv @docs\next\route\` into a route under it.
+  `Tab` after `@` offers your bookmark names, and then the folders inside the one you picked.
+  An unknown name is an error rather than a folder called `@docs`; to reach a real folder
+  whose name starts with `@`, write `.\@folder`
 - `:git <subcommand>`: Run a git subcommand (e.g., `:git status --short`)
 - `:set <key> <value>`: Set a runtime configuration value
 - `:sort <key> [reverse]`: Re-order the active tab's listing. `<key>` is `name`, `size`,

@@ -8,7 +8,7 @@ pub mod fs_ops;
 pub mod shell_exec;
 pub mod transfer;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::mode::Mode;
 use crate::app::state::{AppState, StateError};
@@ -367,7 +367,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         // ── Command Mode ─────────────────────────────────────────────────────
         Action::CommandKey(key) => {
-            use crate::input::command_parser::{feed_with_plugins, FeedResult};
+            use crate::input::command_parser::{feed_with_sources, CompletionSources, FeedResult};
 
             // Extract buffer/cursor/history_index from the mode.
             let (buffer, cursor, history_index, is_shell) = if let Mode::Command {
@@ -401,6 +401,16 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 .map(|e| e.action_names().map(|s| s.to_string()).collect())
                 .unwrap_or_default();
             let plugin_action_refs: Vec<&str> = plugin_actions.iter().map(|s| s.as_str()).collect();
+            let bookmarks: Vec<(String, PathBuf)> = state
+                .bookmark_store
+                .as_ref()
+                .map(|store| {
+                    store
+                        .list()
+                        .map(|(name, path)| (name.to_owned(), path.to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default();
 
             let result = {
                 // Temporarily move command_history and tab_state out of state.
@@ -408,7 +418,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 let hist = std::mem::take(&mut state.command_history);
                 let mut tab = std::mem::take(&mut state.tab_state);
 
-                let res = feed_with_plugins(
+                let res = feed_with_sources(
                     key,
                     &mut buf_owned,
                     &mut cur_owned,
@@ -417,7 +427,10 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     &hist,
                     &cwd,
                     is_shell,
-                    &plugin_action_refs,
+                    &CompletionSources {
+                        plugin_actions: &plugin_action_refs,
+                        bookmarks: &bookmarks,
+                    },
                 );
 
                 state.command_history = hist;
@@ -702,6 +715,39 @@ fn run_command_line(state: &mut AppState, line: &str) -> Result<(), StateError> 
     }
 }
 
+/// Expands an `@name` destination through the bookmark store, or returns
+/// `dest` unchanged when it does not start with `@`.
+///
+/// `@docs` is the bookmark's directory and `@docs\next\route` a route under it.
+/// An unknown name is an error, reported here — never a folder literally named
+/// `@docs`, which is reached as `.\@docs` instead. Returns `None` after
+/// reporting.
+fn expand_destination(state: &mut AppState, kind: TransferKind, dest: &str) -> Option<PathBuf> {
+    let Some(after_at) = dest.strip_prefix('@') else {
+        return Some(PathBuf::from(dest));
+    };
+    let (name, route) = match after_at.find(std::path::is_separator) {
+        Some(split) => (&after_at[..split], &after_at[split + 1..]),
+        None => (after_at, ""),
+    };
+    let base = state
+        .bookmark_store
+        .as_ref()
+        .and_then(|store| store.get(name))
+        .map(Path::to_path_buf);
+    match base {
+        Some(base) if route.is_empty() => Some(base),
+        Some(base) => Some(base.join(route)),
+        None => {
+            state.set_error(format!(
+                "{}: no bookmark named '{name}' — :bookmark {name} makes one",
+                transfer_verb(kind)
+            ));
+            None
+        }
+    }
+}
+
 /// Unmarks everything, saying how many marks went. Silent when there were
 /// none, because `Esc` reaches here on every press in Navigation Mode.
 fn clear_marks(state: &mut AppState) {
@@ -798,14 +844,17 @@ fn transfer_verb(kind: TransferKind) -> &'static str {
 /// Only the destination is resolved here; the copy or move itself runs in the
 /// background (see [`transfer`]) and reports when it is done.
 fn transfer_selection(state: &mut AppState, kind: TransferKind, dest: &str) {
+    let Some(dest) = expand_destination(state, kind, dest) else {
+        return;
+    };
     if !state.marks.is_empty() {
-        transfer_marks(state, kind, dest);
+        transfer_marks(state, kind, &dest);
         return;
     }
     let Some(entry) = state.selected_entry().cloned() else {
         return;
     };
-    let target = fs_ops::resolve_target(&entry.path, dest, &state.cwd);
+    let target = fs_ops::resolve_target(&entry.path, &dest, &state.cwd);
     transfer::start(
         state,
         kind,
@@ -822,12 +871,13 @@ fn transfer_selection(state: &mut AppState, kind: TransferKind, dest: &str) {
 /// One mark behaves exactly like the selection would: `dest` may be a new
 /// name. Several need `dest` to be an existing directory, for the same reason
 /// a pattern does — several entries cannot all become one path.
-fn transfer_marks(state: &mut AppState, kind: TransferKind, dest: &str) {
+fn transfer_marks(state: &mut AppState, kind: TransferKind, dest: &Path) {
     let verb = transfer_verb(kind);
     let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
     if marked.len() > 1 && !fs_ops::resolve_dest(dest, &state.cwd).is_dir() {
         state.set_error(format!(
-            "{verb}: '{dest}' is not a directory, and {} entries are marked",
+            "{verb}: '{}' is not a directory, and {} entries are marked",
+            crate::pathfmt::display(dest),
             marked.len()
         ));
         return;
@@ -853,6 +903,9 @@ fn transfer_marks(state: &mut AppState, kind: TransferKind, dest: &str) {
 fn transfer_matches(state: &mut AppState, kind: TransferKind, pattern: &str, dest: &str) {
     let verb = transfer_verb(kind);
     let cwd = state.cwd.clone();
+    let Some(dest_expanded) = expand_destination(state, kind, dest) else {
+        return;
+    };
 
     let matches = match fs_ops::matching_entries(&cwd, pattern) {
         Ok(matches) => matches,
@@ -866,7 +919,7 @@ fn transfer_matches(state: &mut AppState, kind: TransferKind, pattern: &str, des
         return;
     }
 
-    let dest_path = fs_ops::resolve_dest(dest, &cwd);
+    let dest_path = fs_ops::resolve_dest(&dest_expanded, &cwd);
     if !dest_path.is_dir() {
         state.set_error(format!(
             "{verb}: '{dest}' is not a directory, and '{pattern}' matches {} entries",

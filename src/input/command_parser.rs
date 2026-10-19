@@ -390,15 +390,26 @@ fn split_pattern_and_dest(verb: &str, rest: &str) -> Result<Option<(String, Stri
 /// completion applies — the shell handles its own completion).
 #[allow(dead_code)]
 pub fn completions(buffer: &str, cwd: &Path, is_shell: bool) -> Vec<String> {
-    completions_with_plugins(buffer, cwd, is_shell, &[])
+    completions_with_sources(buffer, cwd, is_shell, &CompletionSources::default())
 }
 
-/// Same as [`completions`], but accepts registered plugin action names for `:plugin` completion.
-pub fn completions_with_plugins(
+/// What completion can offer beyond verbs and the filesystem: names that live
+/// in Trail's own state rather than on disk.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CompletionSources<'a> {
+    /// Registered plugin action names, for `:plugin`.
+    pub plugin_actions: &'a [&'a str],
+    /// Bookmarks as `(name, path)`, for an `@name` destination of `:mv`/`:cp`.
+    pub bookmarks: &'a [(String, PathBuf)],
+}
+
+/// Same as [`completions`], but with plugin action names and bookmarks to
+/// offer as well.
+pub fn completions_with_sources(
     buffer: &str,
     cwd: &Path,
     is_shell: bool,
-    plugin_actions: &[&str],
+    sources: &CompletionSources<'_>,
 ) -> Vec<String> {
     if is_shell {
         return Vec::new(); // shell completion not handled here
@@ -427,7 +438,8 @@ pub fn completions_with_plugins(
     };
 
     if verb == "plugin" {
-        let mut candidates: Vec<String> = plugin_actions
+        let mut candidates: Vec<String> = sources
+            .plugin_actions
             .iter()
             .filter(|a| partial.is_empty() || a.starts_with(partial))
             .map(|a| a.to_string())
@@ -440,8 +452,53 @@ pub fn completions_with_plugins(
         return Vec::new();
     }
 
+    if let Some(after_at) = partial.strip_prefix('@') {
+        return bookmark_completions(after_at, sources.bookmarks);
+    }
+
     // Complete `partial` against entries in cwd.
     path_completions(partial, cwd)
+}
+
+/// Completes an `@name` destination: the bookmark names first, then — once a
+/// separator follows the name — the route inside the bookmarked directory.
+///
+/// `after_at` is what follows the `@`. Candidates are whole tokens, `@` and
+/// all, because [`apply_completion`] replaces the whole token.
+fn bookmark_completions(after_at: &str, bookmarks: &[(String, PathBuf)]) -> Vec<String> {
+    match after_at.find(std::path::is_separator) {
+        None => {
+            let mut names: Vec<String> = bookmarks
+                .iter()
+                .filter(|(name, _)| name.starts_with(after_at))
+                .map(|(name, _)| format!("@{name}{}", std::path::MAIN_SEPARATOR))
+                .collect();
+            names.sort();
+            names
+        }
+        Some(split) => {
+            let (name, route) = after_at.split_at(split);
+            let Some((_, base)) = bookmarks.iter().find(|(n, _)| n == name) else {
+                return Vec::new();
+            };
+            // `route` still starts with its separator, which is what the
+            // bookmark name is joined back on with.
+            let (sep, inner) = route.split_at(1);
+            // With no route of its own, `path_completions` ends a directory
+            // with the platform separator; the one typed after the name is
+            // the one to keep, as it is everywhere else.
+            let respell = !inner.contains(std::path::is_separator);
+            path_completions(inner, base)
+                .into_iter()
+                .map(
+                    |candidate| match candidate.strip_suffix(std::path::MAIN_SEPARATOR) {
+                        Some(dir) if respell => format!("@{name}{sep}{dir}{sep}"),
+                        _ => format!("@{name}{sep}{candidate}"),
+                    },
+                )
+                .collect()
+        }
+    }
 }
 
 /// Returns filesystem-based completion candidates matching `partial`.
@@ -677,7 +734,7 @@ pub fn feed(
     cwd: &Path,
     is_shell: bool,
 ) -> FeedResult {
-    feed_with_plugins(
+    feed_with_sources(
         key,
         buffer,
         cursor,
@@ -686,13 +743,14 @@ pub fn feed(
         history,
         cwd,
         is_shell,
-        &[],
+        &CompletionSources::default(),
     )
 }
 
-/// Same as [`feed`], but also accepts registered plugin action names for tab completion.
+/// Same as [`feed`], but completion also offers plugin action names and
+/// bookmarks.
 #[allow(clippy::too_many_arguments)]
-pub fn feed_with_plugins(
+pub fn feed_with_sources(
     key: crossterm::event::KeyEvent,
     buffer: &mut String,
     cursor: &mut usize,
@@ -701,7 +759,7 @@ pub fn feed_with_plugins(
     history: &CommandHistory,
     cwd: &Path,
     is_shell: bool,
-    plugin_actions: &[&str],
+    sources: &CompletionSources<'_>,
 ) -> FeedResult {
     use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -815,7 +873,7 @@ pub fn feed_with_plugins(
             // candidate, and completing a completion is how the cycle used to
             // get stuck on its first answer.
             let prefix = tab_state.cycle_prefix(buffer);
-            let candidates = completions_with_plugins(&prefix, cwd, is_shell, plugin_actions);
+            let candidates = completions_with_sources(&prefix, cwd, is_shell, sources);
             if candidates.is_empty() {
                 return FeedResult::Updated;
             }
@@ -1188,8 +1246,15 @@ mod tests {
     #[test]
     fn plugin_action_completion() {
         let dir = tempfile::tempdir().unwrap();
-        let candidates =
-            completions_with_plugins("plugin ", dir.path(), false, &["log_note", "bookmark_add"]);
+        let candidates = completions_with_sources(
+            "plugin ",
+            dir.path(),
+            false,
+            &CompletionSources {
+                plugin_actions: &["log_note", "bookmark_add"],
+                bookmarks: &[],
+            },
+        );
         assert_eq!(candidates, vec!["bookmark_add", "log_note"]);
     }
 

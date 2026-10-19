@@ -150,7 +150,7 @@ pub fn rename(source: &Path, new_name: &str) -> Result<PathBuf, FsError> {
 /// means "into it, under the same name"; anything else is the new path itself.
 /// Only stats the destination, so it is cheap enough for the UI thread — the
 /// copy or move itself is not.
-pub fn resolve_target(source: &Path, dest_str: &str, cwd: &Path) -> PathBuf {
+pub fn resolve_target(source: &Path, dest_str: impl AsRef<Path>, cwd: &Path) -> PathBuf {
     let raw_dest = resolve_dest(dest_str, cwd);
     if raw_dest.is_dir() {
         raw_dest.join(source.file_name().unwrap_or_default())
@@ -434,8 +434,8 @@ fn validate_simple_name(name: &str) -> Result<(), FsError> {
 
 /// Resolves a destination string to an absolute path, treating relative paths
 /// as relative to `cwd`. Does not touch the filesystem.
-pub fn resolve_dest(dest_str: &str, cwd: &Path) -> PathBuf {
-    let p = PathBuf::from(dest_str);
+pub fn resolve_dest(dest_str: impl AsRef<Path>, cwd: &Path) -> PathBuf {
+    let p = dest_str.as_ref().to_path_buf();
     if p.is_absolute() {
         p
     } else {
