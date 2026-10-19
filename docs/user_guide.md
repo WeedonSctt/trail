@@ -66,6 +66,9 @@ Navigation Mode is the primary interface for browsing directories. It uses Vim-l
 - `G`: Jump to bottom of the list
 - `u`: Go back in navigation history
 - `Ctrl-r`: Go forward in navigation history
+- `U`: Return from a jump. After `:jump` takes you to a bookmark, wander as far as you like;
+  `U` goes straight back to where you jumped from, where `u` would step back one directory
+  at a time. Press it again to return from the jump before that. Each tab keeps its own jumps
 
 ### Tabs
 Trail supports multiple tabs for multitasking.

@@ -3,6 +3,10 @@
 //! Tracks visited directories so `u` / `Ctrl-r` can navigate history.
 //! Each `push` saves the current directory onto the back stack and clears
 //! the forward stack (standard browser-style history model).
+//!
+//! Alongside it, a separate **jump list** for `U`: only the directories left by
+//! a jump (`:jump` to a bookmark) are recorded there, so `U` returns from the
+//! jump however far the user wandered from where it landed.
 
 use std::path::PathBuf;
 
@@ -18,6 +22,8 @@ const MAX_HISTORY: usize = 256;
 pub struct NavigationHistory {
     back: Vec<PathBuf>,
     forward: Vec<PathBuf>,
+    /// Directories a jump was made *from*, newest last.
+    jumps: Vec<PathBuf>,
 }
 
 impl NavigationHistory {
@@ -63,6 +69,22 @@ impl NavigationHistory {
         }
         self.back.push(current_cwd);
         Some(next)
+    }
+
+    /// Records that a jump is leaving `from`, for `U` to return to.
+    ///
+    /// Bounded like the back stack, dropping the oldest jump first.
+    pub fn push_jump(&mut self, from: PathBuf) {
+        if self.jumps.len() == MAX_HISTORY {
+            self.jumps.remove(0);
+        }
+        self.jumps.push(from);
+    }
+
+    /// Takes the directory the newest jump left, or `None` when no jump has
+    /// been made.
+    pub fn pop_jump(&mut self) -> Option<PathBuf> {
+        self.jumps.pop()
     }
 
     /// Returns `true` if there is at least one entry to go back to.
@@ -115,6 +137,17 @@ mod tests {
         // Going back from /b gives /a; then push a new dir should clear forward.
         h.push(p("/c"));
         assert!(!h.can_go_forward());
+    }
+
+    #[test]
+    fn jumps_are_kept_apart_from_ordinary_history() {
+        let mut h = NavigationHistory::new();
+        h.push_jump(p("/start"));
+        // Wandering after the jump fills the back stack, not the jump list.
+        h.push(p("/landed"));
+        h.push(p("/deeper"));
+        assert_eq!(h.pop_jump(), Some(p("/start")));
+        assert_eq!(h.pop_jump(), None);
     }
 
     #[test]

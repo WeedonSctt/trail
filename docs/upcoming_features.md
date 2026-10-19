@@ -77,7 +77,7 @@ test itself).
 | 22 | Marks that survive navigation, a visual mode, and copy / move here | no way to pick files in one place and paste them in another; `:mv`/`:cp` act on one entry or a pattern | **in progress** — §2.20; built, not yet released |
 | 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **in progress** — §2.21, `@`; built, not yet released |
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **in progress** — §2.22, `@name`; built, not yet released |
-| 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **planned** — §2.23 |
+| 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **in progress** — §2.23, `U`; built, not yet released |
 
 ---
 

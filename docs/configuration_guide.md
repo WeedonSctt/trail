@@ -310,6 +310,7 @@ Overrides keybindings for Navigation Mode.
 - `go_parent`: Navigate to parent directory
 - `history_back`: Go backward in navigation history
 - `history_forward`: Go forward in navigation history
+- `return_from_jump`: Return to where the last `:jump` was made from (default `U`)
 - `refresh`: Manually refresh directory
 - `toggle_hidden`: Toggle visibility of hidden files
 - `copy_absolute_path`: Copy absolute path of selection

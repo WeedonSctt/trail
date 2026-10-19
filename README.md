@@ -230,6 +230,7 @@ The default mode. Vim-style bindings, with arrow keys and standard keys as fallb
 | `G` | Jump to bottom |
 | `u` | Back in navigation history |
 | `Ctrl-r` | Forward in navigation history |
+| `U` | Return from the last `:jump`, skipping every directory visited since |
 | `R` | Refresh the current directory |
 | `.` | Toggle hidden files |
 | `m` | Cycle the details column: none → size → modified → both |

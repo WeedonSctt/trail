@@ -176,6 +176,10 @@ enter_or_open = "l"
 go_parent = "h"
 history_back = "u"
 history_forward = "ctrl-r"
+# Return from a jump: back to where the last :jump was made from, however far
+# you wandered after it landed.  u steps back one directory at a time; U skips
+# everything since the jump.
+return_from_jump = "U"
 refresh = "R"
 toggle_hidden = "."
 # Listing order, per tab.  `s` is a prefix rather than a binding of its own, so

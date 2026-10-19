@@ -1354,11 +1354,40 @@ impl AppState {
         };
         match target {
             Some(path) => {
+                // Recorded for `U`, unless the jump goes nowhere: returning
+                // from a jump to the directory you were already in would be a
+                // `U` that does nothing.
+                if crate::pathfmt::simplified(&path) != self.cwd {
+                    self.history.push_jump(self.cwd.clone());
+                }
                 self.enter_dir(path)?;
                 Ok(true)
             }
             None => Ok(false),
         }
+    }
+
+    /// Returns to the directory the newest jump left (`U`).
+    ///
+    /// Walks past jumps whose directory has since disappeared, and returns
+    /// how many it skipped, so the caller can say so. `Ok(None)` means there
+    /// was no jump to return from. The return itself is an ordinary visit — `u`
+    /// comes back from it — but not a jump, so `U` again goes further back
+    /// rather than bouncing between two places.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError`] if the directory exists but cannot be listed.
+    pub fn return_from_jump(&mut self) -> Result<Option<usize>, StateError> {
+        let mut skipped = 0;
+        while let Some(dir) = self.history.pop_jump() {
+            if dir.is_dir() {
+                self.enter_dir(dir)?;
+                return Ok(Some(skipped));
+            }
+            skipped += 1;
+        }
+        Ok(if skipped > 0 { Some(skipped) } else { None })
     }
 }
 

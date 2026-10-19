@@ -721,6 +721,7 @@ const NAV_ACTIONS: &[&str] = &[
     "go_parent",
     "history_back",
     "history_forward",
+    "return_from_jump",
     "refresh",
     "toggle_hidden",
     "sort_name",

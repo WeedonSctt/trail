@@ -99,9 +99,11 @@ pub fn visual(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Act
         | Action::PreviewScrollTop
         | Action::PreviewScrollBottom => Some(action),
         Action::ToggleMark | Action::EnterVisual => Some(Action::CommitVisual(None)),
-        Action::GoParent | Action::EnterOrOpen | Action::HistoryBack | Action::HistoryForward => {
-            Some(Action::CommitVisual(Some(Box::new(action))))
-        }
+        Action::GoParent
+        | Action::EnterOrOpen
+        | Action::HistoryBack
+        | Action::HistoryForward
+        | Action::ReturnFromJump => Some(Action::CommitVisual(Some(Box::new(action)))),
         Action::ClearMarks => Some(Action::ExitMode),
         _ => None,
     }
@@ -252,6 +254,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "go_parent" => Some(Action::GoParent),
         "history_back" => Some(Action::HistoryBack),
         "history_forward" => Some(Action::HistoryForward),
+        "return_from_jump" => Some(Action::ReturnFromJump),
         "refresh" => Some(Action::Refresh),
         "toggle_hidden" => Some(Action::ToggleHidden),
         // Listing order. `s` is never bound on its own: `configured_nav_prefix`

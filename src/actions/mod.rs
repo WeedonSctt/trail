@@ -42,6 +42,9 @@ pub enum Action {
     HistoryBack,
     /// Navigate forward in the directory history (`Ctrl-r`).
     HistoryForward,
+    /// Return to where the newest jump (`:jump`) was made from (`U`),
+    /// skipping the directories visited since.
+    ReturnFromJump,
     /// Reload the current directory listing.
     Refresh,
     /// Toggle visibility of hidden files.
@@ -244,6 +247,20 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
 
         Action::HistoryForward => {
             state.history_forward()?;
+        }
+
+        Action::ReturnFromJump => {
+            let before = state.cwd.clone();
+            match state.return_from_jump()? {
+                None => state.notify("no jump to return from — :jump makes one"),
+                Some(0) => {}
+                Some(skipped) if state.cwd == before => state.notify(format!(
+                    "no jump to return from — {skipped} led to directories that are gone"
+                )),
+                Some(skipped) => state.notify(format!(
+                    "skipped {skipped} jump(s) to directories that are gone"
+                )),
+            }
         }
 
         Action::Refresh => {
