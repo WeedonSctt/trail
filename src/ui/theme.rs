@@ -45,10 +45,11 @@ pub fn resolve(theme: &ThemeConfig) -> ThemeStyles {
     ThemeStyles {
         normal: Style::default().fg(foreground).bg(background),
         border: Style::default().fg(parse_color(&theme.border)),
-        selection: Style::default()
-            .fg(selection_fg)
-            .bg(selection_bg)
-            .add_modifier(Modifier::BOLD),
+        // Not bold: WezTerm, Windows Terminal and xterm draw bold in the bright
+        // variant of a named colour, which turns the default `black` text into
+        // bright black — the very colour `dark_gray` is — and the selected name
+        // vanishes into its own highlight.
+        selection: Style::default().fg(selection_fg).bg(selection_bg),
         directory: Style::default()
             .fg(parse_color(&theme.directory))
             .add_modifier(Modifier::BOLD),
@@ -110,5 +111,12 @@ mod tests {
     fn parses_named_and_hex_colors() {
         assert_eq!(parse_color("dark_gray"), Color::DarkGray);
         assert_eq!(parse_color("#112233"), Color::Rgb(17, 34, 51));
+    }
+
+    #[test]
+    fn selection_is_not_bold_so_its_text_is_not_brightened_into_its_background() {
+        let config = crate::config::load(None).unwrap();
+        let styles = resolve(&config.theme);
+        assert!(!styles.selection.add_modifier.contains(Modifier::BOLD));
     }
 }
