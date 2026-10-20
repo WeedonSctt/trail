@@ -12,11 +12,7 @@
 
 </div>
 
-<!-- SCREENSHOT SLOT
-     Drop a screenshot or demo GIF at docs/assets/demo.gif, then replace this
-     comment with:
-     <p align="center"><img src="docs/assets/demo.gif" alt="Trail in action" width="800"></p>
--->
+<p align="center"><img src="docs/assets/demo.gif" alt="Trail browsing a project: previews follow the selection, a search jumps into a directory, a command runs in place, and quitting leaves the shell in that directory" width="800"></p>
 
 Trail is a keyboard-driven file manager for the terminal. It gives you a directory listing,
 a live preview of whatever is selected, and a command line for filesystem work — then leaves
@@ -26,18 +22,22 @@ It is not a fuzzy finder and not a file picker. Trail is built around one princi
 
 > **Navigation is the primary task. Every other feature exists to support it without interrupting the flow.**
 
-```
-┌─ ~/proj/trail ───────────────┬─ Cargo.toml ────────────────────────────────┐
-│ docs/                        │   1  [package]                              │
-│ src/                       M │   2  name = "trail"                         │
-│ tests/                       │   3  version = "1.0.1"                      │
-│ Cargo.toml                 M │   4  edition = "2021"                       │
-│ LICENSE                      │   5                                         │
-│ README.md                  ? │   6  [dependencies]                         │
-│                              │   7  ratatui = "0.28"                       │
-└──────────────────────────────┴─────────────────────────────────────────────┘
- NAV  ~/proj/trail                                       6 entries    main
-```
+### Why Trail?
+
+There are good terminal file managers already. Trail is for you if these matter:
+
+- **It replaces `cd` and `ls`, not your shell.** Quit with `q` and your shell is in the
+  directory you were looking at. `Ctrl-c` and it stays where it was. Wrappers ship for Bash,
+  Zsh, Fish and PowerShell in every package.
+- **Windows is a first-class platform, not a port.** Native `x86_64-pc-windows-msvc` builds,
+  PowerShell integration, the recycle bin for deletes, and keys that work on layouts where
+  `@` and `\` need AltGr.
+- **It never stutters.** Git status, syntax highlighting, image decoding and filesystem
+  watching all run off the UI thread, so holding `j` through a large repository stays smooth.
+- **A real shell is one key away.** The built-in terminal panel runs interactive shells under
+  the file list, so you can browse and run commands side by side without leaving.
+- **Strict, predictable config.** One TOML file, validated on load: a typo is an error you see,
+  not a setting that silently does nothing.
 
 **Contents** — [Features](#features) · [Installation](#installation) · [Shell integration](#shell-integration) ·
 [Usage](#usage) · [Configuration](#configuration) · [Plugins](#plugins) · [Documentation](#documentation) ·
@@ -336,7 +336,7 @@ Press `/` and type to fuzzy-filter the current directory. Results reorder by mat
 |---|---|
 | *any character* | Typed into the query - every letter is text here, including `j` and `k` |
 | `↓` / `Ctrl-n`, `↑` / `Ctrl-p` | Move through results |
-| `Enter` / `→` | Confirm and return to Navigation mode with the match selected |
+| `Enter` / `→` | Open the match — enter a directory, or open a file in your editor |
 | `Esc` | Cancel and restore the full listing |
 | `Backspace` / `Ctrl-h` | Delete the last character |
 
