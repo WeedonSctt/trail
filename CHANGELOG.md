@@ -31,6 +31,11 @@ the commits said rather than what the users saw.
 
 ### Fixed
 
+- **The selected entry is readable with the default theme.** The selected row was drawn bold,
+  and WezTerm, Windows Terminal and xterm draw bold `black` as bright black — the same
+  colour as the `dark_gray` highlight behind it — so the selected name disappeared. The
+  selection is no longer bold. Themes set in hex colours were never affected.
+
 - **The preview keeps up with a search.** Typing a search query showed the preview of
   whatever was first in the list when the search began, not of the match actually
   highlighted, until the selection was moved by hand. It now follows the top match as
