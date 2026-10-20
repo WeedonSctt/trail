@@ -254,7 +254,7 @@ Movement therefore uses keys that are not text:
 
 - `↓` / `Ctrl-n`: Move selection down through search results
 - `↑` / `Ctrl-p`: Move selection up through search results
-- `Enter` or `→`: Confirm search and return to Navigation Mode with the item selected
+- `Enter` or `→`: Open the match — enter it if it is a directory, or open a file in your editor — and return to Navigation Mode
 - `Esc`: Cancel search and exit Search Mode
 - `Backspace` / `Ctrl-h`: Delete the last character of the search query
 

@@ -586,6 +586,9 @@ fn handle_key_event(
     cancelled: &mut bool,
 ) {
     let old_selected = state.selected;
+    // The index alone misses a change of entry: while searching, every keystroke
+    // re-filters and selects match 0, which is a different entry from before.
+    let old_selected_path = state.selected_entry().map(|e| e.path.clone());
     let old_cwd = state.cwd.clone();
 
     // A notice lasts until the user does the next thing. Dismissing it here —
@@ -644,7 +647,12 @@ fn handle_key_event(
 
         // Refresh preview whenever the selection or directory changed, or the
         // action explicitly requires it (Refresh, ToggleHidden).
-        if state.selected != old_selected || state.cwd != old_cwd || forces_preview_refresh {
+        let selected_path = state.selected_entry().map(|e| &e.path);
+        if state.selected != old_selected
+            || selected_path != old_selected_path.as_ref()
+            || state.cwd != old_cwd
+            || forces_preview_refresh
+        {
             refresh_preview(state, registry, worker_tx);
         }
     } else if key.kind == crossterm::event::KeyEventKind::Press && state.pending_nav_key.is_some() {

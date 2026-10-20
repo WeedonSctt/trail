@@ -29,6 +29,15 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The preview keeps up with a search.** Typing a search query showed the preview of
+  whatever was first in the list when the search began, not of the match actually
+  highlighted, until the selection was moved by hand. It now follows the top match as
+  you type.
+- The README and user guide said `Enter` in Search mode only selects the match. It opens
+  it — entering a directory, or opening a file in your editor — and the docs now say so.
+
 ## [1.11.0] - 2026-10-19
 
 ### Added
