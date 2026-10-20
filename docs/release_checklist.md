@@ -104,10 +104,11 @@ documented uninstall command into a 404.
 - [ ] `scoop update && scoop install trail` installs successfully on Windows
 
 ### cargo install
-- [ ] Version published to crates.io (if applicable):
+- [ ] Version published to crates.io as `trail-fm` (the name `trail` there is an unrelated
+  crate), from the tagged commit with a clean tree:
   `cargo publish --dry-run` then `cargo publish`
-- [ ] `cargo install trail` produces a working binary:
-  `cargo install trail --root /tmp/test && /tmp/test/bin/trail --version`
+- [ ] `cargo install trail-fm` produces a working binary that reports the bare version:
+  `cargo install trail-fm --root /tmp/test && /tmp/test/bin/trail --version`
 
 ---
 

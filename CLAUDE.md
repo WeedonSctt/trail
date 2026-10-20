@@ -332,9 +332,12 @@ branch bought nothing and cost the trunk. Do not recreate it.
    uninstallers. Verify a digest against `checksums.txt` rather than trusting the job.
 6. Set the title to `Trail vX.Y.Z` and write real release notes — `generate_release_notes`
    produces a commit list, which is not what an upgrading user needs. Publish.
-7. Fill the real digests from `checksums.txt` into the four manifests and commit as
+7. `cargo publish` from the tagged commit, with a clean tree — the crate is `trail-fm`, since
+   `trail` on crates.io belongs to an unrelated library. A published version can be yanked
+   but never replaced, so this comes after the draft has been reviewed, not before.
+8. Fill the real digests from `checksums.txt` into the four manifests and commit as
    `[~] release> fill vX.Y.Z sha256 digests into package manifests`.
-8. Push the manifests to their tap / AUR / bucket repositories.
+9. Push the manifests to their tap / AUR / bucket repositories.
 
 ### After a release is published — mandatory, every time
 

@@ -1,5 +1,8 @@
 [package]
-name = "trail"
+# Published to crates.io as `trail-fm`: the name `trail` there belongs to an
+# unrelated library. The binary and the library are still `trail` (see [lib]
+# and [[bin]] below), so `cargo install trail-fm` installs a `trail` command.
+name = "trail-fm"
 version = "1.11.0"
 edition = "2021"
 # Minimum Supported Rust Version.  Verified against the stable toolchain used
@@ -17,8 +20,14 @@ exclude = [
     "pkg/",
     "install.sh",
     "install.ps1",
+    "uninstall.sh",
+    "uninstall.ps1",
+    "Cross.toml",
     ".github/",
+    ".agents/",
     "docs/",
+    "screenshots/",
+    "CLAUDE.md",
 ]
 
 # Integration tests in tests/ import from the library crate (trail::).

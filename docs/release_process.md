@@ -190,7 +190,7 @@ If a critical bug is found immediately after publishing:
 
 1. **Do not delete the tag** — this breaks anyone who has pinned the version.
 2. Yank the release on crates.io if it was published there:  
-   `cargo yank --version X.Y.Z`
+   `cargo yank trail-fm --version X.Y.Z`
 3. Fix the bug, cut `vX.Y.Z+1` (or `vX.Y.(Z+1)`) immediately.
 4. Update the GitHub Release notes with a warning and a link to the fixed release.
 
@@ -201,8 +201,8 @@ If a critical bug is found immediately after publishing:
 The `cargo install` path should be verified with a fresh `--root`:
 
 ```sh
-cargo install trail --root /tmp/trail-install-test
+cargo install trail-fm --root /tmp/trail-install-test
 /tmp/trail-install-test/bin/trail --version
 ```
 
-This confirms the crates.io-published version builds and produces a working binary. Note that `cargo install` does not install shell wrappers — document this in the release notes.
+The crate is `trail-fm` — `trail` on crates.io is an unrelated library — but the command it installs is `trail`. This confirms the crates.io-published version builds and produces a working binary. Note that `cargo install` does not install shell wrappers — document this in the release notes.
