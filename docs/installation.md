@@ -124,13 +124,14 @@ Defaults:
 
 ### 6. `cargo install`
 
-If you have Rust installed:
+If you have Rust installed (1.80 or newer):
 
 ```sh
-cargo install trail
+cargo install trail-fm
 ```
 
-This compiles the binary from source. After installation, the binary is at `~/.cargo/bin/trail`. The shell wrappers are **not** installed automatically — download them separately from the [latest release](https://github.com/WeedonSctt/trail/releases/latest) or copy them from the repository's `shell/` directory.
+The crate is called `trail-fm` because `trail` on crates.io is an unrelated library; the
+command it installs is still `trail`. This compiles the binary from source. After installation, the binary is at `~/.cargo/bin/trail`. The shell wrappers are **not** installed automatically — download them separately from the [latest release](https://github.com/WeedonSctt/trail/releases/latest) or copy them from the repository's `shell/` directory.
 
 ---
 
@@ -372,7 +373,7 @@ scoop uninstall trail
 ### `cargo install`
 
 ```sh
-cargo uninstall trail
+cargo uninstall trail-fm
 ```
 
 `cargo install` never installed the shell wrappers, so there are none to
