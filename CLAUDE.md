@@ -376,7 +376,11 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
-- Released: **v1.11.0**, from `main`, which is current and pushed.
+- Released: **v1.11.1**, from `main`, which is current and pushed.
+- The Homebrew tap (`WeedonSctt/homebrew-trail`), the Scoop bucket
+  (`WeedonSctt/trail-scoop-bucket`) and the AUR package that `README.md` tells people to
+  install from **do not exist** (checked 2026-10-21) — release step 9 has had nowhere to
+  push. The manifests in `pkg/` are current; creating the three is the maintainer's call.
 - A new key name in `keymap.rs`'s `key_to_config_string` must also go in `NAMED_KEYS`.
   Otherwise its first letter becomes a prefix that swallows the next keystroke — how `t`
   (from `tab`) and `c` (from `ctrl-r`) were dead keys until v1.9.1. A unit test enumerates
