@@ -29,13 +29,22 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-10-20
+
+### Added
+
+- **Install with `cargo install trail-fm`.** Trail is on crates.io under the name
+  `trail-fm`, because `trail` there is an unrelated library. The command it installs is
+  still `trail`. As with every source install, the shell wrappers for cd-on-exit are not
+  included — take them from the release archive or `shell/` in the repository.
+
 ### Fixed
 
 - **The selected entry is readable with the default theme.** The selected row was drawn bold,
   and WezTerm, Windows Terminal and xterm draw bold `black` as bright black — the same
   colour as the `dark_gray` highlight behind it — so the selected name disappeared. The
-  selection is no longer bold. Themes set in hex colours were never affected.
-
+  selection is no longer bold, including over directory names. Themes set in hex colours
+  were never affected.
 - **The preview keeps up with a search.** Typing a search query showed the preview of
   whatever was first in the list when the search began, not of the match actually
   highlighted, until the selection was moved by hand. It now follows the top match as
@@ -213,7 +222,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/WeedonSctt/trail/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/WeedonSctt/trail/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/WeedonSctt/trail/compare/v1.10.0...v1.10.1
 [1.10.0]: https://github.com/WeedonSctt/trail/compare/v1.9.2...v1.10.0
