@@ -108,7 +108,9 @@ documented uninstall command into a 404.
   crate), from the tagged commit with a clean tree:
   `cargo publish --dry-run` then `cargo publish`
 - [ ] `cargo install trail-fm` produces a working binary that reports the bare version:
-  `cargo install trail-fm --root /tmp/test && /tmp/test/bin/trail --version`
+  `cargo install trail-fm --root /tmp/test && /tmp/test/bin/trail --version` — **without**
+  `--locked`, which is how many people will type it, so a dependency range that resolves
+  differently from `Cargo.lock` shows up here and not in a user's terminal
 
 ---
 

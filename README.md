@@ -102,7 +102,7 @@ Full guide: [docs/installation.md](docs/installation.md). Quick paths:
 | [Scoop](#scoop) | Windows | `scoop bucket add trail …` |
 | [Install script](#install-script) | Linux / macOS | `curl -fsSL … \| sh` |
 | [Install script](#install-script) | Windows | `irm … \| iex` |
-| [crates.io](#cratesio) | any | `cargo install trail-fm` |
+| [crates.io](#cratesio) | any | `cargo install trail-fm --locked` |
 | [From source](#from-source) | any | `cargo install --git …` |
 
 Every method except crates.io and from-source ships the shell wrappers needed for
@@ -151,8 +151,10 @@ Requires Rust 1.80 or newer. The crate is `trail-fm` — `trail` on crates.io is
 library — and the command it installs is `trail`:
 
 ```sh
-cargo install trail-fm
+cargo install trail-fm --locked
 ```
+
+`--locked` builds against the exact dependency versions each release was tested with.
 
 > **Note:** like every source install, this installs only the binary. Take the shell wrappers
 > for [cd-on-exit](#shell-integration) from the
