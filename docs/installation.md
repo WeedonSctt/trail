@@ -131,8 +131,8 @@ cargo install trail-fm --locked
 ```
 
 Keep `--locked`: it builds against the exact dependency versions the release was tested
-with. Without it, Cargo picks the newest versions it is allowed to, and for v1.11.1 that
-combination does not compile.
+with. Without it, Cargo picks the newest versions it is allowed to — that works from v1.11.2
+on, but v1.11.1 does not compile that way.
 
 The crate is called `trail-fm` because `trail` on crates.io is an unrelated library; the
 command it installs is still `trail`. This compiles the binary from source. After installation, the binary is at `~/.cargo/bin/trail`. The shell wrappers are **not** installed automatically — download them separately from the [latest release](https://github.com/WeedonSctt/trail/releases/latest) or copy them from the repository's `shell/` directory.
