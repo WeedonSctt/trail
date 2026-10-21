@@ -388,12 +388,13 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 - No `// TODO(phase-N):` markers remain (the last three were resolved on 2026-10-19), and
   the release checklist gates on that staying true. Do not add one: say what is missing in a
   plain comment, or do it.
-- `ratatui-image` must resolve against the **same** `ratatui` the crate uses (0.28). Its
-  dependency range also admits ratatui 0.30, and a `cargo update` will happily re-split
-  the graph into two ratatui versions — at which point `StatefulImage` no longer matches
-  the `Frame` it draws into and the preview path stops compiling. The unification is held
-  only by `Cargo.lock`. Verify with `cargo tree -i ratatui` after any dependency change:
-  it must show a single version.
+- `ratatui-image` must resolve against the **same** `ratatui` the crate uses (0.28), or
+  `StatefulImage` no longer matches the `Frame` it draws into and the preview path stops
+  compiling. 1.x asked for `ratatui >= 0.23`, so only `Cargo.lock` held the two together —
+  and `cargo install trail-fm` ignores the lock file, which is how v1.11.1 failed to install
+  from crates.io. Trail is on 2.x, which asks for `^0.28.1`; 3.x moves to ratatui 0.29, so
+  bump the two together or not at all. Verify with `cargo tree -i ratatui` after any
+  dependency change: it must show a single version.
 - Inline-image protocol detection is environment-variable based and floors at Halfblocks,
   so an image always renders *something*. Terminal cell size cannot be measured on
   Windows at all; it falls back to a deliberately small default so images leave a margin

@@ -29,6 +29,13 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`cargo install trail-fm` compiles.** Without `--locked`, v1.11.1 picked ratatui 0.30
+  for its image preview beside Trail's 0.28, and the build failed. The image preview now
+  uses `ratatui-image` 2, which asks for exactly the ratatui Trail uses, so the plain
+  command works. `--locked` is still recommended.
+
 ## [1.11.1] - 2026-10-20
 
 ### Added
