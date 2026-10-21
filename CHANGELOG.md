@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-10-21
+
 ### Fixed
 
 - **`cargo install trail-fm` compiles.** Without `--locked`, v1.11.1 picked ratatui 0.30
@@ -229,7 +231,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.2...HEAD
+[1.11.2]: https://github.com/WeedonSctt/trail/compare/v1.11.1...v1.11.2
 [1.11.1]: https://github.com/WeedonSctt/trail/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/WeedonSctt/trail/compare/v1.10.1...v1.11.0
 [1.10.1]: https://github.com/WeedonSctt/trail/compare/v1.10.0...v1.10.1
