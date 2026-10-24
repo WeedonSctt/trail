@@ -335,6 +335,9 @@ branch bought nothing and cost the trunk. Do not recreate it.
 7. `cargo publish` from the tagged commit, with a clean tree — the crate is `trail-fm`, since
    `trail` on crates.io belongs to an unrelated library. A published version can be yanked
    but never replaced, so this comes after the draft has been reviewed, not before.
+   Run it as `cargo publish --target-dir target/publish`: its verification build of the
+   packaged copy otherwise lands in `target/debug` under the same unit hashes as the
+   working tree, and its "release" version label poisons every later dev build (see §9).
 8. Fill the real digests from `checksums.txt` into the four manifests and commit as
    `[~] release> fill vX.Y.Z sha256 digests into package manifests`.
 9. Push the manifests to their tap / AUR / bucket repositories.
@@ -413,6 +416,11 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   `release.yml` sets and `Cross.toml` passes into the cross container); otherwise
   `X.Y.Z-dev.N+<hash>[.dirty]`. Read it through `trail::version`, never `CARGO_PKG_VERSION`,
   or a dev build will show as the release. `release.yml` fails the build if a native binary
-  does not report exactly `trail X.Y.Z`.
+  does not report exactly `trail X.Y.Z`. A plain `cargo publish` / `cargo package` shares
+  `target/debug` with the working tree, and its packaged copy (no `.git`, so a release)
+  collides with it: from v1.11.0 to v1.11.2 every dev build afterwards reported the bare
+  release number. Publish with `--target-dir target/publish`; if a dev build ever reports a
+  bare version, `cargo clean -p trail-fm` clears it. `TRAIL_RELEASE` is only believed where
+  git cannot see the commit, so a stray one in a shell cannot do the same.
 - Line endings: the working tree is CRLF on Windows, the repo is LF. `git diff` warnings
   about this are expected and not something to fix.

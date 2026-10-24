@@ -106,7 +106,10 @@ documented uninstall command into a 404.
 ### cargo install
 - [ ] Version published to crates.io as `trail-fm` (the name `trail` there is an unrelated
   crate), from the tagged commit with a clean tree:
-  `cargo publish --dry-run` then `cargo publish`
+  `cargo publish --dry-run --target-dir target/publish` then
+  `cargo publish --target-dir target/publish` — the separate target directory keeps the
+  packaged copy's build from replacing the working tree's, which made every later dev build
+  report the bare release version
 - [ ] `cargo install trail-fm` produces a working binary that reports the bare version:
   `cargo install trail-fm --root /tmp/test && /tmp/test/bin/trail --version` — **without**
   `--locked`, which is how many people will type it, so a dependency range that resolves

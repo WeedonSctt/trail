@@ -1,9 +1,10 @@
 //! Decides, at compile time, whether this binary is a release or a dev build.
 //!
 //! A binary is a **release** when it was built from the commit tagged
-//! `v<Cargo.toml version>` with no uncommitted changes, or when the release
-//! workflow says so through `TRAIL_RELEASE=v<version>` (cross-compiled targets
-//! build inside a container that may have no `git`). Source with no git
+//! `v<Cargo.toml version>` with no uncommitted changes. The release workflow
+//! also sets `TRAIL_RELEASE=v<version>`, for the cross-compiled target, which
+//! builds inside a container that may have no `git`; where git *can* see the
+//! commit, it decides, and the variable cannot override it. Source with no git
 //! repository of its own — a crates.io or packaged tarball — is also taken as
 //! a release, because that is the only place such source comes from.
 //!
@@ -32,21 +33,38 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let release_tag = format!("v{version}");
 
+    // Watched on every path, whichever one decides the label. A run that
+    // watched nothing but the environment variable was reused by cargo for
+    // every later build — commits and edits included — so a dev build kept
+    // calling itself the release it was built from first.
     println!("cargo:rerun-if-env-changed=TRAIL_RELEASE");
+    for path in ["src", "Cargo.toml", "Cargo.lock"] {
+        let path = manifest_dir.join(path);
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
 
     let declared_release = env::var("TRAIL_RELEASE").is_ok_and(|tag| tag == release_tag);
-    let (label, note) = if declared_release {
-        (version.clone(), None)
-    } else {
-        match git_state(&manifest_dir) {
-            Some(git) => describe(&version, &release_tag, &git),
-            None if manifest_dir.join(".git").exists() => (
-                format!("{version}-dev"),
-                Some("dev build — commit unknown, git could not be run".to_owned()),
-            ),
-            None => (version.clone(), None),
+    let (label, note) = match git_state(&manifest_dir) {
+        // git can see the commit, so git decides; the variable only excuses
+        // the tree being dirty at the tagged commit. A leftover TRAIL_RELEASE
+        // in a shell can therefore never label a dev build a release.
+        Some(git) if declared_release && git.tag == Some((release_tag.clone(), 0)) => {
+            (version.clone(), None)
         }
+        Some(git) => describe(&version, &release_tag, &git),
+        // No git (the cross container): take the release workflow's word.
+        None if declared_release => (version.clone(), None),
+        None if manifest_dir.join(".git").exists() => (
+            format!("{version}-dev"),
+            Some("dev build — commit unknown, git could not be run".to_owned()),
+        ),
+        None => (version.clone(), None),
     };
+    if declared_release && note.is_some() {
+        println!("cargo:warning=TRAIL_RELEASE={release_tag} ignored: HEAD is not that tag");
+    }
 
     let kind = if note.is_none() { "release" } else { "dev" };
     let long = match &note {
@@ -142,16 +160,14 @@ fn git_state(manifest_dir: &Path) -> Option<GitState> {
     })
 }
 
-/// Reruns this script when HEAD moves, the index changes, or the sources do —
-/// the last so that `.dirty` follows an edit rather than lagging a commit.
+/// Reruns this script when HEAD moves or the index changes. The sources are
+/// watched by `main` on every path, so that `.dirty` follows an edit rather
+/// than lagging a commit.
 fn watch_git(manifest_dir: &Path) {
     let git_dir = git(manifest_dir, &["rev-parse", "--absolute-git-dir"]);
     let common_dir =
         git(manifest_dir, &["rev-parse", "--git-common-dir"]).map(|dir| manifest_dir.join(dir));
-    let mut watched: Vec<PathBuf> = ["src", "Cargo.toml", "Cargo.lock"]
-        .iter()
-        .map(|path| manifest_dir.join(path))
-        .collect();
+    let mut watched: Vec<PathBuf> = Vec::new();
     if let Some(git_dir) = git_dir.map(PathBuf::from) {
         watched.push(git_dir.join("HEAD"));
         watched.push(git_dir.join("index"));

@@ -40,6 +40,9 @@ the commits said rather than what the users saw.
 
 ### Fixed
 
+- **A dev build reports itself as one.** A build made after a `cargo publish` could report
+  the bare release version (`1.11.2`) in `--version` and the `show_version` badge, because the
+  publish's own test build replaced the version check. It now reads `1.11.2-dev.N+<commit>`.
 - **Text files that are not UTF-8 are previewed.** A file saved as Windows "ANSI"
   (Windows-1252 / Latin-1) or as UTF-16 used to show an empty pane; it now shows its text,
   accents included. A stray invalid byte part-way down a file no longer ends the preview
