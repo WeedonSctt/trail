@@ -19,9 +19,10 @@ use crate::ui::theme;
 /// Draws the preview panel into `area`.
 ///
 /// Renders the content from `state.preview.content`:
-/// - `Empty`       → a plain bordered panel with no text.
+/// - `Empty`       → a plain bordered panel with no text (nothing selected,
+///   or a file that could not be read).
 /// - `Loading`     → a "Loading…" italic placeholder.
-/// - `Text(lines)` → numbered lines of plain text.
+/// - `Text(lines)` → numbered lines of plain text; `(empty file)` for none.
 /// - `Highlighted` → syntax-highlighted lines from the worker.
 /// - `Binary`      → metadata lines for binary or image files.
 /// - `Image`       → the decoded image plus a one-line caption.
@@ -76,12 +77,31 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
     state.preview.viewport_width = inner.width;
     state.preview.clamp_scroll();
     let offset = state.preview.scroll;
-    let block = match scroll_footer(&state.preview) {
+    let footer = scroll_footer(&state.preview);
+    let footer_width = footer.as_ref().map_or(0, |f| f.chars().count());
+    let block = match footer {
         Some(footer) => {
             block.title_bottom(Line::from(Span::styled(footer, styles.status)).right_aligned())
         }
         None => block,
     };
+    // A preview cut short by `[preview] max_lines` or the byte ceiling says so
+    // in words on the bottom border, where it is visible at any scroll position
+    // — the footer's `+` alone is easy to miss, and a pane that stops is
+    // otherwise indistinguishable from a file that ends.
+    let limits = (
+        state.config.preview.max_lines,
+        state.config.general.text_sync_threshold_kb,
+    );
+    let block = match truncation_notice(&state.preview, limits, footer_width, area.width) {
+        Some(notice) => {
+            block.title_bottom(Line::from(Span::styled(notice, styles.git_dirty)).left_aligned())
+        }
+        None => block,
+    };
+    let placeholder = Style::default()
+        .fg(theme::parse_color(&state.config.theme.hidden))
+        .add_modifier(Modifier::ITALIC);
 
     match &mut state.preview.content {
         PreviewContent::Empty => {
@@ -89,14 +109,23 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
         }
 
         PreviewContent::Loading => {
-            let p = Paragraph::new("Loading…")
-                .style(
-                    Style::default()
-                        .fg(theme::parse_color(&state.config.theme.hidden))
-                        .add_modifier(Modifier::ITALIC),
-                )
-                .block(block);
+            let p = Paragraph::new("Loading…").style(placeholder).block(block);
             frame.render_widget(p, area);
+        }
+
+        // A file with nothing in it says so, rather than drawing the same blank
+        // pane as a file that could not be shown.
+        PreviewContent::Text(lines) if lines.is_empty() => {
+            frame.render_widget(
+                Paragraph::new(EMPTY_FILE).style(placeholder).block(block),
+                area,
+            );
+        }
+        PreviewContent::Highlighted(lines) if lines.is_empty() => {
+            frame.render_widget(
+                Paragraph::new(EMPTY_FILE).style(placeholder).block(block),
+                area,
+            );
         }
 
         PreviewContent::Text(lines) => {
@@ -293,6 +322,45 @@ fn version_badge(state: &AppState, title_width: usize, area_width: u16) -> Optio
     // touch.
     let inner = usize::from(area_width).saturating_sub(2);
     (title_width + badge.chars().count() + 3 <= inner).then_some(badge)
+}
+
+/// What the pane shows for a file with no content.
+const EMPTY_FILE: &str = "(empty file)";
+
+/// The bottom border's notice that the preview stops before the file does, or
+/// `None` when the whole file is loaded.
+///
+/// Names which limit cut it and the key that raises it, so the reader knows the
+/// rest exists and how to see more of it. `limits` is `([preview] max_lines,
+/// [general] text_sync_threshold_kb)`: a preview holding exactly `max_lines`
+/// lines stopped on the line cap, anything shorter on the byte ceiling.
+/// Shortened, then dropped, when the border cannot hold it beside the position
+/// footer — the footer's `+` still marks the truncation then.
+fn truncation_notice(
+    slot: &PreviewSlot,
+    (max_lines, max_kb): (usize, usize),
+    footer_width: usize,
+    area_width: u16,
+) -> Option<String> {
+    if !slot.truncated {
+        return None;
+    }
+    let loaded = slot.content.scrollable_len()?;
+    let (limit, key) = if loaded >= max_lines {
+        (format!("first {loaded} lines"), "max_lines")
+    } else {
+        (format!("first {max_kb} KB"), "text_sync_threshold_kb")
+    };
+    // The row less its two border columns and one column between the two
+    // titles so they never touch.
+    let room = usize::from(area_width).saturating_sub(2 + footer_width + 1);
+    [
+        format!(" preview limit: {limit} · {key} "),
+        format!(" preview limit: {limit} "),
+        " preview limit ".to_owned(),
+    ]
+    .into_iter()
+    .find(|notice| notice.chars().count() <= room)
 }
 
 /// Builds the pane's bottom-right position indicator, or `None` when the

@@ -10,11 +10,10 @@
 //! `workers::merge` caches on the entry so the next preview of it is
 //! synchronous.
 
-use std::io::BufRead;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use syntect::easy::HighlightFile;
+use syntect::easy::HighlightLines;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 use tokio::sync::mpsc;
@@ -131,14 +130,24 @@ fn preview_file_sync(path: &std::path::Path, max_lines: usize, max_bytes: usize)
 /// Performs the blocking syntect highlight operation.
 ///
 /// Called inside `spawn_blocking` so it never runs on the async executor thread.
-/// Returns `PreviewContent::Highlighted` on success, or `PreviewContent::Text`
-/// if syntect cannot find a matching syntax, paired with whether the file has
-/// more lines than `max_lines`.
+/// Returns `PreviewContent::Highlighted`, paired with whether the file
+/// continues past what was loaded. An empty file is `Highlighted` with no
+/// lines, which the renderer labels as such; `Empty` is reserved for a file
+/// that could not be read at all.
+///
+/// The file is read as bytes up to `max_bytes` and decoded by
+/// [`crate::preview::text::decode_text`] before anything is highlighted, so a
+/// file that is not UTF-8 — ANSI or UTF-16, both common on Windows — is shown
+/// rather than coming back blank.
 fn highlight_file_sync(
     path: &std::path::Path,
     max_lines: usize,
     max_bytes: usize,
 ) -> (PreviewContent, bool) {
+    let Some((text, bytes_truncated)) = read_capped(path, max_bytes) else {
+        return (PreviewContent::Empty, false);
+    };
+
     let ss = syntax_set();
     let ts = theme_set();
 
@@ -149,65 +158,62 @@ fn highlight_file_sync(
             .next()
             .expect("syntect ships at least one theme")
     });
-
-    let mut highlighter = match HighlightFile::new(path, ss, theme) {
-        Ok(h) => h,
-        Err(_) => return plain_text_fallback(path, max_lines, max_bytes),
-    };
+    let first_line = text.lines().next().unwrap_or_default();
+    let syntax = ss
+        .find_syntax_for_file(path)
+        .ok()
+        .flatten()
+        .or_else(|| ss.find_syntax_by_first_line(first_line))
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+    let mut highlighter = HighlightLines::new(syntax, theme);
 
     let mut lines: Vec<HighlightedLine> = Vec::new();
-    let mut truncated = false;
-    let mut bytes_read = 0usize;
-
-    loop {
-        // Two ceilings, because either one alone leaves a hole: `max_lines`
-        // bounds an ordinary file, and `max_bytes` bounds one whose lines are
-        // enormous -- minified JavaScript, a single-line JSON blob -- which would
-        // otherwise be loaded whole however few lines it has.
-        if lines.len() >= max_lines || bytes_read >= max_bytes {
-            // Hitting a cap only truncates the preview if the file actually
-            // continues, so probe for one more line rather than assuming.
-            let mut probe = String::new();
-            truncated = matches!(highlighter.reader.read_line(&mut probe), Ok(n) if n > 0);
+    // Two ceilings, because either one alone leaves a hole: `max_lines` bounds
+    // an ordinary file, and `max_bytes` (applied by the read above) bounds one
+    // whose lines are enormous -- minified JavaScript, a single-line JSON blob
+    // -- which would otherwise be loaded whole however few lines it has.
+    let mut truncated = bytes_truncated;
+    for raw in text.lines() {
+        if lines.len() >= max_lines {
+            truncated = true;
             break;
         }
-        let mut line_buf = String::new();
-        match highlighter.reader.read_line(&mut line_buf) {
-            Ok(0) => break,
-            Err(_) => break,
-            Ok(n) => bytes_read += n,
-        }
-        // Strip the trailing newline that syntect expects to have present but
-        // that we don't want to show, then make the line safe to draw before
-        // anything highlights it — the spans have to describe the text that is
-        // actually rendered.
-        let line_text = sanitize(line_buf.trim_end_matches(['\n', '\r']));
-
-        let regions = match highlighter.highlight_lines.highlight_line(&line_text, ss) {
-            Ok(r) => r,
-            Err(_) => break,
+        // Make the line safe to draw before anything highlights it — the spans
+        // have to describe the text that is actually rendered.
+        let line_text = sanitize(raw);
+        let Ok(regions) = highlighter.highlight_line(&line_text, ss) else {
+            // The rest of the file is not shown, so the pane must say so.
+            truncated = true;
+            break;
         };
 
         let spans: HighlightedLine = regions
             .into_iter()
             .filter(|(_, text)| !text.is_empty())
-            .map(|(style, text)| {
-                let fg = convert_color(style.foreground);
-                StyledSpan {
-                    text: text.to_owned(),
-                    fg,
-                }
+            .map(|(style, text)| StyledSpan {
+                text: text.to_owned(),
+                fg: convert_color(style.foreground),
             })
             .collect();
 
         lines.push(spans);
     }
 
-    if lines.is_empty() {
-        (PreviewContent::Empty, false)
-    } else {
-        (PreviewContent::Highlighted(lines), truncated)
-    }
+    (PreviewContent::Highlighted(lines), truncated)
+}
+
+/// Reads at most `max_bytes` of `path` and decodes them, returning the text
+/// and whether the file continues past the ceiling. `None` if it cannot be read.
+fn read_capped(path: &std::path::Path, max_bytes: usize) -> Option<(String, bool)> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut buf = Vec::new();
+    // Read one byte past the ceiling: that extra byte is how we tell a file that
+    // ends exactly on the limit from one that continues past it.
+    file.take(max_bytes as u64 + 1).read_to_end(&mut buf).ok()?;
+    let truncated = buf.len() > max_bytes;
+    buf.truncate(max_bytes);
+    Some((crate::preview::text::decode_text(&buf), truncated))
 }
 
 /// Converts a `syntect::highlighting::Color` to a `ratatui::style::Color`.
@@ -220,44 +226,6 @@ fn convert_color(c: syntect::highlighting::Color) -> Option<ratatui::style::Colo
     } else {
         Some(ratatui::style::Color::Rgb(c.r, c.g, c.b))
     }
-}
-
-/// Reads `path` as plain text and returns `PreviewContent::Text` as a fallback
-/// when syntect has no matching syntax for the file, paired with whether the
-/// file continues past what was read.
-///
-/// Two limits can cut this path: `max_lines`, and the byte ceiling that keeps a
-/// single read bounded. Either one means the preview is truncated.
-fn plain_text_fallback(
-    path: &std::path::Path,
-    max_lines: usize,
-    max_bytes: usize,
-) -> (PreviewContent, bool) {
-    use std::io::Read;
-    let Ok(f) = std::fs::File::open(path) else {
-        return (PreviewContent::Empty, false);
-    };
-    let limit = max_bytes as u64;
-    let mut buf = Vec::new();
-    // Read one byte past the ceiling: that extra byte is how we tell a file that
-    // ends exactly on the limit from one that continues past it.
-    let _ = f.take(limit + 1).read_to_end(&mut buf);
-    let bytes_truncated = buf.len() as u64 > limit;
-    buf.truncate(limit as usize);
-
-    let text = String::from_utf8_lossy(&buf);
-    let all: Vec<&str> = text.lines().collect();
-    let lines_truncated = all.len() > max_lines;
-    let lines: Vec<String> = all
-        .into_iter()
-        .take(max_lines)
-        .enumerate()
-        .map(|(i, l)| format!("{:>4}  {}", i + 1, sanitize(l)))
-        .collect();
-    (
-        PreviewContent::Text(lines),
-        bytes_truncated || lines_truncated,
-    )
 }
 
 /// Returns an empty fallback for use when `spawn_blocking` panics.
@@ -391,6 +359,67 @@ mod tests {
             ),
             "expected Text or Highlighted fallback, got: {content:?}"
         );
+    }
+
+    fn loaded_lines(content: &PreviewContent) -> usize {
+        match content {
+            PreviewContent::Highlighted(lines) => lines.len(),
+            other => panic!("expected highlighted content, got {other:?}"),
+        }
+    }
+
+    /// A file that is not UTF-8 used to come back with no lines at all — the
+    /// same blank pane as an empty file.
+    #[test]
+    fn a_non_utf8_file_is_previewed_not_blanked() {
+        let mut f = NamedTempFile::with_suffix(".txt").unwrap();
+        f.write_all(b"caf\xe9\nol\xe9\n").unwrap();
+        f.flush().unwrap();
+
+        let (content, truncated) = highlight_text_sync(f.path(), 2000);
+        assert_eq!(loaded_lines(&content), 2);
+        assert!(!truncated);
+    }
+
+    /// A bad byte part-way down used to end the preview there without marking
+    /// it truncated; now every line is read.
+    #[test]
+    fn a_bad_byte_mid_file_does_not_cut_the_preview() {
+        let mut f = NamedTempFile::with_suffix(".txt").unwrap();
+        f.write_all(&b"ok\n".repeat(50)).unwrap();
+        f.write_all(b"\xff\nafter\n").unwrap();
+        f.flush().unwrap();
+
+        let (content, truncated) = highlight_text_sync(f.path(), 2000);
+        assert_eq!(loaded_lines(&content), 52);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn an_empty_file_has_no_lines_and_is_not_truncated() {
+        let f = NamedTempFile::with_suffix(".txt").unwrap();
+        let (content, truncated) = highlight_text_sync(f.path(), 2000);
+        assert_eq!(loaded_lines(&content), 0);
+        assert!(!truncated);
+    }
+
+    /// One line longer than the byte ceiling used to be loaded whole and
+    /// reported complete.
+    #[test]
+    fn a_single_line_past_the_byte_ceiling_is_truncated() {
+        let mut f = NamedTempFile::with_suffix(".txt").unwrap();
+        f.write_all(&[b'a'; 4096]).unwrap();
+        f.flush().unwrap();
+
+        let (content, truncated) = highlight_file_sync(f.path(), 2000, 1024);
+        assert!(truncated);
+        match content {
+            PreviewContent::Highlighted(lines) => {
+                let shown: usize = lines[0].iter().map(|s| s.text.len()).sum();
+                assert_eq!(shown, 1024);
+            }
+            other => panic!("expected highlighted content, got {other:?}"),
+        }
     }
 
     #[test]

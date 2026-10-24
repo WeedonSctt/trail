@@ -90,6 +90,78 @@ pub fn is_text_file(path: &Path) -> bool {
     inspect(&buf[..n]).is_text()
 }
 
+/// Decodes the bytes of a text file for display, whatever its encoding.
+///
+/// A byte-order mark selects UTF-8 or UTF-16 (either endianness). Without one,
+/// valid UTF-8 is taken as it is, and anything else is read as Windows-1252 —
+/// the "ANSI" code page Windows editors save Western European text in, and a
+/// superset of Latin-1 — so a `café` saved by Notepad still reads `café`. A
+/// file that is mostly UTF-8 with a stray bad byte keeps its UTF-8 and shows
+/// the bad byte as `�`.
+///
+/// Never fails: the preview's job is to show the file, and refusing to decode
+/// it would leave a pane indistinguishable from an empty file. `bytes` may have
+/// been cut mid-character by the preview's byte ceiling; the partial character
+/// is dropped rather than shown as garbage.
+pub fn decode_text(bytes: &[u8]) -> String {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return decode_utf8_or_ansi(rest);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return decode_utf16(rest, u16::from_le_bytes);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return decode_utf16(rest, u16::from_be_bytes);
+    }
+    decode_utf8_or_ansi(bytes)
+}
+
+/// UTF-8 when the bytes are (or are mostly) UTF-8, Windows-1252 otherwise.
+fn decode_utf8_or_ansi(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(err) => {
+            let valid = &bytes[..err.valid_up_to()];
+            // Cut mid-character at the very end: everything before it is good.
+            if err.error_len().is_none() {
+                return String::from_utf8_lossy(valid).into_owned();
+            }
+            // Multi-byte UTF-8 already seen before the bad byte: a UTF-8 file
+            // with damage, not an ANSI one.
+            if valid.iter().any(|b| !b.is_ascii()) {
+                return String::from_utf8_lossy(bytes).into_owned();
+            }
+            bytes.iter().map(|&b| windows_1252(b)).collect()
+        }
+    }
+}
+
+/// Decodes UTF-16 code units, replacing unpaired surrogates with `�`. A
+/// trailing odd byte — the byte ceiling cutting a unit in half — is dropped.
+fn decode_utf16(bytes: &[u8], unit: fn([u8; 2]) -> u16) -> String {
+    let units = bytes.chunks_exact(2).map(|pair| unit([pair[0], pair[1]]));
+    char::decode_utf16(units)
+        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
+}
+
+/// The Windows-1252 character for `byte`.
+///
+/// Identical to Latin-1 except for 0x80–0x9F, where Windows put the euro sign,
+/// curly quotes and dashes instead of C1 control codes. The five bytes it left
+/// unassigned stay control codes, which [`sanitize`] draws as a placeholder.
+fn windows_1252(byte: u8) -> char {
+    const HIGH: [char; 32] = [
+        '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž',
+        '\u{8F}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', '\u{9D}',
+        'ž', 'Ÿ',
+    ];
+    match byte {
+        0x80..=0x9F => HIGH[usize::from(byte - 0x80)],
+        _ => char::from(byte),
+    }
+}
+
 /// Builds a `PreviewContent::Text` for `path`.
 ///
 /// Reads up to `TEXT_PREVIEW_MAX_BYTES` and formats each line as
@@ -166,5 +238,44 @@ mod tests {
         // Write a sequence of null bytes — content_inspector will flag these as binary.
         f.write_all(&[0u8; 64]).unwrap();
         assert!(!is_text_file(f.path()));
+    }
+
+    #[test]
+    fn decode_keeps_utf8_as_it_is() {
+        assert_eq!(decode_text("café ✓".as_bytes()), "café ✓");
+        assert_eq!(decode_text(b"\xEF\xBB\xBFbom"), "bom");
+    }
+
+    /// Notepad's "ANSI" is Windows-1252: a Spanish file saved that way must
+    /// read as Spanish, not come back blank as it did when UTF-8 was required.
+    #[test]
+    fn decode_reads_non_utf8_as_windows_1252() {
+        assert_eq!(decode_text(b"caf\xe9 \x80 \x93ol\xe9\x94"), "café € “olé”");
+    }
+
+    #[test]
+    fn decode_reads_utf16_with_a_byte_order_mark() {
+        let mut le = vec![0xFF, 0xFE];
+        let mut be = vec![0xFE, 0xFF];
+        for unit in "año\r\n".encode_utf16() {
+            le.extend_from_slice(&unit.to_le_bytes());
+            be.extend_from_slice(&unit.to_be_bytes());
+        }
+        assert_eq!(decode_text(&le), "año\r\n");
+        assert_eq!(decode_text(&be), "año\r\n");
+        // The byte ceiling can split a code unit; the half is dropped.
+        le.push(b'x');
+        assert_eq!(decode_text(&le), "año\r\n");
+    }
+
+    #[test]
+    fn decode_keeps_damaged_utf8_as_utf8() {
+        assert_eq!(decode_text(b"\xC3\xA9 \xFF ok"), "é \u{FFFD} ok");
+    }
+
+    #[test]
+    fn decode_drops_a_character_cut_by_the_ceiling() {
+        // "é" is two bytes; the ceiling kept only the first.
+        assert_eq!(decode_text(b"ab\xC3"), "ab");
     }
 }

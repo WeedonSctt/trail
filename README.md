@@ -305,7 +305,9 @@ the top again.
 
 When the content is longer than the pane, the pane's bottom-right corner shows
 the visible range — `41–61/200`. A trailing `+` means the file continues past
-what was loaded; raise `[preview] max_lines` to load more of it.
+what was loaded, and the bottom-left corner names the limit that stopped it —
+`preview limit: first 2000 lines · max_lines`. Raise that key to load more. An empty
+file shows `(empty file)`.
 
 **File operations**
 

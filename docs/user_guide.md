@@ -137,6 +137,17 @@ lines you are looking at, as `41–61/200`. A trailing `+` — `41–61/2000+` �
 the file carries on past the part Trail loaded; raise `[preview] max_lines` in your
 config (or `:set max_lines 8000` for this session) to load more of it.
 
+A preview cut short also says so in words, on the bottom-left of its border, at any
+scroll position: `preview limit: first 2000 lines · max_lines` when the line limit
+stopped it, or `preview limit: first 256 KB · text_sync_threshold_kb` when the byte
+limit did (a file of a few enormous lines, such as minified JavaScript). The key named
+is the one to raise. On a narrow pane the notice shortens to `preview limit`.
+
+A file with nothing in it shows `(empty file)`, so it cannot be mistaken for a preview
+that failed. Text that is not UTF-8 is still shown: a byte-order mark selects UTF-16 or
+UTF-8, and anything else that is not valid UTF-8 is read as Windows-1252, the "ANSI"
+encoding Windows editors save Western European text in, so `café` reads as `café`.
+
 Moving to a different entry resets its preview to the top. Re-previewing the *same*
 entry does not: if the file changes on disk while you are reading it, you stay where
 you were.

@@ -586,6 +586,73 @@ async fn the_delete_prompt_says_where_the_entry_is_going() {
     );
 }
 
+// ── Previews that cannot show everything ─────────────────────────────────────
+
+/// A preview stopped by a limit says so in words, naming the limit — the
+/// footer's `+` alone was easy to miss.
+#[tokio::test]
+async fn a_preview_stopped_by_max_lines_names_the_limit() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.config.set_value("max_lines", "50").unwrap();
+    // render_to_string applies the content but not the flag the worker sends.
+    state.preview.truncated = true;
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("preview limit: first 50 lines · max_lines"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("/50+"),
+        "the footer keeps its `+`:\n{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn a_preview_stopped_by_the_byte_ceiling_names_it() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+    state.preview.truncated = true;
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(
+        rendered.contains("preview limit: first 256 KB"),
+        "{rendered}"
+    );
+}
+
+#[tokio::test]
+async fn a_whole_preview_carries_no_limit_notice() {
+    let dir = make_long_file_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(!rendered.contains("preview limit"), "{rendered}");
+}
+
+/// An empty file and a file that cannot be shown used to draw the same blank
+/// pane.
+#[tokio::test]
+async fn an_empty_file_says_it_is_empty() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("nothing.txt"), b"").unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(rendered.contains("(empty file)"), "{rendered}");
+}
+
+#[tokio::test]
+async fn an_ansi_encoded_file_is_shown() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    fs::write(dir.path().join("notas.txt"), b"caf\xe9 con leche\n").unwrap();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    let rendered = render_to_string(&mut state, 100, 24).await;
+    assert!(rendered.contains("café con leche"), "{rendered}");
+}
+
 // ── The version indicator ─────────────────────────────────────────────────────
 
 /// The version Trail was built as, spelled the way the badge spells it.

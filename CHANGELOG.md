@@ -29,6 +29,24 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Changed
+
+- **A preview that stops early says so.** When `[preview] max_lines` or
+  `[general] text_sync_threshold_kb` cuts a preview short, the bottom-left of the preview
+  border reads `preview limit: first 2000 lines · max_lines` (or `first 256 KB ·
+  text_sync_threshold_kb`), naming the key to raise. The footer's `+` stays.
+- **An empty file reads `(empty file)`** instead of a blank pane that looked like a failed
+  preview.
+
+### Fixed
+
+- **Text files that are not UTF-8 are previewed.** A file saved as Windows "ANSI"
+  (Windows-1252 / Latin-1) or as UTF-16 used to show an empty pane; it now shows its text,
+  accents included. A stray invalid byte part-way down a file no longer ends the preview
+  there without marking it truncated.
+- **A single line longer than `text_sync_threshold_kb` is cut at that limit** and the
+  preview marked truncated. It used to be loaded whole and reported as complete.
+
 ## [1.11.2] - 2026-10-21
 
 ### Fixed
