@@ -355,7 +355,7 @@ Press `/` and type to fuzzy-filter the current directory. Results reorder by mat
 | *any character* | Typed into the query - every letter is text here, including `j` and `k` |
 | `↓` / `Ctrl-n`, `↑` / `Ctrl-p` | Move through results |
 | `Enter` / `→` | Open the match — enter a directory, or open a file in your editor |
-| `Esc` | Cancel and restore the full listing |
+| `Esc` | Restore the full listing, keeping the cursor on the selected match |
 | `Backspace` / `Ctrl-h` | Delete the last character |
 
 ### Command mode
