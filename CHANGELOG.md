@@ -40,6 +40,11 @@ the commits said rather than what the users saw.
 
 ### Fixed
 
+- **Leaving search keeps the cursor on what you found.** Pressing `Esc` after `/` used to
+  drop the cursor on whatever entry sat at the same row of the full listing, so `dd`, `o`,
+  `:` and the rest acted on the wrong file. It now stays on the match. Opening a file from
+  search leaves it selected when the editor closes, and entering a directory from search
+  then pressing `h` comes back to that directory rather than an unrelated one.
 - **A dev build reports itself as one.** A build made after a `cargo publish` could report
   the bare release version (`1.11.2`) in `--version` and the `show_version` badge, because the
   publish's own test build replaced the version check. It now reads `1.11.2-dev.N+<commit>`.

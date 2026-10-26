@@ -604,6 +604,73 @@ fn exit_mode_clears_filter() {
     assert_eq!(state.mode, Mode::Navigation);
 }
 
+/// Types `query` into Search Mode, one key at a time, as the user would.
+fn search_for(state: &mut AppState, query: &str) {
+    trail::actions::apply(trail::actions::Action::EnterSearch, state).unwrap();
+    for ch in query.chars() {
+        trail::actions::apply(trail::actions::Action::SearchAppendChar(ch), state).unwrap();
+    }
+}
+
+fn selected_name(state: &AppState) -> String {
+    state
+        .selected_entry()
+        .expect("a selection")
+        .file_name
+        .clone()
+}
+
+#[test]
+fn exit_mode_keeps_the_found_entry_selected() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    // readme.md is the only match, so row 0 of the filter — but the last row
+    // of the listing, where row 0 is docs/.
+    search_for(&mut state, "readme");
+    assert_eq!(selected_name(&state), "readme.md");
+
+    trail::actions::apply(trail::actions::Action::ExitMode, &mut state).unwrap();
+    assert_eq!(
+        selected_name(&state),
+        "readme.md",
+        "leaving Search Mode must not move the cursor off the entry it found"
+    );
+}
+
+#[test]
+fn opening_a_file_from_search_keeps_it_selected() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    search_for(&mut state, "readme");
+    trail::actions::apply(trail::actions::Action::SearchConfirm, &mut state).unwrap();
+
+    assert_eq!(state.mode, Mode::Navigation);
+    assert!(
+        state.pending_external.is_some(),
+        "the editor should be queued"
+    );
+    assert_eq!(selected_name(&state), "readme.md");
+}
+
+#[test]
+fn entering_a_dir_from_search_comes_back_to_it() {
+    let dir = make_filter_dir();
+    let mut state = AppState::new(dir.path().to_owned()).unwrap();
+
+    search_for(&mut state, "src");
+    trail::actions::apply(trail::actions::Action::SearchConfirm, &mut state).unwrap();
+    assert_eq!(state.cwd.file_name().and_then(|n| n.to_str()), Some("src"));
+
+    state.go_parent().unwrap();
+    assert_eq!(
+        selected_name(&state),
+        "src",
+        "the parent must remember the directory that was entered from search"
+    );
+}
+
 #[test]
 fn filter_auto_selects_top_match() {
     let dir = make_filter_dir();

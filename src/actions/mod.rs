@@ -342,7 +342,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         Action::ExitMode => {
             if state.mode != Mode::Navigation {
                 state.mode = Mode::Navigation;
-                state.filter = None;
+                state.clear_filter();
                 state.pending_delete = false;
                 state.clear_notice();
                 state.pending_nav_key = None;
@@ -387,15 +387,17 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 use crate::app::state::EntryKind;
                 match entry.kind {
                     EntryKind::Dir => {
-                        // Exit Search Mode first, then enter the directory.
+                        // Exit Search Mode first, then enter the directory —
+                        // with the selection still on it, so that is what the
+                        // parent remembers and `h` comes back to.
                         state.mode = Mode::Navigation;
-                        state.filter = None;
+                        state.clear_filter();
                         state.enter_dir(entry.path)?;
                     }
                     EntryKind::File | EntryKind::Symlink => {
                         // Phase 6: open in editor via the RunExternal mechanism.
                         state.mode = Mode::Navigation;
-                        state.filter = None;
+                        state.clear_filter();
                         let editor = state.config.general.editor.clone();
                         state.pending_external = Some(Action::RunExternal {
                             argv: vec![editor, entry.path.display().to_string()],

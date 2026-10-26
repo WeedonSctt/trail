@@ -102,7 +102,7 @@ fn after_focus_change(state: &mut AppState, result: Result<(), String>) {
     }
     if state.terminal.shell_focused() && !matches!(state.mode, Mode::Navigation) {
         state.mode = Mode::Navigation;
-        state.filter = None;
+        state.clear_filter();
     }
     state.pending_nav_key = None;
     state.dirty = true;

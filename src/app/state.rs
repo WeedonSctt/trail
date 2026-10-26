@@ -700,6 +700,22 @@ impl AppState {
         self.dirty = true;
     }
 
+    /// Drops the Search Mode filter, keeping the selection on the entry it was on.
+    ///
+    /// While filtering, `selected` counts rows of the match list; without the
+    /// filter it counts rows of the full listing. Clearing the filter alone
+    /// would leave the cursor on whatever entry sits at that row, losing the
+    /// one the search found. Does not change `mode`. A no-op without a filter.
+    pub fn clear_filter(&mut self) {
+        if self.filter.is_none() {
+            return;
+        }
+        let anchor = self.selected_entry().map(|e| e.path.clone());
+        self.filter = None;
+        self.restore_selection(anchor.as_deref(), 0);
+        self.dirty = true;
+    }
+
     /// Returns the number of filtered-visible entries, or `visible_count()`
     /// when no filter is active.
     pub fn filtered_count(&self) -> usize {
