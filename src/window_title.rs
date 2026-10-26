@@ -5,10 +5,14 @@
 //! or window title, and kept as `trail <directory>` while Trail runs, in the
 //! form `[general] terminal_title` asks for. The title the shell had is saved
 //! on the terminal's title stack (XTWINOPS 22/23) before the first change and
-//! restored from it on exit. A terminal without a title stack ignores both,
-//! and is left showing Trail's last title until the shell sets its own; the
-//! PowerShell wrapper restores the title itself, since ConPTY does not keep a
-//! stack.
+//! restored from it on exit, or when `terminal_title` is set to `off`.
+//!
+//! Before that restore Trail blanks the title, because a terminal without a
+//! title stack ignores the restore — ConPTY, which every Windows terminal
+//! reaches the console through, is one. There the tab is left without a title
+//! rather than frozen on a directory Trail is no longer reporting, until the
+//! shell's prompt sets its own; the PowerShell wrapper restores the shell's
+//! title itself as soon as Trail exits.
 
 use std::fmt;
 use std::io::{self, Write};
@@ -105,7 +109,8 @@ impl WindowTitle {
         self.shown = None;
     }
 
-    /// Restores the title the shell had, if Trail changed it.
+    /// Gives the title back, if Trail changed it: blanks it, then restores
+    /// the shell's title where the terminal kept it (see the module docs).
     ///
     /// # Errors
     /// Any error writing to `out`.
@@ -115,13 +120,14 @@ impl WindowTitle {
     }
 }
 
-/// Restores the shell's title, for the panic hook. Does nothing if Trail
-/// never changed it.
+/// Gives the title back as [`WindowTitle::restore`] does, for the panic hook.
+/// Does nothing if Trail never changed it.
 ///
 /// # Errors
 /// Any error writing to `out`.
 pub fn restore_to(out: &mut impl Write) -> io::Result<()> {
     if PUSHED.swap(false, Ordering::SeqCst) {
+        write_command(out, SetTitle(""))?;
         write_command(out, PopTitle)?;
         out.flush()?;
     }
@@ -244,6 +250,17 @@ mod tests {
 
         out.clear();
         title.update(&mut out, TitleMode::Off, &here).unwrap();
-        assert_eq!(String::from_utf8(out).unwrap(), "\x1b[23;0t");
+        // Blanked first, for a terminal that ignores the restore after it.
+        assert_eq!(
+            String::from_utf8(out.clone()).unwrap(),
+            "\x1b]0;\x07\x1b[23;0t"
+        );
+
+        out.clear();
+        title.update(&mut out, TitleMode::Off, &here).unwrap();
+        assert!(
+            out.is_empty(),
+            "off with nothing to give back writes nothing"
+        );
     }
 }
