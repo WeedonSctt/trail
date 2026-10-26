@@ -202,7 +202,7 @@ copy_filename = "yn"
 copy_content = "yc"
 delete = "dd"
 # Marks survive navigation: mark here, paste somewhere else.  Space marks the
-# selection and moves down; Esc clears every mark (it does nothing else in
+# selection without moving it; Esc clears every mark (it does nothing else in
 # Navigation Mode, so nothing is lost by giving it this job).
 toggle_mark = "space"
 clear_marks = "esc"

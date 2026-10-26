@@ -319,7 +319,7 @@ file shows `(empty file)`.
 | `yn` | Copy filename to clipboard |
 | `yc` | Copy content to clipboard — file text, or directory listing |
 | `dd` | Delete selection to the recycle bin — confirm with `y`/`Enter`, cancel with `n`/`Esc`. `[general] delete_mode = "permanent"` unlinks instead |
-| `Space` | Mark / unmark the selection and move down. Marks survive navigation and are shared by every tab |
+| `Space` | Mark / unmark the selection (it stays put). Marks survive navigation and are shared by every tab |
 | `Esc` | Clear every mark (`:unmark`) |
 | `pp` | Copy the marked entries here — the marks stay |
 | `pm` | Move the marked entries here |

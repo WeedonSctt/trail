@@ -758,8 +758,8 @@ cannot cross directories.
 
 #### The shape
 
-1. **Mark.** `Space` toggles a mark on the selected entry and moves down, so marking a run
-   is `Space Space Space`. Marked rows carry a marker in the listing.
+1. **Mark.** `Space` toggles a mark on the selected entry and leaves the selection on it; a run
+   is marked with visual mode (`v`). Marked rows carry a marker in the listing.
 2. **Visual mode.** `v` sets an anchor at the cursor. `j`/`k`/`G`/`gg` (and the arrows) then
    extend a highlighted range from the anchor, the way Vim's visual mode does. In it:
    - `Space` or `v` adds the range to the marks and returns to Navigation Mode;
@@ -784,7 +784,7 @@ cannot cross directories.
 
 | Question | Answer |
 |---|---|
-| Marking key | `Space`, toggling and moving down |
+| Marking key | `Space`, toggling in place (it moved down until after v1.11.3; runs are marked with `v`) |
 | Paste keys | `pp` copy here, `pm` move here |
 | Marks after pasting | cleared after a move (those paths no longer exist); kept after a copy, so the same set can be pasted twice |
 | Clearing by hand | `:unmark`, and `Esc` in Navigation Mode (unbound before) — answered 2026-10-19 |

@@ -29,6 +29,11 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Changed
+
+- `Space` marks or unmarks the selection and leaves the cursor on it, instead of moving
+  down. To mark a run of entries, use visual mode (`v`).
+
 ## [1.11.3] - 2026-10-26
 
 ### Changed

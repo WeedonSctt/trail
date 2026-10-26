@@ -123,8 +123,8 @@ pub enum Action {
     ConfirmDelete,
     /// Cancel the pending delete confirmation.
     CancelDelete,
-    /// Mark or unmark the selected entry, then move down (`Space`), so a run
-    /// of entries is marked by pressing it repeatedly.
+    /// Mark or unmark the selected entry (`Space`). The selection stays put;
+    /// a run of entries is marked with visual mode (`v`).
     ToggleMark,
     /// Unmark everything (`Esc` in Navigation Mode, `:unmark`).
     ClearMarks,
@@ -629,7 +629,6 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
         Action::ToggleMark => {
             if let Some(entry) = state.selected_entry().cloned() {
                 state.marks.toggle(&entry.path);
-                state.move_down();
                 state.dirty = true;
             }
         }

@@ -38,6 +38,7 @@ fn layout() -> TempDir {
 fn marked_in_src(dir: &Path) -> AppState {
     let mut state = AppState::new(dir.join("src")).unwrap();
     apply(Action::ToggleMark, &mut state).unwrap();
+    apply(Action::MoveDown, &mut state).unwrap();
     apply(Action::ToggleMark, &mut state).unwrap();
     state
 }
@@ -47,14 +48,21 @@ fn go(state: &mut AppState, path: impl AsRef<Path>) {
 }
 
 #[test]
-fn space_marks_the_selection_and_moves_down() {
+fn space_marks_the_selection_and_stays_on_it() {
     let dir = layout();
-    let state = marked_in_src(dir.path());
+    let mut state = AppState::new(dir.path().join("src")).unwrap();
+    apply(Action::ToggleMark, &mut state).unwrap();
 
-    assert_eq!(state.marks.len(), 2);
+    assert_eq!(state.marks.len(), 1);
     assert!(state.marks.contains(&state.entries[0].path));
-    assert!(state.marks.contains(&state.entries[1].path));
-    assert_eq!(state.selected, 2, "each mark moves the selection on");
+    assert_eq!(state.selected, 0, "marking must not move the selection");
+
+    apply(Action::ToggleMark, &mut state).unwrap();
+    assert!(
+        state.marks.is_empty(),
+        "a second Space on the same entry unmarks it"
+    );
+    assert_eq!(state.selected, 0);
 }
 
 #[test]

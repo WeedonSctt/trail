@@ -96,8 +96,9 @@ to do nothing.
 ### Marking, and Pasting Somewhere Else
 Pick files in one place and copy or move them to another — even another tab.
 
-- `Space`: Mark the selected item (or unmark it) and move down, so `Space Space Space`
-  marks three in a row. A marked item has a `*` in front of its name.
+- `Space`: Mark the selected item (or unmark it). The selection stays where it is; to
+  mark a run of items, use visual mode (`v`, below). A marked item has a `*` in front of
+  its name.
 - `Esc`: Clear every mark. `:unmark` does the same.
 - `pp`: Copy every marked item into the directory you are looking at. The marks stay, so
   you can paste the same set again somewhere else.

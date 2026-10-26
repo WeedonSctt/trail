@@ -320,7 +320,7 @@ Overrides keybindings for Navigation Mode.
 - `copy_filename`: Copy filename of selection
 - `copy_content`: Copy content of selection (file text, or directory listing)
 - `delete`: Prompt to delete selection
-- `toggle_mark`: Mark or unmark the selection and move down (default `space`)
+- `toggle_mark`: Mark or unmark the selection, without moving it (default `space`)
 - `clear_marks`: Clear every mark (default `esc`)
 - `paste_copy`: Copy the marked entries into the current directory (default `pp`)
 - `paste_move`: Move the marked entries into the current directory (default `pm`)
