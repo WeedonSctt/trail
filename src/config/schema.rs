@@ -49,6 +49,9 @@ const SHELL_PAUSE_REASON: &str = "must be always, on_error or never";
 /// Explanation attached to a rejected `[general] delete_mode` value.
 const DELETE_MODE_REASON: &str = "must be trash or permanent";
 
+/// Explanation attached to a rejected `[general] terminal_title` value.
+const TERMINAL_TITLE_REASON: &str = "must be off, dir or path";
+
 /// Top-level Trail configuration.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -103,6 +106,13 @@ impl TrailConfig {
                 "general.delete_mode",
                 &self.general.delete_mode,
                 DELETE_MODE_REASON,
+            ));
+        }
+        if crate::window_title::TitleMode::parse(&self.general.terminal_title).is_none() {
+            return Err(invalid_value(
+                "general.terminal_title",
+                &self.general.terminal_title,
+                TERMINAL_TITLE_REASON,
             ));
         }
         if self.general.text_sync_threshold_kb == 0 {
@@ -222,6 +232,12 @@ impl TrailConfig {
             }
             "general.show_version" | "show_version" => {
                 self.general.show_version = parse_bool(key, value)?;
+            }
+            "general.terminal_title" | "terminal_title" => {
+                if crate::window_title::TitleMode::parse(value).is_none() {
+                    return Err(invalid_value(key, value, TERMINAL_TITLE_REASON));
+                }
+                self.general.terminal_title = value.trim().to_ascii_lowercase();
             }
             "general.git_status_enabled" | "git_status_enabled" => {
                 self.general.git_status_enabled = parse_bool(key, value)?;
@@ -387,6 +403,12 @@ pub struct GeneralConfig {
     /// window?" without leaving the session, which `trail --version` cannot do
     /// for a process that is already running. Off by default.
     pub show_version: bool,
+    /// What the terminal's window or tab title says while Trail runs: `off`,
+    /// `dir` (`trail <directory name>`) or `path` (`trail <full path>`).
+    ///
+    /// Parsed by [`crate::window_title::TitleMode::parse`]; read every frame,
+    /// so `:set` takes effect at once.
+    pub terminal_title: String,
     /// Whether git status workers should run.
     pub git_status_enabled: bool,
     /// Filesystem watcher debounce window in milliseconds.

@@ -156,6 +156,7 @@ struct GeneralOverrides {
     text_sync_threshold_kb: Option<usize>,
     delete_mode: Option<String>,
     show_version: Option<bool>,
+    terminal_title: Option<String>,
     git_status_enabled: Option<bool>,
     fs_watch_debounce_ms: Option<u64>,
 }
@@ -179,6 +180,9 @@ impl GeneralOverrides {
         }
         if let Some(show_version) = self.show_version {
             general.show_version = show_version;
+        }
+        if let Some(terminal_title) = self.terminal_title {
+            general.terminal_title = terminal_title;
         }
         if let Some(git_status_enabled) = self.git_status_enabled {
             general.git_status_enabled = git_status_enabled;

@@ -99,6 +99,7 @@ const ALIASES: &[(&str, &str)] = &[
     ("delete_mode", "general"),
     ("text_sync_threshold_kb", "general"),
     ("show_version", "general"),
+    ("terminal_title", "general"),
     ("git_status_enabled", "general"),
     ("fs_watch_debounce_ms", "general"),
     ("sort_by", "navigation"),

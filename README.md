@@ -424,6 +424,7 @@ trail --no-config                      # built-in defaults, this run only
 editor = "nvim"                # command used to open files
 delete_mode = "trash"          # `dd` goes to the recycle bin; "permanent" to unlink
 show_version = false           # show Trail's version on the preview border
+terminal_title = "dir"         # tab title: "trail <dir>"; "path" for the full path, "off"
 git_status_enabled = true
 text_sync_threshold_kb = 256   # larger text files are highlighted off-thread
 fs_watch_debounce_ms = 200

@@ -23,6 +23,7 @@ mod session;
 mod terminal;
 mod ui;
 mod version;
+mod window_title;
 mod workers;
 
 use std::io::{self, stdout};
@@ -47,6 +48,7 @@ use crate::cli::Cli;
 use crate::input::InputCtx;
 use crate::preview::provider::{PreviewContent, PreviewCtx, PreviewOutcome, PreviewRegistry};
 use crate::terminal::KeyOutcome;
+use crate::window_title::{TitleMode, WindowTitle};
 use crate::workers::fswatch::FsWatchHandle;
 use crate::workers::{GitCache, WorkerMsg};
 
@@ -73,6 +75,7 @@ async fn main() -> Result<()> {
     panic::set_hook(Box::new(move |info| {
         // Best-effort terminal restoration — if this itself fails, there's
         // nothing more we can do.
+        let _ = window_title::restore_to(&mut stdout());
         let _ = execute!(stdout(), LeaveAlternateScreen);
         let _ = tty::disable_raw_mode();
         default_hook(info);
@@ -221,6 +224,7 @@ async fn main() -> Result<()> {
     // restored before the process exits.
     let mut terminal = Terminal::new(backend).expect("failed to initialize terminal");
 
+    let mut title = WindowTitle::default();
     let run_result = run_event_loop(
         &mut terminal,
         &mut state,
@@ -229,11 +233,16 @@ async fn main() -> Result<()> {
         worker_tx.clone(),
         git_cache,
         &mut fs_watch_handle,
+        &mut title,
     )
     .await;
 
-    // Teardown: leave alternate screen and restore cooked mode regardless of
-    // whether the event loop exited cleanly or with an error.
+    // Teardown: give the shell its title back, leave alternate screen and
+    // restore cooked mode regardless of whether the event loop exited cleanly
+    // or with an error.
+    if let Err(e) = title.restore(&mut stdout()) {
+        tracing::debug!("restoring the terminal title failed: {e}");
+    }
     execute!(stdout(), LeaveAlternateScreen)?;
     tty::disable_raw_mode()?;
 
@@ -415,6 +424,7 @@ async fn run_event_loop(
     worker_tx: mpsc::Sender<WorkerMsg>,
     git_cache: GitCache,
     fs_watch_handle: &mut Option<FsWatchHandle>,
+    title: &mut WindowTitle,
 ) -> Result<()> {
     let mut ctx = InputCtx::default();
     let mut should_quit = false;
@@ -422,6 +432,7 @@ async fn run_event_loop(
 
     // Initial render.
     ui::render(terminal, state)?;
+    update_title(terminal, state, title);
     state.dirty = false;
     let mut last_render = Instant::now();
 
@@ -499,6 +510,7 @@ async fn run_event_loop(
                                         &mut ctx,
                                         &mut should_quit,
                                         &mut cancelled,
+                                        title,
                                     );
                                 }
                                 Event::Resize(_, _) => {
@@ -553,6 +565,7 @@ async fn run_event_loop(
         // Re-render only when something changed.
         if state.dirty {
             ui::render(terminal, state)?;
+            update_title(terminal, state, title);
             state.dirty = false;
             last_render = Instant::now();
             state.terminal.frame_drawn();
@@ -563,6 +576,21 @@ async fn run_event_loop(
         Err(anyhow::anyhow!("cancelled"))
     } else {
         Ok(())
+    }
+}
+
+/// Points the terminal title at the current directory, as
+/// `[general] terminal_title` asks. A failure is logged and otherwise
+/// ignored: the title is a convenience, not worth ending a session over.
+fn update_title(
+    terminal: &mut ratatui::Terminal<CrosstermBackend<io::Stdout>>,
+    state: &AppState,
+    title: &mut WindowTitle,
+) {
+    // validate() and `:set` both reject anything else, so this is the default.
+    let mode = TitleMode::parse(&state.config.general.terminal_title).unwrap_or(TitleMode::Dir);
+    if let Err(e) = title.update(terminal.backend_mut(), mode, &state.cwd) {
+        tracing::debug!("setting the terminal title failed: {e}");
     }
 }
 
@@ -584,6 +612,7 @@ fn handle_key_event(
     ctx: &mut InputCtx,
     should_quit: &mut bool,
     cancelled: &mut bool,
+    title: &mut WindowTitle,
 ) {
     let old_selected = state.selected;
     // The index alone misses a change of entry: while searching, every keystroke
@@ -695,6 +724,8 @@ fn handle_key_event(
         if let Err(e) = terminal.clear() {
             tracing::debug!("terminal clear after run_external failed: {e}");
         }
+        // The child may have set a title of its own (an editor usually does).
+        title.forget();
         // Refresh the listing and preview — the subprocess may have changed
         // the filesystem (e.g. saving a file in the editor).
         let _ = state.refresh();

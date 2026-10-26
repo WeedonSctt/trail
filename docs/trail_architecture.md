@@ -58,6 +58,7 @@ Everything in the spec's "Interface," "Navigation," "Filtering," and "Modes" sec
 | Mode/input handler | Routes keystrokes differently depending on Navigation / Search / Command mode |
 | Command mode parser | History, completion, validation for parameterized actions (rename, create, shell exec) |
 | Build label (`src/version.rs`) | What this binary was built as. `build.rs` asks git whether the commit is the one tagged `v<version>` with a clean tree (or the release workflow says so through `TRAIL_RELEASE`) and bakes in either the bare version or a dev label such as `1.10.1-dev.3+f7863b6`. `--version`, `--paths` and the preview's version badge all read it, so they cannot disagree; nothing is computed at run time |
+| Window title (`src/window_title.rs`) | Sets the terminal's window or tab title to `trail <directory>` after each frame, as `[general] terminal_title` asks, writing only when it changes. Saves the shell's title on the terminal's title stack first and restores it on exit and from the panic hook; the PowerShell wrapper restores it on Windows, where ConPTY keeps no stack |
 | Path formatter | Single place that decides how a path is spelled for a person versus for the OS (`src/pathfmt.rs`) |
 
 ### Path rendering

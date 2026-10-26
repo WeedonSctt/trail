@@ -31,10 +31,19 @@ function trail {
         return
     }
 
+    # Trail titles the tab `trail <dir>` while it runs ([general] terminal_title).
+    # ConPTY keeps no title stack for it to restore from, so the wrapper puts
+    # the shell's title back itself. A host without a console title has none.
+    $title = try { $Host.UI.RawUI.WindowTitle } catch { $null }
+
     try {
         & $trailApp.Path --cwd-file $tmp $args
     } finally {
         $exitCode = $LASTEXITCODE
+
+        if ($null -ne $title) {
+            try { $Host.UI.RawUI.WindowTitle = $title } catch { }
+        }
         
         if (Test-Path -LiteralPath $tmp) {
             $dir = (Get-Content -LiteralPath $tmp -Raw)

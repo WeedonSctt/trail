@@ -181,6 +181,12 @@ overwrite a running `trail.exe` — the installer renames the old one aside — 
 you left open keep running the previous build and are otherwise indistinguishable from
 new ones.
 
+**Which tab is Trail in?** While it runs, Trail titles the terminal tab `trail <directory>`
+— in WezTerm, Windows Terminal and most others that is the text on the tab — and puts the
+shell's title back when it exits. `[general] terminal_title` chooses the wording: `"dir"`
+(the default) names the directory, `"path"` gives its full path, and `"off"` leaves the
+title alone.
+
 The label also tells a release from a **dev build**. A release reads `v1.11.0`. A binary
 built from anything other than the tagged, unmodified release commit reads like
 `v1.11.0-dev.3+a1b2c3d`: three commits past v1.11.0, built from commit `a1b2c3d`. A trailing

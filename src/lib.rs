@@ -23,4 +23,5 @@ pub mod session;
 pub mod terminal;
 pub mod ui;
 pub mod version;
+pub mod window_title;
 pub mod workers;

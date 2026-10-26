@@ -62,6 +62,14 @@ delete_mode = "trash"
 # commit, `.dirty` if built with uncommitted changes) in the git_dirty colour,
 # so a build under test is never mistaken for a release.
 show_version = false
+# What the terminal's window or tab title says while Trail runs, so the tab
+# Trail is in can be found among the others: off | dir | path.
+#
+# `dir` reads `trail <directory name>`; `path` reads `trail <full path>`, which
+# tells apart two directories of the same name at the cost of a title too long
+# for a narrow tab.  `off` leaves the title alone.  The shell's own title comes
+# back when Trail exits.
+terminal_title = "dir"
 git_status_enabled = true
 fs_watch_debounce_ms = 200
 

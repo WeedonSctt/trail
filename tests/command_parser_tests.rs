@@ -487,6 +487,23 @@ fn the_shipped_default_sends_a_delete_to_the_recycle_bin() {
     assert_eq!(config.general.delete_mode, "trash");
 }
 
+/// The tab is titled by directory unless the config says otherwise, and
+/// `:set` takes only the three forms the title knows.
+#[test]
+fn terminal_title_defaults_to_the_directory_and_rejects_other_forms() {
+    let mut config = trail::config::load(None).unwrap();
+    assert_eq!(config.general.terminal_title, "dir");
+
+    config.set_value("terminal_title", " Path ").unwrap();
+    assert_eq!(config.general.terminal_title, "path");
+    let err = config.set_value("terminal_title", "name").unwrap_err();
+    assert!(err.to_string().contains("off, dir or path"), "{err}");
+    assert_eq!(
+        config.general.terminal_title, "path",
+        "a rejected value changes nothing"
+    );
+}
+
 #[test]
 fn cancel_delete_clears_pending_without_deleting() {
     let dir = tempfile::tempdir().unwrap();

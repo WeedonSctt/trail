@@ -63,6 +63,7 @@ src/
   main.rs          startup, terminal setup, the event loop; the only place anyhow is allowed
   lib.rs           library surface (so integration tests can reach internals)
   cli.rs           clap flags (--config, --cwd-file, --paths, ...)
+  window_title.rs  the terminal tab title (`trail <dir>`), and giving the shell's back
   pathfmt.rs       how a path is spelled for a human vs. for the OS (Windows `\\?\`)
   paths.rs         every location Trail owns; the only ProjectDirs caller
   session.rs       cd-on-exit handoff to the shell wrappers

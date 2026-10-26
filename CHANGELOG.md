@@ -29,6 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Added
+
+- **The terminal tab says Trail is in it.** While Trail runs, the window or tab title reads
+  `trail <directory>`, following you as you move, so the tab with Trail is easy to find.
+  `[general] terminal_title` picks `"dir"` (the default), `"path"` for the full path, or
+  `"off"`. The shell's title comes back when Trail exits; on Windows the PowerShell
+  wrapper does that, so re-copy `shell/trail.ps1` (or merge its title lines into yours).
+
 ## [1.11.4] - 2026-10-26
 
 ### Changed
