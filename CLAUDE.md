@@ -380,8 +380,8 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
-- Released: **v1.11.4**, from `main`, which is current and pushed. Also on crates.io as
-  `trail-fm` (1.11.1 through 1.11.4).
+- Released: **v1.12.0**, from `main`, which is current and pushed. Also on crates.io as
+  `trail-fm` (1.11.1 through 1.12.0).
 - The Homebrew tap (`WeedonSctt/homebrew-trail`), the Scoop bucket
   (`WeedonSctt/trail-scoop-bucket`) and the AUR package that `README.md` tells people to
   install from **do not exist** (checked 2026-10-21) — release step 9 has had nowhere to
