@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.11.3] - 2026-10-26
+
 ### Changed
 
 - **A preview that stops early says so.** When `[preview] max_lines` or
@@ -257,7 +259,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.2...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.11.3...HEAD
+[1.11.3]: https://github.com/WeedonSctt/trail/compare/v1.11.2...v1.11.3
 [1.11.2]: https://github.com/WeedonSctt/trail/compare/v1.11.1...v1.11.2
 [1.11.1]: https://github.com/WeedonSctt/trail/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/WeedonSctt/trail/compare/v1.10.1...v1.11.0

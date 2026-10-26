@@ -3,7 +3,7 @@
 # unrelated library. The binary and the library are still `trail` (see [lib]
 # and [[bin]] below), so `cargo install trail-fm` installs a `trail` command.
 name = "trail-fm"
-version = "1.11.2"
+version = "1.11.3"
 edition = "2021"
 # Minimum Supported Rust Version.  Verified against the stable toolchain used
 # in CI.  Bump only when a dependency or language feature requires it.
