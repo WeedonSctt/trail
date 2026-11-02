@@ -5,6 +5,7 @@
 
 pub mod clipboard;
 pub mod fs_ops;
+pub mod run_report;
 pub mod shell_exec;
 pub mod transfer;
 
@@ -157,6 +158,10 @@ pub enum Action {
         /// `:git`, and always [`shell_exec::ShellPause::Never`] for the editor
         /// and OS-handler opens, which draw their own screens.
         pause: shell_exec::ShellPause,
+        /// The command as typed, `!cargo test` or `:git status`, for the result
+        /// block and the status bar. `None` for the editor and OS-handler opens,
+        /// which report only when they fail.
+        label: Option<String>,
     },
 
     // ── Quit ─────────────────────────────────────────────────────────────
@@ -199,6 +204,22 @@ pub enum Repeatable {
     /// A key's action, replayed as if the key were pressed again. A repeated
     /// `dd` therefore still asks for confirmation.
     Key(Action),
+}
+
+/// Reports the last run of an external command in the status bar: a failure in
+/// the error colour, a success as an ordinary notice.
+///
+/// Whatever `[general] shell_pause` says: the result block is out of sight as
+/// soon as the alternate screen returns, and under `never` this is the only
+/// report there is. The editor and the OS file handler report only a failure.
+pub fn report_run(state: &mut AppState, report: &run_report::RunReport) {
+    if let Some(line) = report.status_line() {
+        if report.succeeded() {
+            state.notify(line);
+        } else {
+            state.set_error(line);
+        }
+    }
 }
 
 /// Applies `action` to `state`, returning an error if a filesystem operation
@@ -245,6 +266,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                             // An editor owns the screen while it runs and leaves
                             // nothing to read behind it.
                             pause: shell_exec::ShellPause::Never,
+                            label: None,
                         });
                         state.dirty = true;
                     }
@@ -403,6 +425,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                             argv: vec![editor, entry.path.display().to_string()],
                             cwd: state.cwd.clone(),
                             pause: shell_exec::ShellPause::Never,
+                            label: None,
                         });
                         state.dirty = true;
                     }
@@ -703,6 +726,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     // The OS handler opens its own window; there is no output
                     // here to hold the screen for.
                     pause: shell_exec::ShellPause::Never,
+                    label: None,
                 });
                 state.dirty = true;
             }
@@ -1165,6 +1189,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 argv: shell_exec::shell_argv(&state.config.general.shell, &format!("git {subcmd}")),
                 cwd: state.cwd.clone(),
                 pause: configured_pause(state),
+                label: Some(format!(":git {subcmd}")),
             });
             state.dirty = true;
         }
@@ -1232,6 +1257,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                     argv: shell_exec::shell_argv(&state.config.general.shell, &cmd_str),
                     cwd: state.cwd.clone(),
                     pause: configured_pause(state),
+                    label: Some(format!("!{cmd_str}")),
                 });
                 state.dirty = true;
             }

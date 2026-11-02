@@ -325,10 +325,34 @@ to a shell to interpret, so pipes, redirection, `&&` and shell builtins all work
 shell is `cmd.exe /C` on Windows and `sh -c` elsewhere, and `:git` uses the same one.
 
 While the command runs, Trail steps aside and gives it the whole terminal. When it
-finishes, Trail waits for you to press Enter before taking the screen back — otherwise its
-output would be erased the instant it appeared. Set `[general] shell_pause` to `on_error` to
-be held up only when a command fails, or to `never` if you would rather not press a key.
-Opening a file in the editor never waits.
+finishes, Trail prints a result block under its output and waits for you — otherwise the
+output would be erased the instant it appeared:
+
+```
+...output of the command...
+
+── !cargo test ───────────────────── failed: exit 101 · 12.4s
+/home/me/my-project
+r: run again · Enter: back to Trail
+─────────────────────────────────────────────────────────────
+```
+
+- `r` runs the same command again in the same folder. Its output and its own block appear
+  below this one.
+- `Enter` or `Esc` goes back to Trail. Every other key does nothing.
+- Keys count only once the block is on screen: anything you typed while the command ran is
+  thrown away, so an `r` typed early cannot repeat the command by accident.
+
+Back in Trail, the status bar reports the last run: `!cargo test failed: exit 101 (12.4s)`.
+That report appears whatever `shell_pause` says, and it is the only one under `never`.
+
+Set `[general] shell_pause` to `on_error` to be held up only when a command fails, or to
+`never` if you would rather not press a key. Opening a file in the editor never waits, and
+reports only if it fails.
+
+The exit code is the shell's: PowerShell's `-Command` can report a failed tool as plain `1`
+rather than the tool's own code, so `ok` or `failed` is right even where the number is not
+the tool's.
 
 Change it with `[general] shell` — see
 [the configuration guide](configuration_guide.md#configuring-the-shell). On Windows the

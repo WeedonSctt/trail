@@ -381,7 +381,7 @@ Press `:` for operations that take arguments.
 | `:plugin <name> [arg]` | Invoke an action registered by a Lua plugin |
 | `:term` / `:term new [profile]` | Show or hide the terminal panel / start another shell in it |
 | `:term close` / `:term <n>` / `:term max` | End the current shell / switch to shell *n* / fill the screen |
-| `!<command>` | Run any shell command in the current directory, e.g. `!ls -la` |
+| `!<command>` | Run any shell command in the current directory, e.g. `!ls -la`. A result block follows its output: `r` runs it again, `Enter` goes back to Trail |
 
 Command mode keeps a **history** (`↑` / `↓`) and offers **Tab completion** for command verbs and
 for destination paths in `:mv` and `:cp`.

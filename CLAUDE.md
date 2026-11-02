@@ -76,7 +76,7 @@ src/
   preview/         provider.rs (PreviewProvider trait + PreviewContent), text, directory,
                    binary, image, graphics (terminal inline-image protocol state)
   workers/         mod.rs (WorkerMsg + merge), git, fswatch, highlight, image_decode
-  actions/         mod.rs (dispatch), fs_ops, shell_exec, clipboard
+  actions/         mod.rs (dispatch), fs_ops, shell_exec, run_report, transfer, clipboard
   config/          schema.rs (serde structs), terminal.rs ([terminal] section),
                    mod.rs (overrides + merge), default.toml, last_used.rs
   plugin/          mod.rs, lua_api.rs, bookmarks.rs

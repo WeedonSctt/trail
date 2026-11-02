@@ -51,7 +51,7 @@ decisions are still the maintainer's.
 
 **Seventh round (2026-11-02, item 27).** The prompt after a `!` command says nothing about
 the command. The design was settled with the maintainer before this entry was written, and
-§2.25 records the answers. Not started.
+§2.25 records the answers. Built; waiting on the maintainer's hand test before it ships.
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -89,7 +89,7 @@ test itself).
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A tab bar that shows the open tabs | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24; shape still to confirm |
-| 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **planned** — §2.25 |
+| 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **in progress** — §2.25; built, not yet released |
 
 ---
 

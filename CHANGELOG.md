@@ -29,6 +29,18 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Added
+
+- **A result block after a `!` or `:git` command.** Under its output, the command, `ok` or
+  `failed: exit N`, the time it took and the folder it ran in, closed by a rule so several
+  runs stay readable. It replaces `[trail] press Enter to return…`.
+- **`r` runs the command again** from that block, in the same folder, without going back to
+  Trail. `Enter` or `Esc` goes back. Anything typed while the command ran is thrown away, so
+  an `r` pressed early cannot repeat it by accident.
+- **The status bar reports the last run** back in Trail, `!cargo test failed: exit 101
+  (12.4s)`, whatever `[general] shell_pause` says. Under `never`, a failed command used to
+  come back with no sign that anything had gone wrong.
+
 ## [1.12.2] - 2026-11-02
 
 ### Fixed

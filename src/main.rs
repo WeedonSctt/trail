@@ -713,10 +713,17 @@ fn handle_key_event(
     // Phase 6: drain any pending external action (editor-open or !shell).
     // run_external is synchronous (blocks until the child exits) but we must
     // call it here on the UI thread because it manipulates terminal state.
-    if let Some(Action::RunExternal { argv, cwd, pause }) = state.pending_external.take() {
+    if let Some(Action::RunExternal {
+        argv,
+        cwd,
+        pause,
+        label,
+    }) = state.pending_external.take()
+    {
         let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
-        if let Err(e) = shell_exec::run_external(&argv_refs, &cwd, pause) {
-            state.set_error(format!("exec: {e}"));
+        match shell_exec::run_external(&argv_refs, &cwd, pause, label.as_deref()) {
+            Ok(report) => actions::report_run(state, &report),
+            Err(e) => state.set_error(format!("exec: {e}")),
         }
         // Force a full redraw: the child process may have overwritten the screen.
         // terminal.clear() resets ratatui's internal buffer so the next render
