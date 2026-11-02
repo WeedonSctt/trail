@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-11-02
+
 ### Fixed
 
 - **Image previews no longer leave stray pixels behind in WezTerm and other terminals that
@@ -298,7 +300,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.12.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.12.2...HEAD
+[1.12.2]: https://github.com/WeedonSctt/trail/compare/v1.12.1...v1.12.2
 [1.12.1]: https://github.com/WeedonSctt/trail/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/WeedonSctt/trail/compare/v1.11.4...v1.12.0
 [1.11.4]: https://github.com/WeedonSctt/trail/compare/v1.11.3...v1.11.4

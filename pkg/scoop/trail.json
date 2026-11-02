@@ -1,16 +1,16 @@
 {
   "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
-  "version": "1.12.1",
+  "version": "1.12.2",
   "description": "Terminal-first workspace for navigating, inspecting and acting on the filesystem",
   "homepage": "https://github.com/WeedonSctt/trail",
   "license": "MIT",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/WeedonSctt/trail/releases/download/v1.12.1/trail-v1.12.1-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/WeedonSctt/trail/releases/download/v1.12.2/trail-v1.12.2-x86_64-pc-windows-msvc.zip",
       "hash": "2496671ba59d3a20c570e21d33200aa648495c4e446f76f87ea5f846d029455b"
     }
   },
-  "extract_dir": "trail-v1.12.1-x86_64-pc-windows-msvc",
+  "extract_dir": "trail-v1.12.2-x86_64-pc-windows-msvc",
   "bin": "trail.exe",
   "shortcuts": [],
   "notes": [
