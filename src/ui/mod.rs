@@ -13,12 +13,86 @@ mod terminal_panel;
 mod theme;
 
 use ratatui::backend::Backend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Terminal;
 use std::io;
 
-use crate::app::state::AppState;
+use crate::app::state::{AppState, PreviewSlot};
 use crate::preview::provider::PreviewContent;
+
+/// Where each panel goes this frame.
+#[derive(Debug, Clone, Copy)]
+struct Panes {
+    nav: Rect,
+    preview: Rect,
+    /// `None` while the terminal panel is closed.
+    terminal: Option<Rect>,
+    status: Rect,
+    /// False while a maximized terminal panel leaves no room for the file list
+    /// and the preview, which are then not drawn at all.
+    files_shown: bool,
+}
+
+impl Panes {
+    /// Lays the panels out in `area`.
+    ///
+    /// Separate from the draw because the preview's position has to be known
+    /// before it: the screen can only be cleared between frames.
+    fn new(area: Rect, state: &AppState) -> Panes {
+        let outer = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(1),    // main area (nav + preview)
+                Constraint::Length(1), // status bar
+            ])
+            .split(area);
+
+        let (main, terminal) = if state.terminal.is_visible() {
+            let rows = crate::terminal::panel_rows(
+                outer[0].height,
+                state.config.terminal.height,
+                state.terminal.is_maximized(),
+            );
+            let split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(0), Constraint::Length(rows)])
+                .split(outer[0]);
+            (split[0], Some(split[1]))
+        } else {
+            (outer[0], None)
+        };
+
+        let inner = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(40), // navigation panel
+                Constraint::Percentage(60), // preview panel
+            ])
+            .split(main);
+
+        Panes {
+            nav: inner[0],
+            preview: inner[1],
+            terminal,
+            status: outer[1],
+            files_shown: main.height > 0,
+        }
+    }
+}
+
+/// Records where the current image is about to be drawn, returning whether the
+/// screen must be cleared first because it moved or has only just arrived.
+///
+/// See [`crate::preview::graphics::ImagePreview::placed_at`] for why. Half-blocks
+/// repaint every cell they use, so they never ask for a clear.
+fn image_needs_clear(slot: &mut PreviewSlot, pane: Option<Rect>) -> bool {
+    let PreviewContent::Image(image) = &mut slot.content else {
+        return false;
+    };
+    let moved = pane.is_some() && image.placed_at != pane;
+    image.placed_at = pane;
+    moved && image.draws_over_cells
+}
 
 /// Draws all three panels into the terminal frame.
 ///
@@ -51,51 +125,27 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
     // moved the cursor and painted outside the pane. That is fixed at the source
     // in `preview::provider::sanitize`, which leaves ratatui's own diff free to
     // do what it is good at.
-    let drawing_image = matches!(state.preview.content, PreviewContent::Image(_));
-    if state.preview.drew_image && !drawing_image {
+    let size = terminal.size()?;
+    let panes = Panes::new(Rect::new(0, 0, size.width, size.height), state);
+    let drawing_image =
+        panes.files_shown && matches!(state.preview.content, PreviewContent::Image(_));
+    let image_moved = image_needs_clear(
+        &mut state.preview,
+        panes.files_shown.then_some(panes.preview),
+    );
+    if image_moved || (state.preview.drew_image && !drawing_image) {
         terminal.clear()?;
     }
     state.preview.drew_image = drawing_image;
 
     terminal.draw(|frame| {
-        let outer = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),    // main area (nav + preview)
-                Constraint::Length(1), // status bar
-            ])
-            .split(frame.area());
-
-        let (main, panel) = if state.terminal.is_visible() {
-            let rows = crate::terminal::panel_rows(
-                outer[0].height,
-                state.config.terminal.height,
-                state.terminal.is_maximized(),
-            );
-            let split = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(0), Constraint::Length(rows)])
-                .split(outer[0]);
-            (split[0], Some(split[1]))
-        } else {
-            (outer[0], None)
-        };
-
-        status_bar::draw(frame, outer[1], state);
-        if let Some(panel) = panel {
+        status_bar::draw(frame, panes.status, state);
+        if let Some(panel) = panes.terminal {
             terminal_panel::draw(frame, panel, state);
         }
-        if main.height == 0 {
+        if !panes.files_shown {
             return;
         }
-
-        let inner = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(40), // navigation panel
-                Constraint::Percentage(60), // preview panel
-            ])
-            .split(main);
 
         // The panel's scroll position is decided here rather than inside the
         // panel because it outlives the frame: the panel borrows `state` only
@@ -106,13 +156,13 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
             &state.cwd,
             state.selected,
             listed,
-            usize::from(inner[0].height.saturating_sub(2)),
+            usize::from(panes.nav.height.saturating_sub(2)),
             state.config.navigation.scroll_margin,
         );
-        nav_panel::draw(frame, inner[0], state, nav_offset);
+        nav_panel::draw(frame, panes.nav, state, nav_offset);
         // Drawn last: it borrows `state` mutably, so the read-only panels above
         // must have finished with it.
-        preview_panel::draw(frame, inner[1], state);
+        preview_panel::draw(frame, panes.preview, state);
     })?;
     Ok(())
 }

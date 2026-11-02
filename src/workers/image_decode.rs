@@ -81,7 +81,7 @@ fn decode_image_sync(path: &std::path::Path) -> PreviewContent {
     );
 
     match graphics::build(image) {
-        Some(protocol) => PreviewContent::Image(ImagePreview { protocol, caption }),
+        Some(protocol) => PreviewContent::Image(ImagePreview::new(protocol, caption)),
         // Image previews are switched off via `[preview] image_protocol`.
         None => PreviewContent::Binary(vec![
             format!("  Type    : {} image", format_label(path)),

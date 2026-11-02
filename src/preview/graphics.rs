@@ -50,6 +50,7 @@ use std::env;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use image::DynamicImage;
+use ratatui::layout::Rect;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratatui_image::protocol::StatefulProtocol;
 
@@ -121,6 +122,19 @@ impl ImageProtocol {
             "none" | "off" => Some(ImageProtocol::None),
             _ => None,
         }
+    }
+
+    /// Whether the terminal, rather than ratatui's cells, draws the picture.
+    ///
+    /// True of every protocol but half-blocks, which is ordinary coloured text.
+    /// Such a picture covers cells ratatui is told to leave alone, and only the
+    /// terminal knows how many of them it really reached — see
+    /// [`ImagePreview::placed_at`].
+    pub fn draws_over_cells(self) -> bool {
+        matches!(
+            self,
+            ImageProtocol::Kitty | ImageProtocol::Iterm2 | ImageProtocol::Sixel
+        )
     }
 
     /// The `ratatui-image` protocol backing this variant, if it draws pixels.
@@ -429,6 +443,32 @@ pub struct ImagePreview {
     /// One-line summary drawn beneath the image (format, dimensions, size and
     /// the protocol in use).
     pub caption: String,
+    /// Whether the terminal draws this image over cells ratatui skips, fixed
+    /// when the image is built because a preview keeps its protocol.
+    pub draws_over_cells: bool,
+    /// The preview pane this image was last drawn into, or `None` if it has not
+    /// been drawn or the pane was hidden since.
+    ///
+    /// The cells an image reserves are never repainted by ratatui, yet the
+    /// picture may not reach all of them: Trail assumes a cell size, and where
+    /// the real cells are larger the image stops short. Whatever the screen held
+    /// in that gap therefore stays visible. `ui::render` clears the screen when
+    /// this differs from the pane about to be drawn, which is the only moment
+    /// such leftovers can appear.
+    pub placed_at: Option<Rect>,
+}
+
+impl ImagePreview {
+    /// Wraps a built encoder as a preview that has not been drawn yet, under the
+    /// protocol currently in effect.
+    pub fn new(protocol: Box<dyn StatefulProtocol>, caption: String) -> ImagePreview {
+        ImagePreview {
+            protocol,
+            caption,
+            draws_over_cells: active().draws_over_cells(),
+            placed_at: None,
+        }
+    }
 }
 
 impl std::fmt::Debug for ImagePreview {
@@ -438,6 +478,8 @@ impl std::fmt::Debug for ImagePreview {
         f.debug_struct("ImagePreview")
             .field("protocol", &"<encoder>")
             .field("caption", &self.caption)
+            .field("draws_over_cells", &self.draws_over_cells)
+            .field("placed_at", &self.placed_at)
             .finish()
     }
 }

@@ -31,6 +31,11 @@ the commits said rather than what the users saw.
 
 ### Fixed
 
+- **Image previews no longer leave stray pixels behind in WezTerm and other terminals that
+  draw real images.** Opening the terminal panel with an image showing left bits of the
+  larger image on screen, and closing it left bits of the shell around the image, until a
+  reload with `R`. The same could happen moving from a text file, or a differently shaped
+  image, onto an image. Half-block previews, as in Windows Terminal, were never affected.
 - **The Linux x86_64 release runs on older CPUs again.** On a CPU older than Intel Haswell
   (2013) it crashed with `Illegal instruction` on every launch, though `trail --version`
   worked. The bundled Lua had been compiled for newer CPUs by the build machine's default.

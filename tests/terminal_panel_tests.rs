@@ -249,3 +249,46 @@ fn prompt_marker(dir: &std::path::Path) -> String {
         "$".to_owned()
     }
 }
+
+/// A picture the terminal draws reserves cells ratatui will not repaint, and it
+/// need not reach all of them: Trail assumes a cell size, and real cells are
+/// often larger. So closing the panel must erase the screen, or the panel's old
+/// cells stay visible in the gap beside the image. A `TestBackend` shows this
+/// directly, because it keeps whatever the skipped cells last held.
+#[test]
+fn closing_the_panel_leaves_nothing_of_it_around_an_image() {
+    use trail::preview::graphics::{self, ImagePreview};
+    use trail::preview::provider::PreviewContent;
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut state = state_with_shell_profile(dir.path());
+    let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
+
+    // Tall enough at 7x14 cells to reserve the rows the panel is about to use.
+    graphics::configure("iterm2", (7, 14));
+    let source = image::RgbImage::from_pixel(400, 400, image::Rgb([200, 30, 30])).into();
+    state.preview.content = PreviewContent::Image(ImagePreview::new(
+        graphics::build(source).unwrap(),
+        String::new(),
+    ));
+    trail::ui::render(&mut terminal, &mut state).unwrap();
+
+    terminal::handle_key(&mut state, &toggle());
+    trail::ui::render(&mut terminal, &mut state).unwrap();
+    // The panel's square corner, as opposed to the panes' rounded ones.
+    let panel_row = |terminal: &Terminal<TestBackend>| {
+        (0..HEIGHT).find(|&y| terminal.backend().buffer()[(0, y)].symbol() == "\u{250c}")
+    };
+    let top = panel_row(&terminal).expect("the panel is drawn");
+
+    terminal::handle_key(&mut state, &toggle());
+    trail::ui::render(&mut terminal, &mut state).unwrap();
+    assert_eq!(panel_row(&terminal), None, "the panel is closed");
+
+    let buf = terminal.backend().buffer();
+    let leftovers: String = (0..WIDTH).map(|x| buf[(x, top)].symbol()).collect();
+    assert!(
+        !leftovers.contains('\u{2500}'),
+        "the panel's border survived its closing: {leftovers}"
+    );
+}

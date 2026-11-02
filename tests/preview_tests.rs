@@ -248,10 +248,10 @@ fn image_preview_refits_itself_when_the_pane_is_resized() {
     // terminal happens to be running the suite.
     graphics::configure("halfblocks", (7, 14));
     let source = ImageBuffer::from_pixel(800, 600, Rgb::<u8>([200, 30, 30])).into();
-    let mut preview = ImagePreview {
-        protocol: graphics::build(source).expect("halfblocks always builds an encoder"),
-        caption: String::new(),
-    };
+    let mut preview = ImagePreview::new(
+        graphics::build(source).expect("halfblocks always builds an encoder"),
+        String::new(),
+    );
 
     // The image is drawn into a sub-rect of the screen, exactly as the preview
     // panel draws it inside its border. Painting outside that rect is what
