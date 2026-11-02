@@ -7,7 +7,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/WeedonSctt/trail/releases/download/v1.12.1/trail-v1.12.1-x86_64-pc-windows-msvc.zip",
-      "hash": "215f96392bb920c8503707d7b951e64118e46482eacf7813419aac2ac5e9b869"
+      "hash": "2496671ba59d3a20c570e21d33200aa648495c4e446f76f87ea5f846d029455b"
     }
   },
   "extract_dir": "trail-v1.12.1-x86_64-pc-windows-msvc",
