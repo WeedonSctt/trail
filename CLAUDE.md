@@ -380,6 +380,20 @@ with a patch release, and annotate the bad release's notes with a pointer to the
 
 ## 9. Current state and known traps
 
+- **This machine is low on memory (temporary, noted 2026-11-02).** It has 8 GB until a second
+  stick arrives, often with under 1 GB free. A git-ignored `.cargo/config.toml` limits Cargo
+  to two compile jobs and two test threads and trims debug info, so plain `cargo` commands
+  are already safe; do not override it. It does not reach the `trail-plugin-api` worktree.
+  Until the upgrade:
+  - Run **one Cargo command at a time, across all agents**. Check for a running `cargo` or
+    `rustc` first, and never start gates or builds in parallel, including by subagents.
+  - Do not build `--release` locally: `lto = true` with one codegen unit is the most
+    memory-hungry thing here. `release.yml` builds the release binaries.
+  - Builds are slower, and a full rebuild can pass the 10-minute tool limit, so run long ones
+    in the background.
+
+  When the maintainer says the RAM is in, delete `.cargo/config.toml` and this entry. The
+  `.gitignore` line can stay.
 - Released: **v1.12.2**, from `main`, which is current and pushed. Also on crates.io as
   `trail-fm` (1.11.1 through 1.12.2).
 - The Homebrew tap (`WeedonSctt/homebrew-trail`), the Scoop bucket

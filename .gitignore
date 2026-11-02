@@ -5,6 +5,9 @@
 # Build output
 /target/
 
+# Per-machine Cargo settings (the low-memory limits in CLAUDE.md section 9)
+/.cargo/config.toml
+
 # Backup files created by rustfmt/rustc
 **/*.rs.bk
 
