@@ -47,15 +47,19 @@ SHELL_DIR="${SHELL_DIR:-${HOME}/.local/share/trail/shell}"
 # Helpers
 ##############################################################################
 
-# Portable ANSI colour helpers; suppressed when NO_COLOR is set or stdout is
+# Portable ANSI colour helpers; suppressed when NO_COLOR is set or stderr is
 # not a terminal.
+#
+# Every status line goes to stderr.  Functions here return values on stdout
+# through `$(...)`, so a message on stdout becomes part of the value: that is how
+# "Resolving latest release..." once ended up inside the download URL.
 _use_colour() {
-    [ -z "${NO_COLOR:-}" ] && [ -t 1 ]
+    [ -z "${NO_COLOR:-}" ] && [ -t 2 ]
 }
 
-info()  { if _use_colour; then printf '\033[1;34m  info\033[0m  %s\n' "$*"; else printf '  info  %s\n' "$*"; fi; }
-ok()    { if _use_colour; then printf '\033[1;32m    ok\033[0m  %s\n' "$*"; else printf '    ok  %s\n' "$*"; fi; }
-warn()  { if _use_colour; then printf '\033[1;33m  warn\033[0m  %s\n' "$*"; else printf '  warn  %s\n' "$*"; fi; }
+info()  { if _use_colour; then printf '\033[1;34m  info\033[0m  %s\n' "$*" >&2; else printf '  info  %s\n' "$*" >&2; fi; }
+ok()    { if _use_colour; then printf '\033[1;32m    ok\033[0m  %s\n' "$*" >&2; else printf '    ok  %s\n' "$*" >&2; fi; }
+warn()  { if _use_colour; then printf '\033[1;33m  warn\033[0m  %s\n' "$*" >&2; else printf '  warn  %s\n' "$*" >&2; fi; }
 error() { if _use_colour; then printf '\033[1;31m error\033[0m  %s\n' "$*" >&2; else printf ' error  %s\n' "$*" >&2; fi; }
 die()   { error "$*"; exit 1; }
 
@@ -136,7 +140,7 @@ main() {
     need_cmd tar
     need_cmd mktemp
 
-    local target version archive_name archive_url tmpdir
+    local target version archive_name archive_url
 
     target="$(detect_target)"
     version="$(resolve_version)"
@@ -146,7 +150,9 @@ main() {
     info "Installing trail v${version} for ${target}"
     info "Downloading ${archive_url}"
 
-    # Work in a temporary directory that is cleaned up on exit.
+    # Work in a temporary directory that is cleaned up on exit.  Not `local`: the
+    # trap runs after main has returned, when a local would be gone and `set -u`
+    # would fail the whole script on it.
     tmpdir="$(mktemp -d)"
     trap 'rm -rf "$tmpdir"' EXIT
 
@@ -233,7 +239,7 @@ The download may be corrupted.  Delete any cached files and retry."
     if [ -n "$fish_dir" ]; then
         echo "    Fish:  wrapper installed automatically — open a new fish session."
     else
-        echo "    Fish:  copy ${extracted_dir}/shell/trail.fish to ~/.config/fish/functions/"
+        echo "    Fish:  create ~/.config/fish/functions and re-run this script to install the wrapper."
     fi
     echo ""
     echo "  Then run:  trail"

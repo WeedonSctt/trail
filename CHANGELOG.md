@@ -29,6 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`install.sh` works without `VERSION=`.** The documented one-liner failed on every Linux
+  and macOS machine with a curl error such as `URL rejected: Bad path`, because a status
+  message ended up inside the download URL. A successful install also reported failure
+  (`tmpdir: unbound variable`) and left its temporary directory behind, and its fish advice
+  pointed into that directory.
+
 ## [1.12.0] - 2026-10-26
 
 ### Added
