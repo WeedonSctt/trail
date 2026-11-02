@@ -423,5 +423,12 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   release number. Publish with `--target-dir target/publish`; if a dev build ever reports a
   bare version, `cargo clean -p trail-fm` clears it. `TRAIL_RELEASE` is only believed where
   git cannot see the commit, so a stray one in a shell cannot do the same.
+- `ubuntu-latest` is Ubuntu 26.04, whose gcc defaults to `-march=x86-64-v3` (and whose own
+  system binaries need it too). Anything `cc` compiles there, which today is the vendored
+  Lua, crashes with `Illegal instruction` before Haswell (2013) unless `release.yml` holds it
+  down with `CFLAGS_x86_64_unknown_linux_gnu`. `--version` exits before Lua starts, so only
+  `.github/scripts/check-baseline-cpu.sh`, which launches the binary under qemu, catches
+  this. Test old CPUs inside Arch, not on the runner: there even `/bin/true` crashes under
+  qemu, and always run that control first, or the runner's loader looks like Trail's bug.
 - Line endings: the working tree is CRLF on Windows, the repo is LF. `git diff` warnings
   about this are expected and not something to fix.

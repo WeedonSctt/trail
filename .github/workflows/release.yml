@@ -97,8 +97,15 @@ jobs:
     # same from the tagged checkout, but the `cross` container may have no git;
     # Cross.toml passes this through to it. build.rs ignores the variable unless
     # it equals `v<Cargo.toml version>`.
+    #
+    # The CFLAGS line holds the bundled Lua, the C in this build, to the x86_64
+    # baseline. Ubuntu 26.04's gcc defaults to x86-64-v3 (Haswell, 2013, onward),
+    # and without this `ubuntu-latest` silently produced a binary that crashes
+    # with "Illegal instruction" on older CPUs. Rust's own code is unaffected: it
+    # targets the baseline already and detects newer features at run time.
     env:
       TRAIL_RELEASE: ${{ github.ref_name }}
+      CFLAGS_x86_64_unknown_linux_gnu: "-march=x86-64 -mtune=generic"
 
     strategy:
       fail-fast: true
@@ -190,6 +197,12 @@ jobs:
             echo "::error::binary reports '$reported', expected '$expected'"
             exit 1
           fi
+
+      # ── Check the binary runs on an old CPU ───────────────────────────────
+      # See the script: reporting a version does not show that it launches.
+      - name: Verify it launches on a baseline CPU
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: bash .github/scripts/check-baseline-cpu.sh "${{ steps.bin.outputs.path }}"
 
       # ── Package archive ───────────────────────────────────────────────────
       # Archive layout for every platform:

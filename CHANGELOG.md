@@ -29,6 +29,12 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Linux x86_64 release runs on older CPUs again.** On a CPU older than Intel Haswell
+  (2013) it crashed with `Illegal instruction` on every launch, though `trail --version`
+  worked. The bundled Lua had been compiled for newer CPUs by the build machine's default.
+
 ## [1.12.1] - 2026-11-01
 
 ### Fixed
