@@ -49,6 +49,10 @@ count them. It reopens the tab bar that §2.6 put off and §2.17 cited, on a con
 removes the objection. Written down on request and not started; §2.24 records which of its
 decisions are still the maintainer's.
 
+**Seventh round (2026-11-02, item 27).** The prompt after a `!` command says nothing about
+the command. The design was settled with the maintainer before this entry was written, and
+§2.25 records the answers. Not started.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -85,6 +89,7 @@ test itself).
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A tab bar that shows the open tabs | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24; shape still to confirm |
+| 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **planned** — §2.25 |
 
 ---
 
@@ -980,6 +985,104 @@ active label follows navigation inside the active tab, that the badge is gone wh
 is drawn, that the active tab stays visible when the strip overflows, and that a maximized
 terminal panel hides the bar.
 
+### 2.25 The prompt after a `!` command
+
+> *"the '[trail] press Enter to return' is plain, i don't get any other information rather
+> than i was in trail."*
+
+`shell_exec::PAUSE_PROMPT` is a fixed string (`src/actions/shell_exec.rs:48`): no command, no
+result, no time. Two further defects sit behind it:
+
+- **The exit status is thrown away.** `run_external` uses it to decide whether to pause, then
+  drops it with `wait_result.map(|_| ())`. With `shell_pause = "never"`, a failed command
+  returns to Trail with no sign that anything went wrong; with `on_error`, a success looks the
+  same as nothing having happened.
+- **Runs merge together.** The normal screen is not wiped between commands, so one command's
+  output starts right after the previous run's prompt.
+
+#### The result block
+
+Five lines, printed whole as soon as the command exits, with the cursor left below them:
+
+```
+...output of the command...
+
+── !cargo test ───────────────────── failed: exit 101 · 12.4s
+C:\Users\weedo\proj\it\util\trail
+r: run again · Enter: back to Trail
+─────────────────────────────────────────────────────────────
+
+...output of the next command...
+```
+
+- **Header.** The command as typed, then the result and the elapsed time: `ok` in green, or
+  `failed: exit N` in red. The words carry the meaning, so it still reads correctly without
+  colour. A long command is shortened with `…` to the terminal's width.
+- **Folder.** Where it ran, through `pathfmt`, so no `\\?\`.
+- **Keys.** The line that tells you what you can do next.
+- **Closing line.** A plain rule, like Markdown's `---`, chosen by the maintainer over a
+  three-line block. It is what keeps several runs readable as separate blocks: the header
+  marks where a block starts, and this stops the next command's output running into it.
+
+The `[trail]` label goes; the header makes it clear this is not the command's output.
+
+#### Run again with `r`
+
+`r` runs the same command again in the same folder, without returning to Trail. The new output
+appears below the closing line and ends in a block of its own, with its own result and time.
+
+**The keys count only while the block is on screen.** This is the maintainer's rule, and it is
+what makes a one-letter re-run safe:
+
+- Anything typed while the command runs is discarded before the block is printed. Otherwise an
+  `r` typed during a long command would be read the moment it finished and repeat something
+  like `!del old.log`, and an early Enter would dismiss the result before it was seen.
+- Only actual key **presses** count. Windows also reports key releases, and the release of the
+  Enter that launched the command must not read as an answer (`KeyEventKind::Press`).
+- `r` or `R` runs it again, so Caps Lock does not get in the way. Enter or `Esc` goes back to
+  Trail. Every other key does nothing.
+- `shell_pause` still decides whether there is a block to answer. With `on_error`, a command
+  that succeeds goes straight back to Trail, with no chance to press `r`.
+- As today, a stdin that is closed or redirected means "do not wait": Trail must not refuse to
+  come back because it could not ask a question.
+
+#### The result back in Trail
+
+On return, the status bar reports the last run — `!cargo test failed: exit 101 (12.4s)`. A
+failure uses the error colour and a success the normal notice. This applies whatever
+`shell_pause` says, including `always`, because the block is out of sight as soon as the
+alternate screen returns, and under `never` it is the only report there is. Opening a file in
+the editor reports nothing unless it failed, as it never pauses either.
+
+#### What it costs
+
+Small: no config key and no dependency, and no Navigation Mode key changes. `run_external` has
+to be given the command as typed and to return the outcome rather than `()`.
+
+The delicate part is `r`. Waiting for Enter is a `read_line` in cooked mode; reading one key
+means switching the terminal to raw mode for the wait, and back again before a re-run hands the
+terminal to the command. The decision itself should be a pure function from a key event to
+run again / return / ignore, so that it can be tested without a terminal.
+
+**The exit code comes from the shell.** Commands run through `[general] shell`, and
+PowerShell's `-Command` can report a failed tool as plain `1` rather than the tool's own code.
+`ok` or `failed` should still be right in most cases; the number may not be the exact one.
+
+`docs/user_guide.md`, `README.md` and the `shell_pause` description in
+`docs/configuration_guide.md` and `default.toml` all need to mention the block and `r`.
+
+#### Tests
+
+Unit tests for the key decision (`r`, `R`, Enter, `Esc`, another key, and a release event of
+each), for the block's wording on success, failure and a failed spawn, for shortening a long
+command to the width, and for the status bar report under each `shell_pause` value.
+
+#### Cannot be verified here
+
+How the colours and the rule look in a real terminal, whether keys pressed during a command are
+really discarded, and whether the terminal modes come back cleanly after a program that changed
+them. The maintainer has to try those by hand before this ships.
+
 ---
 
 ## 3. Sequencing
@@ -1040,6 +1143,9 @@ now a prefix, and `:mv`/`:cp`/`dd` act on the marks whenever any exist. Taking
 The sixth round's §2.24 is MINOR: it changes no binding and no existing key. It does change
 the layout for anyone with two or more tabs open, as `scroll_margin` changed behaviour by
 default, so it belongs in the release notes along with `tab_bar = "never"` as the way back.
+
+The seventh round's §2.25 is MINOR: `r` exists only on the result block, no Navigation Mode key
+or config key changes, and `shell_pause` keeps its meaning.
 
 ---
 
