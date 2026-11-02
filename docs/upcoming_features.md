@@ -44,6 +44,11 @@ the last command, `@name` names a bookmark on the command line, and `U` returns 
 jumps. Items 23–25 are smaller and independent. All of the round shipped in v1.11.0,
 together with `:config write` (§5.1).
 
+**Sixth round (2026-11-02, item 26).** A feature request to see the open tabs rather than
+count them. It reopens the tab bar that §2.6 put off and §2.17 cited, on a condition that
+removes the objection. Written down on request and not started; §2.24 records which of its
+decisions are still the maintainer's.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -79,6 +84,7 @@ test itself).
 | 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **done** — v1.11.0, `@` (also repeats `dd`, `pp`, `pm`); §2.21 |
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
+| 26 | A tab bar that shows the open tabs | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24; shape still to confirm |
 
 ---
 
@@ -919,6 +925,61 @@ implementer: **`U`**, the shifted `u`, unbound today and a plain letter on every
 - The Vim pair `Ctrl-o`/`Ctrl-i` was rejected: terminals send `Ctrl-i` as `Tab`, which
   switches tabs.
 
+### 2.24 A tab bar
+
+> *"a panel that visually shows tabs"*
+
+The only sign of tabs today is the `[2/3]` badge in the status bar
+(`src/ui/status_bar.rs`), so finding out which directories are open means switching through
+them. §2.6 chose that badge because a tab bar costs a screen row, and left the bar for "if
+tabs get heavier use"; §2.17 counted that as one of two refusals of a permanent row.
+
+**The shape.** One row across the top of the frame, drawn only while two or more tabs are
+open. That removes the objection, because the row is no longer permanent: a single-tab
+session loses nothing.
+
+```
+ 1 src   2 docs   3 Downloads
+╭ src ──────────────╮╭ main.rs ────────────────╮
+│ app/              ││ ...                     │
+```
+
+- **Style.** The active tab is highlighted the way the terminal panel's shell strip
+  highlights its active shell (`src/ui/terminal_panel.rs`), so the two strips read alike.
+- **Labels.** The number and the directory's own name, so two tabs on a directory called
+  `src` can still be told apart.
+- **Overflow.** The strip scrolls to keep the active tab visible, with `…` on a side that is
+  cut off.
+- **The badge.** Not drawn while the bar is, by §2.8's rule of one copy on screen.
+- **Maximized terminal panel.** No bar, since the file list it describes is not drawn either.
+
+**A side panel was considered and is not recommended.** It would take width from the listing
+and the preview for as long as it is open, and tab names do not need that much room.
+
+**Still to confirm.** The maintainer asked for this to be recorded before answering either
+question, so these are recommendations and not decisions:
+
+1. A top row rather than a side panel.
+2. Whether it is optional. The recommendation is `[general] tab_bar = "auto" | "always" |
+   "never"`, defaulting to `auto`, with `never` restoring the badge. The key touches all six
+   places in `CLAUDE.md` §5.
+
+**What it costs.** Small: no worker, no dependency. The layout in `src/ui/mod.rs` gains a
+conditional row, and two things need care:
+
+- **The active tab's stored directory is stale.** `TabState::cwd` is written only by
+  `save_to_active_tab` when leaving a tab; the live value is `state.cwd`. The bar must read
+  `state.cwd` for the active tab and `TabState::cwd` for the others, or the active label stays
+  on the directory the tab was last switched away from.
+- **The main area changes height when the second tab opens or the last extra one closes.**
+  The nav panel's scroll offset is computed from that height each frame, so it follows; an
+  image preview re-encodes for its new size, as on any resize.
+
+**Tests.** Render tests that the bar is absent with one tab and present with two, that the
+active label follows navigation inside the active tab, that the badge is gone while the bar
+is drawn, that the active tab stays visible when the strip overflows, and that a maximized
+terminal panel hides the bar.
+
 ---
 
 ## 3. Sequencing
@@ -975,6 +1036,10 @@ that resolved to nonexistent folders before. Two things belong in the notes even
 now a prefix, and `:mv`/`:cp`/`dd` act on the marks whenever any exist. Taking
 `Shift-↓`/`Shift-↑` for selection (§2.20) changes a default binding, which makes that release
 **MAJOR** — v2.0.0.
+
+The sixth round's §2.24 is MINOR: it changes no binding and no existing key. It does change
+the layout for anyone with two or more tabs open, as `scroll_margin` changed behaviour by
+default, so it belongs in the release notes along with `tab_bar = "never"` as the way back.
 
 ---
 
