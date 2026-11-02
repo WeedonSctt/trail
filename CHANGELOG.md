@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-01
+
 ### Fixed
 
 - **`install.sh` works without `VERSION=`.** The documented one-liner failed on every Linux
@@ -285,7 +287,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.12.1...HEAD
+[1.12.1]: https://github.com/WeedonSctt/trail/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/WeedonSctt/trail/compare/v1.11.4...v1.12.0
 [1.11.4]: https://github.com/WeedonSctt/trail/compare/v1.11.3...v1.11.4
 [1.11.3]: https://github.com/WeedonSctt/trail/compare/v1.11.2...v1.11.3
