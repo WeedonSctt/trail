@@ -45,9 +45,10 @@ jumps. Items 23–25 are smaller and independent. All of the round shipped in v1
 together with `:config write` (§5.1).
 
 **Sixth round (2026-11-02, item 26).** A feature request to see the open tabs rather than
-count them. It reopens the tab bar that §2.6 put off and §2.17 cited, on a condition that
-removes the objection. Written down on request and not started; §2.24 records which of its
-decisions are still the maintainer's.
+count them. First written down as a tab bar across the top. On 2026-11-03 the maintainer
+replaced that with a panel you open with a key and pick a tab from, which costs no row until
+it is asked for, so the objection of §2.6 and §2.17 no longer applies. §2.24 is the new shape.
+Not started.
 
 **Seventh round (2026-11-02, item 27).** The prompt after a `!` command says nothing about
 the command. The design was settled with the maintainer before this entry was written, and
@@ -78,7 +79,7 @@ test itself).
 | 13 | Sort the listing by size, time or extension | no way to find the biggest or newest file | **done** — v1.8.0, `[navigation] sort_by` |
 | 14 | Size and modification time in the listing | both visible only one file at a time, in the preview | **done** — v1.8.0, `[navigation] entry_details` |
 | 15 | A scroll margin, so the selection leaves the last row | the selection is pinned to the bottom for the whole lower part of a listing | **done** — v1.9.0, `[navigation] scroll_margin` |
-| 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **planned** — §2.14 |
+| 16 | A plugin API that can act, not just observe | a plugin can watch and log and do nothing else | **in progress** — built on the `feat/plugin-api` branch, decisions settled 2026-11-03, not yet on `main`; §2.14 |
 | 17 | `t` and `c` silently swallow the next keystroke | a named-key binding makes its first letter a prefix | **done** — v1.9.1; the pending-key indicator is still open, §2.15 |
 | 18 | An optional version indicator in the view | no way to tell which build a running session is | **done** — v1.8.2, `[general] show_version` |
 | 19 | Keep the path on screen during Command Mode | the command line covers the only copy of it | **done** — v1.8.3, the nav panel's bottom border |
@@ -88,7 +89,7 @@ test itself).
 | 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **done** — v1.11.0, `@` (also repeats `dd`, `pp`, `pm`); §2.21 |
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
-| 26 | A tab bar that shows the open tabs | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24; shape still to confirm |
+| 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24 |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
 
 ---
@@ -369,6 +370,30 @@ anywhere but the UI thread — today they are called synchronously from it, so a
 blocks rendering, which invariant 1 forbids for everything else. A plugin that does real
 work will hit that ceiling, and moving hooks to the worker pool changes what the API can
 promise about ordering.
+
+**Decided 2026-11-03.** The maintainer left both questions to the agent. Both are answered
+the way the `feat/plugin-api` branch already builds them, so the decisions cost no rework.
+
+- **A plugin may change files, and there is no permission setting for it.** Plugins run in a
+  full Lua with `io` and `os`, so `os.remove` works whatever Trail offers, and an `allow_fs`
+  switch would limit Trail's own helpers while leaving the direct route open. Plugins are
+  trusted code, loaded only when named in `[plugins] enabled`, the same model as Vim and
+  Neovim, and the documentation says so on its first page. Trail adds `trail.command`, which
+  goes through `fs_ops` and reports like any other command. There is no `trail.delete`, and a
+  plugin cannot raise the delete confirmation. The cost, accepted: a plugin calling `os.remove`
+  skips the recycle bin.
+- **Hooks stay on the UI thread, stopped past `[plugins] budget_ms`** (default 50 ms). Slow
+  work goes off the thread through `trail.spawn`. Hooks keep their ordering and their read
+  access to the session, and the release stays MINOR, where moving hooks to the worker pool
+  would make it MAJOR. The cost, accepted: the budget cannot interrupt one blocking call such
+  as `os.execute("sleep 10")`, which still freezes the frame. That is an exception to
+  invariant 1 that a plugin author has to choose, and it is documented rather than prevented.
+
+**Status.** Built on `feat/plugin-api`, which forked from `main` at v1.9.1. It needs bringing
+up to date before it can land: as of 2026-11-03 it is 87 commits behind, with conflicts in
+`CHANGELOG.md`, `CLAUDE.md`, `docs/trail_architecture.md`, `src/main.rs` and
+`src/ui/status_bar.rs`. Its version of [`plugin_api_plan.md`](plugin_api_plan.md) records these
+answers and replaces the one on `main`, which still lists them as open.
 
 ### 2.15 `t` and `c` swallow the next keystroke
 
@@ -930,60 +955,118 @@ implementer: **`U`**, the shifted `u`, unbound today and a plain letter on every
 - The Vim pair `Ctrl-o`/`Ctrl-i` was rejected: terminals send `Ctrl-i` as `Tab`, which
   switches tabs.
 
-### 2.24 A tab bar
+### 2.24 A tab panel
 
-> *"a panel that visually shows tabs"*
+> *"i imagine it as a togglable panel at the bottom (right above the [3/6] tab indicator) that
+> enables a selector for the tabs opened. the more tabs, that panel will grow vertically upward
+> to the top. if the top is reached, it just scrolls. the selector from the navigation panel
+> should be deactivated or at least the highlight should be, just to keep a difference between
+> the navigation selector and the tab selector. when the user enters a tab, the panel hides. the
+> tabs in te panel are just labeled with the current directory they're in."*
 
 The only sign of tabs today is the `[2/3]` badge in the status bar
 (`src/ui/status_bar.rs`), so finding out which directories are open means switching through
-them. §2.6 chose that badge because a tab bar costs a screen row, and left the bar for "if
-tabs get heavier use"; §2.17 counted that as one of two refusals of a permanent row.
+them, and reaching a tab means pressing `Tab` until it comes round.
 
-**The shape.** One row across the top of the frame, drawn only while two or more tabs are
-open. That removes the objection, because the row is no longer permanent: a single-tab
-session loses nothing.
+This replaces the tab bar first written here on 2026-11-02, and with it the `[general] tab_bar`
+key that bar would have needed. §2.6 and §2.17 refused a tab bar because it costs a screen row
+for good. This panel costs nothing until it is opened and gives the rows back when it closes.
+
+#### The shape
 
 ```
- 1 src   2 docs   3 Downloads
 ╭ src ──────────────╮╭ main.rs ────────────────╮
-│ app/              ││ ...                     │
+│   app/            ││ ...                     │
+│   main.rs         ││                         │
+╰───────────────────╯╰─────────────────────────╯
+╭ Tabs ────────────────────────────────────────╮
+│   C:\Users\weedo\proj\it\util\trail\src       │
+│ > C:\Users\weedo\Downloads                     │
+│   C:\Users\weedo\proj\it\util\trail\docs      │
+╰──────────────────────────────────────────────╯
+TABS [1/3] ...
 ```
 
-- **Style.** The active tab is highlighted the way the terminal panel's shell strip
-  highlights its active shell (`src/ui/terminal_panel.rs`), so the two strips read alike.
-- **Labels.** The number and the directory's own name, so two tabs on a directory called
-  `src` can still be told apart.
-- **Overflow.** The strip scrolls to keep the active tab visible, with `…` on a side that is
-  cut off.
-- **The badge.** Not drawn while the bar is, by §2.8's rule of one copy on screen.
-- **Maximized terminal panel.** No bar, since the file list it describes is not drawn either.
+- **Where.** Full width, directly above the status bar, so above the `[3/6]` badge. The badge
+  stays.
+- **Height.** One row per tab plus the border. Its top grows upward with the number of tabs.
+- **Scrolling.** Once its top reaches the top of the file area, it stops growing and scrolls,
+  keeping the selector in view. The listing and preview are then not drawn until it closes.
+- **Labels.** Only the directory the tab is in, as a full path through `pathfmt`, so two tabs
+  on folders called `src` can be told apart. A path too long for the row loses its start, so
+  the folder's own name stays visible.
+- **The tab you are in** is in bold, so it is still findable once the selector has moved off it.
+- **The navigation panel's highlight is off** while the panel is open, so only one selector is
+  on screen. File names do not shift sideways: the column the `> ` takes stays reserved.
 
-**A side panel was considered and is not recommended.** It would take width from the listing
-and the preview for as long as it is open, and tab names do not need that much room.
+#### Keys
 
-**Still to confirm.** The maintainer asked for this to be recorded before answering either
-question, so these are recommendations and not decisions:
+| Key | What it does |
+|---|---|
+| `t` | Opens the panel from Navigation Mode, with the selector on the current tab. Pressed again, closes it without switching |
+| `j` / `k` (and the arrows) | Move the selector. They stop at either end rather than wrapping |
+| `gg` / `G` | First / last tab |
+| `Enter` or `l` | Enters the selected tab and hides the panel |
+| `Esc` | Closes it without switching. The marks are kept, unlike `Esc` in Navigation Mode |
 
-1. A top row rather than a side panel.
-2. Whether it is optional. The recommendation is `[general] tab_bar = "auto" | "always" |
-   "never"`, defaulting to `auto`, with `never` restoring the badge. The key touches all six
-   places in `CLAUDE.md` §5.
+Every other key does nothing while it is open. It is a new `Mode::Tabs`, shown in the status bar
+as `TABS`, and it opens only from Navigation Mode. Movement keys follow the user's
+`[keymap.navigation]` choices rather than being hard-coded.
 
-**What it costs.** Small: no worker, no dependency. The layout in `src/ui/mod.rs` gains a
-conditional row, and two things need care:
+#### Decided by the implementer
+
+The maintainer's description left these open, so they can be changed cheaply if they read wrong
+in use:
+
+- **The key is `t`** (`toggle_tab_panel` in `[keymap.navigation]`). It has been free since v1.9.1
+  and is a plain letter on every layout, so it needs no AltGr handling (§2.21) and no `NAMED_KEYS`
+  entry.
+- **Moving the selector does not switch tabs.** The listing behind it stays put until `Enter`, so
+  arrowing through ten tabs does not load ten directories and start ten previews.
+- **With one tab open, `t` still opens the panel**, showing that one row, rather than refusing.
+- **No closing or opening tabs from the panel.** `ctrl-t` and `ctrl-w` remain the way, and neither
+  works while it is open.
+- **No config key.** The panel only appears when asked for, so there is nothing to turn off.
+
+#### What it costs
+
+Small: no worker, no dependency, no new thread. `Panes::new` in `src/ui/mod.rs` gains a conditional
+row, and the rest needs care in these places:
 
 - **The active tab's stored directory is stale.** `TabState::cwd` is written only by
-  `save_to_active_tab` when leaving a tab; the live value is `state.cwd`. The bar must read
-  `state.cwd` for the active tab and `TabState::cwd` for the others, or the active label stays
-  on the directory the tab was last switched away from.
-- **The main area changes height when the second tab opens or the last extra one closes.**
-  The nav panel's scroll offset is computed from that height each frame, so it follows; an
-  image preview re-encodes for its new size, as on any resize.
+  `save_to_active_tab` when leaving a tab; the live value is `state.cwd`. The panel must read
+  `state.cwd` for the active tab and `TabState::cwd` for the others, or the active label shows the
+  directory the tab was last switched away from.
+- **The rows come off the file area only.** An open terminal panel moves up and keeps its size. If
+  it gave up rows too, every `t` would resize its shells (`resize_all` runs from the draw) and
+  reflow their output. So with the terminal panel open, the top of the file area is as far as the
+  tab panel grows.
+- **No room.** With a maximized terminal panel, or fewer than three rows of file area, `t` posts a
+  notice and does not open.
+- **Scrolling must keep its offset between frames.** A `ListState` rebuilt per frame pins the
+  selection to the last row, which is the §2.13 bug. The offset is kept in the mode, or computed the
+  way `src/app/scroll.rs` does it.
+- **Images.** Opening and closing changes the preview pane's height, so an image re-encodes as on any
+  resize. Taking rows rather than drawing on top of the file area is deliberate: a real image is
+  drawn by the terminal and would sit over a panel drawn across it. The clearing added in v1.12.2
+  already handles the pane moving.
+- **Documents.** The new key goes in `keymap.rs`, `docs/user_guide.md` and the `README.md` key table.
 
-**Tests.** Render tests that the bar is absent with one tab and present with two, that the
-active label follows navigation inside the active tab, that the badge is gone while the bar
-is drawn, that the active tab stays visible when the strip overflows, and that a maximized
-terminal panel hides the bar.
+#### Tests
+
+State tests for `Mode::Tabs`: opening starts on the current tab, `j`/`k` stop at the ends, `Enter`
+switches and leaves the mode, `Esc` and `t` leave it without switching and keep the marks, and no
+other key has any effect. Render tests: the panel is absent until opened; its height follows the tab
+count; it scrolls with the selector visible once it reaches the top; the active label follows
+navigation done before opening; the navigation panel draws no highlight while it is open and its
+names stay in the same columns; an open terminal panel keeps its size; a maximized one refuses with a
+notice.
+
+#### Cannot be verified here
+
+How the panel looks in a real terminal, and how image previews behave as it opens and closes in
+terminals that draw real images, such as WezTerm. Only half-blocks can be tested here, so the
+maintainer has to try that by hand before this ships.
 
 ### 2.25 The prompt after a `!` command
 
@@ -1120,7 +1203,8 @@ Of the two planned items, the scroll margin is MINOR (`scroll_margin` defaults t
 that changes the current behaviour, so it leads the notes, with `0` documented as the way
 back). The plugin API is MINOR as long as it only adds functions; letting hooks run off
 the UI thread would change what the API promises about ordering and is the part that could
-turn it MAJOR, which is why §2.14 keeps it as a separate decision.
+turn it MAJOR, which is why §2.14 keeps it as a separate decision. Decided 2026-11-03: hooks
+stay on the UI thread, so it is MINOR.
 
 The third round is MINOR too, and one of the two is a PATCH under a strict reading.
 §2.16's `show_version` is a new key defaulting to `false`, so it adds a capability and
@@ -1143,9 +1227,8 @@ now a prefix, and `:mv`/`:cp`/`dd` act on the marks whenever any exist. Taking
 `Shift-↓`/`Shift-↑` for selection (§2.20) changes a default binding, which makes that release
 **MAJOR** — v2.0.0.
 
-The sixth round's §2.24 is MINOR: it changes no binding and no existing key. It does change
-the layout for anyone with two or more tabs open, as `scroll_margin` changed behaviour by
-default, so it belongs in the release notes along with `tab_bar = "never"` as the way back.
+The sixth round's §2.24 is MINOR: `t` is unbound today, no existing key changes meaning, and
+nothing on screen changes until `t` is pressed.
 
 The seventh round's §2.25 is MINOR, and shipped as v1.13.0: `r` exists only on the result block, no Navigation Mode key
 or config key changes, and `shell_pause` keeps its meaning.
