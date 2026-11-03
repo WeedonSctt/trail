@@ -51,7 +51,7 @@ decisions are still the maintainer's.
 
 **Seventh round (2026-11-02, item 27).** The prompt after a `!` command says nothing about
 the command. The design was settled with the maintainer before this entry was written, and
-§2.25 records the answers. Built; waiting on the maintainer's hand test before it ships.
+§2.25 records the answers. Shipped in v1.13.0.
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -89,7 +89,7 @@ test itself).
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A tab bar that shows the open tabs | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24; shape still to confirm |
-| 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **in progress** — §2.25; built, not yet released |
+| 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
 
 ---
 
@@ -1147,7 +1147,7 @@ The sixth round's §2.24 is MINOR: it changes no binding and no existing key. It
 the layout for anyone with two or more tabs open, as `scroll_margin` changed behaviour by
 default, so it belongs in the release notes along with `tab_bar = "never"` as the way back.
 
-The seventh round's §2.25 is MINOR: `r` exists only on the result block, no Navigation Mode key
+The seventh round's §2.25 is MINOR, and shipped as v1.13.0: `r` exists only on the result block, no Navigation Mode key
 or config key changes, and `shell_pause` keeps its meaning.
 
 ---
