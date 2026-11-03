@@ -47,7 +47,7 @@ These five, in this order, are exactly what `.github/workflows/ci.yml` runs. Loc
 `cargo test --all-targets` compiles everything and is the fastest single signal.
 
 `cargo run` takes over the terminal (alternate screen) — it is not usable for automated
-verification. Rendering is verified through `tests/render_snapshot_tests.rs`
+verification. Rendering is verified through `tests/integration/render_snapshot_tests.rs`
 (`ratatui::backend::TestBackend`), never by launching the binary. Those tests assert on the
 buffer's *contents* — a substring, a cursor position, a count of occurrences — not against
 golden files: `insta` is a dev-dependency kept for the day a whole-frame snapshot is worth
@@ -80,8 +80,8 @@ src/
   config/          schema.rs (serde structs), terminal.rs ([terminal] section),
                    mod.rs (overrides + merge), default.toml, last_used.rs
   plugin/          mod.rs, lua_api.rs, bookmarks.rs
-tests/             state_, preview_, command_parser_, render_snapshot_, terminal_panel_,
-                   test_gg_sequence
+tests/integration/ main.rs (declares every suite), state_, preview_, command_parser_,
+                   render_snapshot_, terminal_panel_, test_gg_sequence
 pkg/               homebrew/ aur/ scoop/ packaging manifests
 shell/             trail.bash|zsh|fish|ps1 — cd-on-exit wrappers, shipped in every archive
 ```
@@ -339,6 +339,8 @@ branch bought nothing and cost the trunk. Do not recreate it.
    Run it as `cargo publish --target-dir target/publish`: its verification build of the
    packaged copy otherwise lands in `target/debug` under the same unit hashes as the
    working tree, and its "release" version label poisons every later dev build (see §9).
+   Afterwards delete `target/publish`: it holds a whole second build, nearly 8 GB, that
+   nothing reads until the next release.
 8. Fill the real digests from `checksums.txt` into the four manifests and commit as
    `[~] release> fill vX.Y.Z sha256 digests into package manifests`.
 9. Push the manifests to their tap / AUR / bucket repositories.
@@ -444,5 +446,14 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   `.github/scripts/check-baseline-cpu.sh`, which launches the binary under qemu, catches
   this. Test old CPUs inside Arch, not on the runner: there even `/bin/true` crashes under
   qemu, and always run that control first, or the runner's loader looks like Trail's bug.
+- All integration tests are one program, `tests/integration/main.rs`, because a program per
+  file linked all of Trail thirteen times. A new suite needs a `mod` line there or it never
+  runs (`autotests = false`). They share a process, so a test that changes process-wide state
+  must hold that state's lock, as the image tests do with `graphics_lock`. Run one suite with
+  `cargo test --test integration state_tests::`.
+- Cargo never deletes old builds, and a new Rust version or a changed `[profile]` starts a
+  fresh set beside them; `target/` had reached 50 GB. After either change run `cargo clean`,
+  in the `trail-plugin-api` worktree too, if it has built anything. Keep `target/preview-test`,
+  which holds hand-written files: delete the other folders by name rather than cleaning it.
 - Line endings: the working tree is CRLF on Windows, the repo is LF. `git diff` warnings
   about this are expected and not something to fix.

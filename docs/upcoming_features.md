@@ -721,8 +721,8 @@ somewhere other than this machine:
 
 #### Performance budgets — the release gate
 
-In `tests/perf_external_preview.rs`, every test `#[ignore]`d and run with
-`cargo test --release --test perf_external_preview -- --ignored`. Timing assertions are
+In `tests/integration/perf_external_preview.rs`, every test `#[ignore]`d and run with
+`cargo test --release --test integration perf_external_preview:: -- --ignored`. Timing assertions are
 flaky on shared CI runners, so they gate the release locally rather than CI.
 
 | # | Measures | Budget |

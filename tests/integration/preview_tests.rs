@@ -9,20 +9,8 @@
 //! actually paint pixels cannot be asserted without the terminal in question,
 //! so that matrix stays a manual release gate.
 
+use crate::graphics_lock;
 use std::path::Path;
-use std::sync::{Mutex, MutexGuard, PoisonError};
-
-/// Serialises the tests that touch `preview::graphics`.
-///
-/// The protocol and cell size are process-wide, so two image tests running
-/// concurrently in this binary would clobber each other's configuration.
-static GRAPHICS: Mutex<()> = Mutex::new(());
-
-/// Takes [`GRAPHICS`], recovering rather than propagating poisoning so that one
-/// failing image test does not cascade into the others.
-fn graphics_lock() -> MutexGuard<'static, ()> {
-    GRAPHICS.lock().unwrap_or_else(PoisonError::into_inner)
-}
 
 // ── Text provider tests ───────────────────────────────────────────────────────
 

@@ -81,7 +81,7 @@ It lives at the root of the `trail/` repository, alongside `Cargo.toml`.
 - New functionality gets tests **where practical**: unit tests colocated via
   `#[cfg(test)] mod tests` for pure logic (state transitions, sorting,
   parsing, the generation-guard), plus the dedicated suites in `tests/` for
-  cross-cutting behavior (`state_tests.rs`, `render_snapshot_tests.rs`,
+  cross-cutting behavior (`integration/state_tests.rs`, `render_snapshot_tests.rs`,
   `command_parser_tests.rs`, fixture-driven preview tests).
 - "Where practical" is not a blanket excuse — if a case is skipped (e.g. real
   terminal rendering, OS-level file dialogs, the manual image-protocol

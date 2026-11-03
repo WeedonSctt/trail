@@ -264,6 +264,8 @@ fn closing_the_panel_leaves_nothing_of_it_around_an_image() {
     let mut state = state_with_shell_profile(dir.path());
     let mut terminal = Terminal::new(TestBackend::new(WIDTH, HEIGHT)).unwrap();
 
+    let _guard = crate::graphics_lock();
+
     // Tall enough at 7x14 cells to reserve the rows the panel is about to use.
     graphics::configure("iterm2", (7, 14));
     let source = image::RgbImage::from_pixel(400, 400, image::Rgb([200, 30, 30])).into();
@@ -291,4 +293,6 @@ fn closing_the_panel_leaves_nothing_of_it_around_an_image() {
         !leftovers.contains('\u{2500}'),
         "the panel's border survived its closing: {leftovers}"
     );
+
+    graphics::configure("auto", graphics::AUTO_CELL_SIZE);
 }

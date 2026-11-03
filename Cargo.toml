@@ -8,6 +8,9 @@ edition = "2021"
 # Minimum Supported Rust Version.  Verified against the stable toolchain used
 # in CI.  Bump only when a dependency or language feature requires it.
 rust-version = "1.80"
+# Every suite is a module of the one test program in tests/integration: a program
+# per file would link all of Trail once each. See tests/integration/main.rs.
+autotests = false
 description = "A terminal-first workspace for navigating, inspecting and acting on the filesystem"
 license = "MIT"
 repository = "https://github.com/WeedonSctt/trail"
@@ -39,6 +42,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "trail"
 path = "src/main.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
 
 
 [dependencies]
@@ -119,6 +126,12 @@ tempfile = "3"     # scratch dirs/files for fixture-driven preview + fs_ops test
 
 [profile.dev]
 opt-level = 1        # ratatui/crossterm feel noticeably laggy at opt-level 0
+
+# Dependencies keep no debug info, which shrinks the symbol files and what the
+# linker has to hold in memory. Trail's own code keeps its own, so a backtrace
+# still names our lines, just not the ones inside a dependency.
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = true
