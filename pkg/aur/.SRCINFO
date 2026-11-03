@@ -10,7 +10,7 @@
 
 pkgbase = trail
 	pkgdesc = Terminal-first workspace for navigating, inspecting and acting on the filesystem
-	pkgver = 1.12.2
+	pkgver = 1.13.0
 	pkgrel = 1
 	url = https://github.com/WeedonSctt/trail
 	arch = x86_64
@@ -20,10 +20,10 @@ pkgbase = trail
 	conflicts = trail
 	install = trail.install
 
-	source_x86_64 = trail-v1.12.2-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.12.2/trail-v1.12.2-x86_64-unknown-linux-gnu.tar.gz
+	source_x86_64 = trail-v1.13.0-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.13.0/trail-v1.13.0-x86_64-unknown-linux-gnu.tar.gz
 	sha256sums_x86_64 = 6409d0ab3f4311b4ace5c38d2621219d2b1ce41900c6bb949f0cf74ec7646eea
 
-	source_aarch64 = trail-v1.12.2-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.12.2/trail-v1.12.2-aarch64-unknown-linux-gnu.tar.gz
+	source_aarch64 = trail-v1.13.0-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v1.13.0/trail-v1.13.0-aarch64-unknown-linux-gnu.tar.gz
 	sha256sums_aarch64 = c806e060425b6b77cb2970d239c354997cfe49c4cb1b43f175cfa2fce06f8daa
 
 pkgname = trail

@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-03
+
 ### Added
 
 - **A result block after a `!` or `:git` command.** Under its output, the command, `ok` or
@@ -36,7 +38,7 @@ the commits said rather than what the users saw.
   runs stay readable. It replaces `[trail] press Enter to return…`.
 - **`r` runs the command again** from that block, in the same folder, without going back to
   Trail. `Enter` or `Esc` goes back. Anything typed while the command ran is thrown away, so
-  an `r` pressed early cannot repeat it by accident.
+  an `r` pressed early cannot repeat it by accident, and holding `r` runs it once.
 - **The status bar reports the last run** back in Trail, `!cargo test failed: exit 101
   (12.4s)`, whatever `[general] shell_pause` says. Under `never`, a failed command used to
   come back with no sign that anything had gone wrong.
@@ -312,7 +314,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.12.2...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/WeedonSctt/trail/compare/v1.12.2...v1.13.0
 [1.12.2]: https://github.com/WeedonSctt/trail/compare/v1.12.1...v1.12.2
 [1.12.1]: https://github.com/WeedonSctt/trail/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/WeedonSctt/trail/compare/v1.11.4...v1.12.0
