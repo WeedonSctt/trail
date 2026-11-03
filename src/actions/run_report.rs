@@ -13,7 +13,7 @@
 //! ```
 
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 
@@ -128,10 +128,12 @@ pub enum BlockAnswer {
 /// Decides what `key` means at the result block.
 ///
 /// Only presses count: Windows also reports key releases, and the release of
-/// the Enter that launched the command must not read as an answer. A held key's
-/// repeats do not count either, so holding `r` runs the command once. `R` is
+/// the Enter that launched the command must not read as an answer. `R` is
 /// accepted so Caps Lock does not get in the way, but `Ctrl-r` is a chord, not
 /// the letter.
+///
+/// This cannot tell a held `r` from a new one, because Windows reports a held
+/// key as more presses, not as `Repeat`. [`RerunKey`] is what tells them apart.
 pub fn answer_for(key: &KeyEvent) -> BlockAnswer {
     if key.kind != KeyEventKind::Press {
         return BlockAnswer::Ignore;
@@ -140,6 +142,55 @@ pub fn answer_for(key: &KeyEvent) -> BlockAnswer {
         KeyCode::Char('r' | 'R') if is_text_modifiers(key.modifiers) => BlockAnswer::RunAgain,
         KeyCode::Enter | KeyCode::Esc => BlockAnswer::Return,
         _ => BlockAnswer::Ignore,
+    }
+}
+
+/// How long `r` must have been silent before a press with no release in between
+/// counts as new.
+///
+/// Longer than the wait before a key starts repeating, which Windows lets the
+/// user set to at most a second. Otherwise, after a command that finishes
+/// quickly, a held key's first repeat would look like a second press.
+const RERUN_KEY_QUIET: Duration = Duration::from_millis(1100);
+
+/// Tracks whether `r` is still down, so that holding it runs the command once.
+///
+/// Holding a key reaches Trail as a stream of presses, on Windows and on any
+/// terminal that reports no key kinds, so the block has to work this out itself.
+/// A press counts only if `r` came up first. A release says so directly. Where
+/// none arrives, either because the terminal does not report them or because the
+/// command read it from the console, a long enough silence says so instead. That
+/// makes `r` tapped again within about a second do nothing on those terminals: the
+/// safe way to be wrong, since the command may be `!del old.log`.
+///
+/// One value lasts across every block of a run, and it must see every key, those
+/// thrown away as typed too early included, or it loses track of the key.
+#[derive(Debug, Default)]
+pub struct RerunKey {
+    /// When `r` was last seen going down, while it is thought to still be down.
+    last_seen_down: Option<Instant>,
+}
+
+impl RerunKey {
+    /// Decides what `key`, received at `now`, means at the result block.
+    pub fn answer(&mut self, key: &KeyEvent, now: Instant) -> BlockAnswer {
+        let answer = answer_for(key);
+        if !matches!(key.code, KeyCode::Char('r' | 'R')) {
+            return answer;
+        }
+        if key.kind == KeyEventKind::Release {
+            self.last_seen_down = None;
+            return answer;
+        }
+        let still_down = self
+            .last_seen_down
+            .is_some_and(|seen| now.saturating_duration_since(seen) < RERUN_KEY_QUIET);
+        self.last_seen_down = Some(now);
+        if still_down {
+            BlockAnswer::Ignore
+        } else {
+            answer
+        }
     }
 }
 
@@ -276,6 +327,106 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn r(kind: KeyEventKind) -> KeyEvent {
+        key(KeyCode::Char('r'), kind)
+    }
+
+    /// What Windows sends for a held key: presses, and no `Repeat`. The gaps are
+    /// its default wait before repeating, then its default repeat rate.
+    #[test]
+    fn holding_r_is_one_answer_however_long_it_is_held() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+
+        let first = rerun.answer(&r(KeyEventKind::Press), start);
+        assert_eq!(first, BlockAnswer::RunAgain);
+
+        let mut now = start + Duration::from_millis(500);
+        for _ in 0..100 {
+            let repeat = rerun.answer(&r(KeyEventKind::Press), now);
+            assert_eq!(repeat, BlockAnswer::Ignore);
+            now += Duration::from_millis(33);
+        }
+    }
+
+    /// The longest wait Windows can be set to before a key starts repeating.
+    #[test]
+    fn the_first_repeat_of_a_slow_keyboard_is_still_the_same_hold() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+
+        let repeat = rerun.answer(&r(KeyEventKind::Press), start + Duration::from_secs(1));
+        assert_eq!(repeat, BlockAnswer::Ignore);
+    }
+
+    #[test]
+    fn r_works_again_at_once_after_a_release() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+        let released = rerun.answer(&r(KeyEventKind::Release), start);
+
+        assert_eq!(released, BlockAnswer::Ignore);
+        assert_eq!(
+            rerun.answer(&r(KeyEventKind::Press), start),
+            BlockAnswer::RunAgain
+        );
+    }
+
+    /// Terminals that report no releases, and a command that read the release
+    /// from the console: `r` must not stay dead for good.
+    #[test]
+    fn r_works_again_after_silence_when_no_release_arrives() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+
+        let later = start + RERUN_KEY_QUIET;
+        assert_eq!(
+            rerun.answer(&r(KeyEventKind::Press), later),
+            BlockAnswer::RunAgain
+        );
+    }
+
+    /// `r` held through a long command, whose repeats were thrown away as typed
+    /// too early: the block that follows must not take the next one as an answer.
+    #[test]
+    fn a_hold_seen_among_discarded_keys_still_counts_as_held() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+
+        let next = rerun.answer(&r(KeyEventKind::Press), start + Duration::from_millis(33));
+        assert_eq!(next, BlockAnswer::Ignore);
+    }
+
+    /// `r` tapped during a command, then tapped at its block.
+    #[test]
+    fn a_tap_during_the_command_does_not_block_the_next_one() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+        rerun.answer(&r(KeyEventKind::Release), start);
+
+        assert_eq!(
+            rerun.answer(&r(KeyEventKind::Press), start),
+            BlockAnswer::RunAgain
+        );
+    }
+
+    #[test]
+    fn other_keys_answer_while_r_is_held() {
+        let start = Instant::now();
+        let mut rerun = RerunKey::default();
+        rerun.answer(&r(KeyEventKind::Press), start);
+
+        let enter = key(KeyCode::Enter, KeyEventKind::Press);
+        assert_eq!(rerun.answer(&enter, start), BlockAnswer::Return);
+        let other = key(KeyCode::Char('x'), KeyEventKind::Press);
+        assert_eq!(rerun.answer(&other, start), BlockAnswer::Ignore);
     }
 
     #[test]

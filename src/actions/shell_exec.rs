@@ -27,7 +27,7 @@ use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, queue};
 use thiserror::Error;
 
-use super::run_report::{answer_for, BlockAnswer, ResultBlock, RunReport, RunResult};
+use super::run_report::{BlockAnswer, RerunKey, ResultBlock, RunReport, RunResult};
 
 /// Interpreter used for `!<command>` and `:git` when `[general] shell` is blank.
 ///
@@ -151,10 +151,11 @@ pub fn run_external(
     terminal::disable_raw_mode().map_err(ShellExecError::Terminal)?;
 
     // ── Steps 2 & 3: run it, for as long as the block is answered with `r` ────
+    let mut rerun_key = RerunKey::default();
     let report = run_until_answered(
         pause,
         || run_once(argv, cwd, label),
-        |report| ask_at_the_block(report, cwd),
+        |report| ask_at_the_block(report, cwd, &mut rerun_key),
     );
 
     // ── Step 4: restore raw mode and alternate screen ─────────────────────────
@@ -226,14 +227,15 @@ fn run_once(argv: &[&str], cwd: &Path, label: Option<&str>) -> RunReport {
 /// typed while the command ran is thrown away first: otherwise an `r` typed
 /// during a long command would be read the moment it finished and repeat
 /// something like `!del old.log`, and an early Enter would dismiss the result
-/// before it was seen.
+/// before it was seen. `rerun_key` still sees those keys, so an `r` held through
+/// the command is known to be down when the block appears.
 ///
 /// A closed or redirected stdin means "do not wait", and so does any failure to
 /// read: Trail must not refuse to come back because it could not ask a question.
-fn ask_at_the_block(report: &RunReport, cwd: &Path) -> BlockAnswer {
+fn ask_at_the_block(report: &RunReport, cwd: &Path, rerun_key: &mut RerunKey) -> BlockAnswer {
     let interactive = std::io::stdin().is_terminal() && terminal::enable_raw_mode().is_ok();
     if interactive {
-        discard_pending_input();
+        discard_pending_input(rerun_key);
     }
 
     let columns = terminal::size().map_or(80, |(columns, _)| columns);
@@ -243,7 +245,7 @@ fn ask_at_the_block(report: &RunReport, cwd: &Path) -> BlockAnswer {
     }
 
     let answer = if interactive {
-        wait_for_answer()
+        wait_for_answer(rerun_key)
     } else {
         BlockAnswer::Return
     };
@@ -259,20 +261,24 @@ fn ask_at_the_block(report: &RunReport, cwd: &Path) -> BlockAnswer {
     answer
 }
 
-/// Drops every input event already waiting.
-fn discard_pending_input() {
+/// Drops every input event already waiting, showing the keys to `rerun_key`.
+fn discard_pending_input(rerun_key: &mut RerunKey) {
     while matches!(event::poll(Duration::ZERO), Ok(true)) {
-        if event::read().is_err() {
-            return;
+        match event::read() {
+            Ok(Event::Key(key)) => {
+                rerun_key.answer(&key, Instant::now());
+            }
+            Ok(_) => {}
+            Err(_) => return,
         }
     }
 }
 
 /// Blocks until a key answers the block; a failure to read answers "go back".
-fn wait_for_answer() -> BlockAnswer {
+fn wait_for_answer(rerun_key: &mut RerunKey) -> BlockAnswer {
     loop {
         match event::read() {
-            Ok(Event::Key(key)) => match answer_for(&key) {
+            Ok(Event::Key(key)) => match rerun_key.answer(&key, Instant::now()) {
                 BlockAnswer::Ignore => {}
                 answer => return answer,
             },

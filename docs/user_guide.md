@@ -342,6 +342,8 @@ r: run again · Enter: back to Trail
 - `Enter` or `Esc` goes back to Trail. Every other key does nothing.
 - Keys count only once the block is on screen: anything you typed while the command ran is
   thrown away, so an `r` typed early cannot repeat the command by accident.
+- Holding `r` runs the command once. Let go of the key to run it again. On terminals that do
+  not report key releases, which is most of them outside Windows, wait about a second instead.
 
 Back in Trail, the status bar reports the last run: `!cargo test failed: exit 101 (12.4s)`.
 That report appears whatever `shell_pause` says, and it is the only one under `never`.

@@ -1039,6 +1039,9 @@ what makes a one-letter re-run safe:
   like `!del old.log`, and an early Enter would dismiss the result before it was seen.
 - Only actual key **presses** count. Windows also reports key releases, and the release of the
   Enter that launched the command must not read as an answer (`KeyEventKind::Press`).
+- Holding `r` runs the command once. `KeyEventKind` cannot promise this, because Windows reports
+  a held key as more presses, so `RerunKey` counts a press only after a release, or after about
+  a second of silence where no release arrives.
 - `r` or `R` runs it again, so Caps Lock does not get in the way. Enter or `Esc` goes back to
   Trail. Every other key does nothing.
 - `shell_pause` still decides whether there is a block to answer. With `on_error`, a command
