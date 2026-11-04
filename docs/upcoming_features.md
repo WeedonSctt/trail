@@ -995,7 +995,8 @@ TABS [1/3] ...
 - **Labels.** Only the directory the tab is in, as a full path through `pathfmt`, so two tabs
   on folders called `src` can be told apart. A path too long for the row loses its start, so
   the folder's own name stays visible.
-- **The tab you are in** is in bold, so it is still findable once the selector has moved off it.
+- **The tab you are in** is in italics, so it is still findable once the selector has moved off it.
+  Bold was tried first and was too hard to notice in use.
 - **The navigation panel's highlight is off** while the panel is open, so only one selector is
   on screen. File names do not shift sideways: the column the `> ` takes stays reserved.
 
@@ -1299,6 +1300,18 @@ floors at Halfblocks in Windows Terminal, which is safe, but resolves to iTerm2 
 VS Code terminal, whose base64 payload prints as garbage where it is unsupported. Settling
 it needs the terminal the artifacts were seen in; the image matrix is listed as
 untestable in `CLAUDE.md` §9 for exactly this reason.
+
+### 5.5 `Tab` may leave the preview blank between tabs on the same place
+
+Found while building the tab panel (§2.24), by reading the code; it has not been reproduced by
+running Trail. Switching tabs empties the preview (`restore_from_active_tab`), and `handle_key_event`
+in `src/main.rs` asks for a new one only if the directory or the selection changed. So with two tabs
+on the same directory and selection, `Tab` and `Shift-Tab` should leave the preview blank until the
+selection moves.
+
+**Answered 2026-11-03: left as it is.** The maintainer considers it no big deal. The panel's `Enter`
+does not have the problem: it is in `forces_preview_refresh`, and adding the two switch actions there
+is the whole fix if this is ever wanted.
 
 ---
 
