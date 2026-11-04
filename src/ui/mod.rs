@@ -9,14 +9,18 @@
 pub mod nav_panel;
 mod preview_panel;
 mod status_bar;
+mod tab_panel;
 mod terminal_panel;
 mod theme;
+
+pub use tab_panel::MIN_ROWS as TAB_PANEL_MIN_ROWS;
 
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Terminal;
 use std::io;
 
+use crate::app::mode::Mode;
 use crate::app::state::{AppState, PreviewSlot};
 use crate::preview::provider::PreviewContent;
 
@@ -27,10 +31,15 @@ struct Panes {
     preview: Rect,
     /// `None` while the terminal panel is closed.
     terminal: Option<Rect>,
+    /// `None` while the tab panel is closed, or there is no room to draw it.
+    tabs: Option<Rect>,
     status: Rect,
-    /// False while a maximized terminal panel leaves no room for the file list
-    /// and the preview, which are then not drawn at all.
+    /// False while a maximized terminal panel, or a tab panel that has reached
+    /// the top, leaves no room for the file list and the preview, which are then
+    /// not drawn at all.
     files_shown: bool,
+    /// Rows for the file list and preview before the tab panel takes any.
+    file_area_rows: u16,
 }
 
 impl Panes {
@@ -47,20 +56,32 @@ impl Panes {
             ])
             .split(area);
 
-        let (main, terminal) = if state.terminal.is_visible() {
-            let rows = crate::terminal::panel_rows(
+        let terminal_rows = state.terminal.is_visible().then(|| {
+            crate::terminal::panel_rows(
                 outer[0].height,
                 state.config.terminal.height,
                 state.terminal.is_maximized(),
-            );
-            let split = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(0), Constraint::Length(rows)])
-                .split(outer[0]);
-            (split[0], Some(split[1]))
-        } else {
-            (outer[0], None)
-        };
+            )
+        });
+        // The tab panel's rows come off the file area only. An open terminal
+        // panel moves up and keeps its size: if it gave up rows too, every `t`
+        // would resize its shells and reflow their output.
+        let file_area_rows = outer[0]
+            .height
+            .saturating_sub(terminal_rows.unwrap_or_default());
+        let tab_rows = matches!(state.mode, Mode::Tabs { .. })
+            .then(|| tab_panel::rows(state.tab_manager.len(), file_area_rows))
+            .flatten();
+
+        let split = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(terminal_rows.unwrap_or_default()),
+                Constraint::Length(tab_rows.unwrap_or_default()),
+            ])
+            .split(outer[0]);
+        let main = split[0];
 
         let inner = Layout::default()
             .direction(Direction::Horizontal)
@@ -73,9 +94,11 @@ impl Panes {
         Panes {
             nav: inner[0],
             preview: inner[1],
-            terminal,
+            terminal: terminal_rows.map(|_| split[1]),
+            tabs: tab_rows.map(|_| split[2]),
             status: outer[1],
             files_shown: main.height > 0,
+            file_area_rows,
         }
     }
 }
@@ -100,7 +123,8 @@ fn image_needs_clear(slot: &mut PreviewSlot, pane: Option<Rect>) -> bool {
 /// and a bottom status bar. The top region is split 40/60 between the
 /// navigation panel and the preview panel. An open terminal panel takes the
 /// bottom `[terminal] height` percent of the top region, or all of it when
-/// maximized — in which case the file list and preview are not drawn.
+/// maximized — in which case the file list and preview are not drawn. An open tab
+/// panel sits directly above the status bar, taking its rows from the file area.
 ///
 /// This function does **not** clear `state.dirty`; the caller (`main.rs`)
 /// is responsible for setting it to `false` after a successful render so
@@ -127,6 +151,12 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
     // do what it is good at.
     let size = terminal.size()?;
     let panes = Panes::new(Rect::new(0, 0, size.width, size.height), state);
+    state.file_area_rows = panes.file_area_rows;
+    // The window shrank, or a shell was maximized, with the panel open. Otherwise
+    // the keys would go on driving a selector nobody can see.
+    if matches!(state.mode, Mode::Tabs { .. }) && panes.tabs.is_none() {
+        state.mode = Mode::Navigation;
+    }
     let drawing_image =
         panes.files_shown && matches!(state.preview.content, PreviewContent::Image(_));
     let image_moved = image_needs_clear(
@@ -142,6 +172,9 @@ pub fn render<B: Backend>(terminal: &mut Terminal<B>, state: &mut AppState) -> i
         status_bar::draw(frame, panes.status, state);
         if let Some(panel) = panes.terminal {
             terminal_panel::draw(frame, panel, state);
+        }
+        if let Some(panel) = panes.tabs {
+            tab_panel::draw(frame, panel, state);
         }
         if !panes.files_shown {
             return;

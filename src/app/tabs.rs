@@ -147,8 +147,6 @@ impl TabManager {
     ///
     /// Returns `true` if the switch happened (index was valid and different
     /// from the current active tab), `false` otherwise.
-    // clippy: dead_code — API consumed in Phase 9 UI
-    #[allow(dead_code)]
     pub fn switch_to(&mut self, index: usize) -> bool {
         if index >= self.tabs.len() || index == self.active {
             return false;

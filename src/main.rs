@@ -658,8 +658,13 @@ fn handle_key_event(
         // conditionally clear it on the next non-prefix key.
         let is_prefix = matches!(action, Action::SetPendingNavKey(_));
         // Track whether the action may change the listing content without
-        // changing the selected index or cwd (e.g. Refresh, ToggleHidden).
-        let forces_preview_refresh = matches!(action, Action::Refresh | Action::ToggleHidden);
+        // changing the selected index or cwd (e.g. Refresh, ToggleHidden), and
+        // entering a tab, which empties the preview even when the tab is on the
+        // same directory and selection as the one left.
+        let forces_preview_refresh = matches!(
+            action,
+            Action::Refresh | Action::ToggleHidden | Action::TabPanelEnter
+        );
 
         // Report the failure and continue rather than crashing — a bad
         // directory is inconvenient, not fatal. `set_error` puts it in the

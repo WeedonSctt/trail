@@ -74,7 +74,7 @@ impl NavScroll {
 
 /// Moves `offset` the least distance that keeps `selected` at least `margin`
 /// rows inside a `height`-row window over a `len`-entry list.
-fn clamp(offset: usize, selected: usize, len: usize, height: usize, margin: usize) -> usize {
+pub fn clamp(offset: usize, selected: usize, len: usize, height: usize, margin: usize) -> usize {
     if height == 0 || len <= height {
         return 0;
     }

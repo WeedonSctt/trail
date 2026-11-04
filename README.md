@@ -335,6 +335,7 @@ While anything is marked, `:mv`, `:cp` and `dd` act on the marks instead of the 
 | `Ctrl-w` | Close current tab |
 | `Tab` | Next tab |
 | `Shift-Tab` | Previous tab |
+| `t` | Open the tab panel: pick a tab from a list of the directories they are in |
 
 **Modes and exit**
 

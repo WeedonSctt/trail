@@ -29,6 +29,14 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Added
+
+- **`t` opens a panel listing your open tabs.** Each is labelled with the directory it is in, so
+  you can see what is open and go straight to one with `j`, `k` and `Enter` instead of pressing
+  `Tab` until it comes round. `t` or `Esc` closes it without switching. The panel takes no room
+  until it is opened. A config that already uses `t` keeps its binding, and
+  `toggle_tab_panel` gives the panel another key.
+
 ## [1.13.0] - 2026-11-03
 
 ### Added

@@ -77,7 +77,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
             .fg(Color::Black)
             .bg(theme::parse_color(&state.config.theme.search))
             .add_modifier(Modifier::BOLD),
-        Mode::Visual { .. } => Style::default()
+        Mode::Visual { .. } | Mode::Tabs { .. } => Style::default()
             .fg(Color::Black)
             .bg(theme::parse_color(&state.config.theme.search))
             .add_modifier(Modifier::BOLD),

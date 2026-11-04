@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::input::keymap::is_named_key;
+
 pub use last_used::ConfigSource;
 pub use schema::{
     GeneralConfig, KeymapConfig, NavigationConfig, PluginsConfig, PreviewConfig, SetConfigError,
@@ -358,7 +360,17 @@ struct KeymapOverrides {
 impl KeymapOverrides {
     fn apply_to(self, keymap: &mut KeymapConfig) {
         if let Some(navigation) = self.navigation {
+            // `t` was free before the tab panel took it, so a config may already
+            // use it, alone or to start a sequence. That binding keeps working:
+            // two actions on one key would be picked between at random.
+            let config_uses_t = !navigation.contains_key("toggle_tab_panel")
+                && navigation
+                    .values()
+                    .any(|binding| binding.starts_with('t') && !is_named_key(binding));
             keymap.navigation.extend(navigation);
+            if config_uses_t {
+                keymap.navigation.remove("toggle_tab_panel");
+            }
         }
         if let Some(search) = self.search {
             keymap.search.extend(search);

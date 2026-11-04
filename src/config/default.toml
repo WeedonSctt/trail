@@ -238,6 +238,8 @@ new_tab = "ctrl-t"
 close_tab = "ctrl-w"
 switch_tab_next = "tab"
 switch_tab_prev = "shift-tab"
+# Opens a panel listing the open tabs, to pick one from.  Pressed again, closes it.
+toggle_tab_panel = "t"
 # Preview pane scrolling.  Shift-down and Shift-up are built-in aliases for the
 # first two, the same way the plain arrows alias move_down/move_up.
 preview_scroll_down = "J"

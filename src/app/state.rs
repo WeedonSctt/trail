@@ -447,6 +447,11 @@ pub struct AppState {
     /// height, through [`crate::app::scroll::NavScroll::update`]. `None` until
     /// the first frame.
     pub nav_scroll: Option<crate::app::scroll::NavScroll>,
+    /// Rows the last frame had for the file list and preview, with an open
+    /// terminal panel already taken off. What `t` checks to decide whether the tab
+    /// panel fits, since only the renderer knows the screen's size. `u16::MAX`
+    /// until the first frame.
+    pub file_area_rows: u16,
     /// Current interaction mode.
     pub mode: Mode,
     /// Navigation history for `u`/`Ctrl-r` back/forward.
@@ -600,6 +605,7 @@ impl AppState {
             entries: Vec::new(),
             selected: 0,
             nav_scroll: None,
+            file_area_rows: u16::MAX,
             mode: Mode::default(),
             history: NavigationHistory::new(),
             filter: None,
@@ -1337,6 +1343,41 @@ impl AppState {
         self.save_to_active_tab();
         self.tab_manager.switch_prev();
         self.restore_from_active_tab()
+    }
+
+    /// Switches to the tab at `index`, restoring its state.
+    ///
+    /// No-op when `index` is the active tab or there is no such tab.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateError::ReadDir`] if the target tab's directory cannot be listed.
+    pub fn switch_tab_to(&mut self, index: usize) -> Result<(), StateError> {
+        if index >= self.tab_manager.len() || index == self.tab_manager.active {
+            return Ok(());
+        }
+        self.save_to_active_tab();
+        self.tab_manager.switch_to(index);
+        self.restore_from_active_tab()
+    }
+
+    /// The directory each open tab is in, in tab order.
+    ///
+    /// Reads `self.cwd` for the active tab: its stored `cwd` is written only when
+    /// leaving it, so it still names wherever the tab was when last switched away.
+    pub fn tab_dirs(&self) -> impl Iterator<Item = &Path> {
+        let active = self.tab_manager.active;
+        self.tab_manager
+            .tabs
+            .iter()
+            .enumerate()
+            .map(move |(index, tab)| {
+                if index == active {
+                    self.cwd.as_path()
+                } else {
+                    tab.cwd.as_path()
+                }
+            })
     }
 
     // -- Bookmark management --------------------------------------------------

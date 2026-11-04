@@ -21,9 +21,10 @@ use std::path::Path;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState};
+use ratatui::widgets::{Block, BorderType, Borders, HighlightSpacing, List, ListItem, ListState};
 use ratatui::Frame;
 
+use crate::app::mode::Mode;
 use crate::app::state::{AppState, Entry, EntryKind, GitFileStatus};
 use crate::metafmt;
 use crate::pathfmt;
@@ -338,13 +339,18 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState, offset: usize) {
     let list = List::new(items)
         .block(block)
         .highlight_style(styles.selection)
-        .highlight_symbol(HIGHLIGHT_SYMBOL);
+        .highlight_symbol(HIGHLIGHT_SYMBOL)
+        // Keeps the symbol's column with no selection drawn, so names do not
+        // shift sideways when the tab panel opens.
+        .highlight_spacing(HighlightSpacing::Always);
 
     // Drive the list widget's selection and scroll via ListState. The offset
     // always keeps the selection in view, so `List` draws from it as given
     // rather than re-deriving a window from zero.
+    //
+    // No selection while the tab panel is open: one selector on screen at a time.
     let mut list_state = ListState::default().with_offset(offset);
-    if state.filtered_count() > 0 {
+    if state.filtered_count() > 0 && !matches!(state.mode, Mode::Tabs { .. }) {
         list_state.select(Some(state.selected));
     }
 
@@ -403,7 +409,7 @@ fn fit_badge(
 ///
 /// Named because the details column's budget depends on its width; a literal in
 /// two places is a two-column layout bug waiting to happen.
-const HIGHLIGHT_SYMBOL: &str = "> ";
+pub(super) const HIGHLIGHT_SYMBOL: &str = "> ";
 
 /// What a marked entry carries in front of its name, in the column an
 /// unmarked one leaves blank. ASCII, so it is one column on every terminal.

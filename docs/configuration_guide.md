@@ -336,6 +336,9 @@ Overrides keybindings for Navigation Mode.
 - `close_tab`: Close current tab
 - `switch_tab_next`: Switch to next tab
 - `switch_tab_prev`: Switch to previous tab
+- `toggle_tab_panel`: Open or close the tab panel (default `t`). If your config already binds
+  `t` to something else, or starts a sequence with it, and does not set this key, your binding
+  stays and the panel has no key until you give it one
 - `preview_scroll_down`: Scroll the preview pane down one line (default `J`)
 - `preview_scroll_up`: Scroll the preview pane up one line (default `K`)
 - `preview_page_down`: Scroll the preview pane down one page (default `ctrl-f`)

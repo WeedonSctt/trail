@@ -772,6 +772,7 @@ const NAV_ACTIONS: &[&str] = &[
     "close_tab",
     "switch_tab_next",
     "switch_tab_prev",
+    "toggle_tab_panel",
     "preview_scroll_down",
     "preview_scroll_up",
     "preview_page_down",

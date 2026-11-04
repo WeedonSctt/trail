@@ -189,6 +189,18 @@ pub enum Action {
     SwitchTabNext,
     /// Switch focus to the previous tab, wrapping from the first to the last.
     SwitchTabPrev,
+    /// Open the tab panel from Navigation Mode, or close it without switching.
+    ToggleTabPanel,
+    /// Move the tab panel's selector one tab down, stopping at the last.
+    TabPanelDown,
+    /// Move the tab panel's selector one tab up, stopping at the first.
+    TabPanelUp,
+    /// Move the tab panel's selector to the first tab.
+    TabPanelTop,
+    /// Move the tab panel's selector to the last tab.
+    TabPanelBottom,
+    /// Switch to the tab under the selector and close the panel.
+    TabPanelEnter,
 }
 
 /// What `@` repeats: the last file operation, typed or pressed.
@@ -762,8 +774,57 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
             }
             state.dirty = true;
         }
+
+        Action::ToggleTabPanel => {
+            match state.mode {
+                Mode::Tabs { .. } => state.mode = Mode::Navigation,
+                Mode::Navigation => {
+                    let maximized = state.terminal.is_visible() && state.terminal.is_maximized();
+                    if maximized || state.file_area_rows < crate::ui::TAB_PANEL_MIN_ROWS {
+                        state.notify(NO_ROOM_FOR_TAB_PANEL);
+                    } else {
+                        state.mode = Mode::Tabs {
+                            selected: state.tab_manager.active,
+                            offset: 0,
+                        };
+                    }
+                }
+                _ => {}
+            }
+            state.dirty = true;
+        }
+
+        Action::TabPanelDown => {
+            let last = state.tab_manager.len() - 1;
+            move_tab_selector(state, |selected| (selected + 1).min(last));
+        }
+
+        Action::TabPanelUp => move_tab_selector(state, |selected| selected.saturating_sub(1)),
+
+        Action::TabPanelTop => move_tab_selector(state, |_| 0),
+
+        Action::TabPanelBottom => {
+            let last = state.tab_manager.len() - 1;
+            move_tab_selector(state, |_| last);
+        }
+
+        Action::TabPanelEnter => {
+            if let Mode::Tabs { selected, .. } = state.mode {
+                state.mode = Mode::Navigation;
+                state.dirty = true;
+                state.switch_tab_to(selected)?;
+            }
+        }
     }
     Ok(())
+}
+
+/// Moves the tab panel's selector to where `to` says, given where it is.
+fn move_tab_selector(state: &mut AppState, to: impl FnOnce(usize) -> usize) {
+    if let Mode::Tabs { selected, .. } = &mut state.mode {
+        *selected = to(*selected);
+        state.dirty = true;
+    }
 }
 
 /// Parses and runs one command line exactly as typed — `:` commands without
@@ -1096,6 +1157,9 @@ fn configured_pause(state: &AppState) -> shell_exec::ShellPause {
 /// Switching used to be a silent no-op here, which is indistinguishable from a
 /// binding that is not working — and was reported as exactly that.
 const SINGLE_TAB_HINT: &str = "only one tab open — Ctrl-t opens another";
+
+/// Shown when `t` is pressed with too few rows to draw the tab panel in.
+const NO_ROOM_FOR_TAB_PANEL: &str = "no room for the tab panel";
 
 /// Shown when the last remaining tab is asked to close.
 const LAST_TAB_HINT: &str = "the last tab stays open — q quits Trail";

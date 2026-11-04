@@ -109,6 +109,37 @@ pub fn visual(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Act
     }
 }
 
+/// Translates a `KeyEvent` into an `Action` while the tab panel is open.
+///
+/// Like Visual Mode this shares Navigation Mode's bindings, so the panel moves
+/// with whatever the user chose for `j`, `k`, `gg` and `G`, and reinterprets them
+/// for the selector. `Esc` always closes the panel, without the `clear_marks` it
+/// means elsewhere. Every other key does nothing, `Ctrl-t` and `Ctrl-w` included,
+/// and so does a prefix that cannot lead to `gg` or `G`, which would otherwise
+/// show as pending for nothing.
+pub fn tabs(key: KeyEvent, ctx: &mut InputCtx, state: &AppState) -> Option<Action> {
+    if key.code == KeyCode::Esc {
+        return Some(Action::ToggleTabPanel);
+    }
+    match navigation(key, ctx, state)? {
+        Action::MoveDown => Some(Action::TabPanelDown),
+        Action::MoveUp => Some(Action::TabPanelUp),
+        Action::JumpTop => Some(Action::TabPanelTop),
+        Action::JumpBottom => Some(Action::TabPanelBottom),
+        Action::EnterOrOpen => Some(Action::TabPanelEnter),
+        Action::ToggleTabPanel => Some(Action::ToggleTabPanel),
+        Action::SetPendingNavKey(prefix) => {
+            let navigation = &state.config.keymap.navigation;
+            ["jump_top", "jump_bottom"]
+                .iter()
+                .filter_map(|name| navigation.get(*name))
+                .any(|binding| binding.starts_with(prefix))
+                .then_some(Action::SetPendingNavKey(prefix))
+        }
+        _ => None,
+    }
+}
+
 /// Translates a `KeyEvent` in Search Mode into an `Action`.
 ///
 /// Search Mode is a typing mode, so an unmodified printable character is
@@ -224,9 +255,9 @@ const NAMED_KEYS: &[&str] = &[
 /// Whether `binding` names a single key — `tab`, `ctrl-r`, `shift-end` — as
 /// opposed to a sequence of typed characters.
 ///
-/// Matches exactly the spellings [`key_to_config_string`] produces: a bare key
+/// Matches exactly the spellings `key_to_config_string` produces: a bare key
 /// name, or one prefixed with `ctrl-` or `shift-`.
-fn is_named_key(binding: &str) -> bool {
+pub fn is_named_key(binding: &str) -> bool {
     let base = binding
         .strip_prefix("ctrl-")
         .or_else(|| binding.strip_prefix("shift-"))
@@ -287,6 +318,7 @@ fn nav_action_from_name(name: &str) -> Option<Action> {
         "close_tab" => Some(Action::CloseTab),
         "switch_tab_next" => Some(Action::SwitchTabNext),
         "switch_tab_prev" => Some(Action::SwitchTabPrev),
+        "toggle_tab_panel" => Some(Action::ToggleTabPanel),
         // Preview pane scrolling.
         "preview_scroll_down" => Some(Action::PreviewScrollDown),
         "preview_scroll_up" => Some(Action::PreviewScrollUp),

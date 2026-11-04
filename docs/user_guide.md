@@ -81,6 +81,18 @@ Once a second tab is open, the status bar shows which one has focus — `[2/3]`,
 the path. With a single tab there is no indicator, and `Tab` says so rather than appearing
 to do nothing.
 
+To see what is open, press `t`. A panel opens above the status bar, listing the directory each
+tab is in, with the selector on your current tab and that tab in bold. It grows upward with the
+number of tabs, and scrolls once it reaches the top. While it is open:
+
+- `j` / `k` or the arrows move the selector, and `gg` / `G` go to the first or last tab.
+- `Enter` or `l` enters the selected tab and closes the panel.
+- `t` or `Esc` closes it without switching. Your marks stay as they are.
+- Every other key does nothing, including `Ctrl-t` and `Ctrl-w`.
+
+Moving the selector does not switch tabs, so the listing behind it stays put until `Enter`. If
+the terminal panel is maximized, or the window is too short to fit it, `t` says there is no room.
+
 ### File Operations
 - `ya`: Copy absolute path of the selected item to clipboard
 - `yr`: Copy path relative to the directory Trail was launched from

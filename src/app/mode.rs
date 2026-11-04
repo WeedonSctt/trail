@@ -1,4 +1,4 @@
-//! Mode enum: Navigation, Visual, Search, and Command.
+//! Mode enum: Navigation, Visual, Search, Command, and Tabs.
 //!
 //! Determines how keystrokes are dispatched and what the status bar displays.
 //! All three variants are defined here so the state shape is complete from
@@ -50,6 +50,17 @@ pub enum Mode {
         /// that re-orders the listing cannot move it.
         anchor: std::path::PathBuf,
     },
+
+    /// The tab panel is open, entered with `t` from Navigation Mode: the keys
+    /// move a selector over the open tabs. Nothing switches until `Enter`.
+    Tabs {
+        /// The tab the selector is on, an index into `TabManager::tabs`.
+        selected: usize,
+        /// The tab drawn on the panel's first row. Kept here because a position
+        /// rebuilt each frame pins the selector to the last row; written by the
+        /// renderer, which is the only thing that knows the panel's height.
+        offset: usize,
+    },
 }
 
 impl Mode {
@@ -60,6 +71,7 @@ impl Mode {
             Mode::Search { .. } => "SEARCH",
             Mode::Command { .. } => "COMMAND",
             Mode::Visual { .. } => "VISUAL",
+            Mode::Tabs { .. } => "TABS",
         }
     }
 }

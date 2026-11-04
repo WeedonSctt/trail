@@ -48,7 +48,7 @@ together with `:config write` (§5.1).
 count them. First written down as a tab bar across the top. On 2026-11-03 the maintainer
 replaced that with a panel you open with a key and pick a tab from, which costs no row until
 it is asked for, so the objection of §2.6 and §2.17 no longer applies. §2.24 is the new shape.
-Not started.
+Built; waiting on the maintainer's hand test before it ships.
 
 **Seventh round (2026-11-02, item 27).** The prompt after a `!` command says nothing about
 the command. The design was settled with the maintainer before this entry was written, and
@@ -89,7 +89,7 @@ test itself).
 | 23 | Repeat the last command with one key | re-running a `:` or `!` command means `:`, `↑`, `Enter` | **done** — v1.11.0, `@` (also repeats `dd`, `pp`, `pm`); §2.21 |
 | 24 | Bookmarks as `:mv` / `:cp` destinations | `:mv` to a bookmarked place means typing its full path | **done** — v1.11.0, `@name`; §2.22 |
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
-| 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **planned** — §2.24 |
+| 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **in progress** — §2.24; built, not yet released |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
 
 ---
