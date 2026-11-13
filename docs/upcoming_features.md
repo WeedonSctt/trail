@@ -54,6 +54,12 @@ Shipped in v1.14.0.
 the command. The design was settled with the maintainer before this entry was written, and
 §2.25 records the answers. Shipped in v1.13.0.
 
+**Eighth round (2026-11-13, items 28–29).** Two feature requests about what Trail reports.
+Item 28 is a short summary printed to the shell when Trail exits; on 2026-11-13 the
+maintainer chose its four levels and its fields, and §2.26 records them. Item 29 came up
+while discussing it: copies and moves should show how much is left, not only how many
+entries are done.
+
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
 test itself).
@@ -91,6 +97,8 @@ test itself).
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **done** — v1.14.0, `t`; §2.24 |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
+| 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **planned** — `[general] exit_summary`; §2.26 |
+| 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **planned** — §2.27 |
 
 ---
 
@@ -1170,6 +1178,219 @@ How the colours and the rule look in a real terminal, whether keys pressed durin
 really discarded, and whether the terminal modes come back cleanly after a program that changed
 them. The maintainer has to try those by hand before this ships.
 
+### 2.26 A summary when the session ends
+
+> *"i imagine a 'final feedback' that shows (details depends on config value) concisely
+> information about a trail session."*
+
+When Trail exits, nothing is said about the session: how long it ran, what it changed, or
+what it left behind. Some of that is worth a warning. A shell busy in the terminal panel is
+killed when Trail closes, marks that were never used are lost, and a copy still running
+holds the process open with nothing on screen (see *Unfinished copies and moves* below).
+
+#### Where it prints
+
+After `LeaveAlternateScreen` and `disable_raw_mode` in `main.rs`, next to where the
+`--cwd-file` is written. From that point on, printing is allowed (invariant 7 covers only
+the alternate screen). The text stays in the shell's scrollback, just above the next prompt.
+The wrappers do not capture Trail's stdout. `shell/trail.ps1` runs
+`& $trailApp.Path --cwd-file $tmp $args`, and the other three behave the same way, so
+nothing in them changes. It goes to **stdout**, so `2>$null` cannot hide it by accident.
+
+It prints on **both** ways out, `q` and `Ctrl-c`/`Esc`. A cancel is exactly when the last
+folder matters, because the shell does not move there. It does not print after a panic:
+the panic hook owns that exit, and a summary would bury the error.
+
+#### The setting
+
+`[general] exit_summary`, chosen by the maintainer:
+
+| Value | Prints |
+|---|---|
+| `off` | nothing; today's behaviour, and the **default**, because extra lines in every shell are a change in behaviour |
+| `warnings` | only when something needs attention (below); otherwise nothing |
+| `brief` | the first line: version, length, last folder; plus any warnings |
+| `full` | every field that is not zero |
+
+`:set exit_summary` works at runtime. The value is read at exit, so no process-wide state
+needs rebuilding.
+
+#### The fields
+
+All of the maintainer's suggestions, plus marks never used, unfinished copies and moves,
+and file operations:
+
+| Field | Source | Shown as |
+|---|---|---|
+| Version | `trail::version`, already there | `trail 1.15.0` (a dev build shows its full label) |
+| Session length | an `Instant` taken at startup; new, one field | `42m 10s`, `1h 05m`, `8s` |
+| Last folder | `state.cwd`, through `pathfmt` | `ended in C:\…\trail`; after a cancel, `still in C:\…\trail (shell not moved)` |
+| Commands run | a counter where `:` and `!` commands are dispatched; `!` results already come back as a `RunReport` | `12 commands (1 failed)` |
+| Shells opened | a counter in `TerminalPanel::new_shell`; new | `4 shells opened` |
+| Shells open at exit | `TerminalPanel::sessions()`, already there, and the busy check the panel already does | `2 open at exit`; a busy one is a warning, `shell 2 was still running cargo build` |
+| Files opened / edited | counted where the editor is launched (`RunExternal`), only when the open actually happened | `3 files opened, 2 edited` |
+| File operations | counters where each operation reports success: copy, move, rename, create (`mkdir`, `touch`), delete | `5 copied · 2 moved · 1 renamed · 3 deleted (recycle bin)` |
+| Marks never used | `state.marks` at exit, already there: a mark is removed once `pp`, `pm`, `:cp`, `:mv` or `dd` uses it, so whatever is still marked was never used | `4 marks never used`, a warning |
+| Unfinished copies and moves | `state.transfers.active()`, already there | a warning, below |
+
+**Files opened against files edited.** "Opened" counts only a file the editor was actually
+started on, never a failed launch. "Edited" can be told only for an editor Trail waits for
+(a terminal editor such as nvim): Trail records the file's modification time before the
+launch and compares it afterwards. Trail cannot know when a GUI program opened with `o` is
+finished, so those count as opened and never as edited. Each file counts once per session,
+however many times it is opened.
+
+**What counts.** Only what Trail did itself. Files edited or deleted inside a terminal panel
+shell, or by a `!` command, are invisible to Trail and are not counted. The configuration
+guide must say so, or the numbers will look wrong.
+
+**Zeroes are left out.** At `full`, a quick look around (`tt`, `l`, `l`, `q`) prints one line:
+
+```
+trail 1.15.0 · 3m 12s · ended in C:\Users\weedo\proj\it\util\trail
+```
+
+A busy session prints at most four lines:
+
+```
+trail 1.15.0 · 42m 10s · ended in C:\Users\weedo\proj\it\util\trail
+12 commands (1 failed) · 3 files opened, 2 edited · 4 shells opened, 2 open at exit
+5 copied · 2 moved · 3 deleted (recycle bin)
+! shell 2 was still running cargo build · 4 marks never used
+```
+
+#### Warnings
+
+These are what `warnings` prints, and the last line at `brief` and `full`:
+
+- a terminal shell that was **busy** when Trail closed, by number and command;
+- **marks never used**;
+- **failed commands**, when any `:` or `!` command failed;
+- a **copy or move still running** at exit.
+
+Each starts with `!`, so it still reads as a warning without colour. Colour (the theme's
+error colour) is used only when stdout is a terminal and `NO_COLOR` is not set.
+
+#### Unfinished copies and moves
+
+`#[tokio::main]` drops the runtime when `main` returns, and tokio waits for
+`spawn_blocking` work to finish. `transfer::start` uses `spawn_blocking`, so quitting during
+a copy almost certainly leaves the screen and then holds the shell, with no prompt and no
+sign of why, until the copy is done. This was read from the code and tokio's documented
+behaviour, not tried. The summary turns that into something visible:
+
+```
+! copying 3/10 into D:\backup — waiting for it to finish (Ctrl-c to stop)
+```
+
+That line is printed **whatever `exit_summary` says, `off` included**, because it explains a
+wait that is happening anyway. Once item 29 exists, the line can say how much is left.
+Whether `Ctrl-c` there should stop the copy cleanly, and what it leaves half-written, is
+part of this item: today the answer is "whatever the OS does to a killed process", which
+can leave a partial file.
+
+#### What it costs
+
+Small to medium. One config key, touching the six places in `CLAUDE.md` §5. A
+`SessionStats` struct on `AppState`, with plain counters bumped where each action already
+reports success. A pure `fn summary(stats, level, width) -> Vec<String>` that is tested
+without a terminal, and a few lines in `main.rs` to print it. No dependency.
+`docs/configuration_guide.md`, `default.toml`, `docs/user_guide.md` and the CHANGELOG need
+the new key.
+
+#### Tests
+
+Unit tests for `summary`:
+
+- each level against the same stats;
+- zero fields left out;
+- the cancel wording of the last folder;
+- each warning on its own;
+- the transfer line printed under `off`;
+- a long path shortened to the width;
+- no colour codes when colour is off.
+
+State tests that each counter moves: a copy, a move, a rename, a `mkdir`, a `touch`, a
+delete, a failed command, a new shell. And that a failed editor launch counts nothing.
+
+#### Cannot be verified here
+
+How it looks in the maintainer's own shell through `tt`, the colours, and the wait after
+quitting during a long copy. All three need a hand test before this ships.
+
+### 2.27 A progress bar for copies and moves
+
+> *"implementing a bar that lets user know about number of files missing, percentage,
+> storage units, as B or GB, to complete"*
+
+Today the status bar centre says `copying 3/10` (`ui/status_bar.rs`, `activity`). The count
+is of the **entries** in the job, and `transfer::run` reports after each one. A folder is
+one entry, however many files it holds, and so is a single 8 GB file, so the counter can sit
+still for minutes. It says nothing about how much data is left.
+
+#### The shape
+
+The same place in the status bar, with more in it:
+
+```
+copying ▕██████░░░░▏ 58% · 1.7 / 2.9 GB · 214 files left
+```
+
+- **Files left**: files, not entries, so a folder counts by what is inside it.
+- **Percentage and the bar**: by **bytes**, which is what takes the time. Counting files
+  would make a hundred small files look like most of the work next to one large one.
+- **Bytes done and total**: in binary units, B, KB, MB, GB, TB, with one decimal from MB
+  up, and both numbers in the total's unit (`1.7 / 2.9 GB`, not `1700 MB / 2.9 GB`).
+- **Narrow terminals**: the parts drop in this order: files left, bytes, the bar. The
+  percentage stays, so `copying 58%` is the shortest form.
+- Two transfers at once: one bar each, as the counters are today.
+
+#### Where the numbers come from
+
+- **Total**: the worker walks the sources before copying anything and adds up file sizes
+  and counts. The walk runs in the worker, never on the UI thread (invariant 1). Until it
+  finishes the bar shows `copying · counting…`, so a large folder starts reporting at once.
+- **Done**: `fs::copy` (used in `fs_ops::copy_path` and `copy_dir_recursive`) gives no
+  progress for a single file. A large file needs a chunked copy, a read and write loop with
+  a buffer of about 1 MB, that reports bytes as it goes. Small files can keep `fs::copy`:
+  below about 4 MB, counting the file once it is done is precise enough.
+- **Messages**: `WorkerMsg::TransferProgress` gains bytes and files. Progress is sent at
+  most about ten times a second rather than per chunk, so a fast copy cannot flood the
+  channel. It already uses `try_send`, which drops a message rather than block.
+
+**Moves.** A move on the same drive is a `rename` and finishes at once; the bar does not
+appear for it. A move between drives is a copy and then a delete, and reports like a copy.
+
+**Not decided by the maintainer, so the implementer's choice.** No estimated time left at
+first: a copy's speed changes too much between small and large files for the guess to be
+honest. No config key. The bar uses the block characters `█` and `░`, with a plain `#` and `-`
+form left for a later key if a terminal turns out not to draw them.
+
+#### What it costs
+
+Medium. The chunked copy is the main work, and it must keep what `fs::copy` does that a
+plain loop does not: file permissions, and on Windows the attributes that `CopyFileEx` keeps.
+The simplest way is to copy the data in chunks and then copy the permissions afterwards
+with `fs::set_permissions`. What the chunked path loses compared with `CopyFileEx` has to
+be checked and written down. No new dependency.
+
+It also makes §2.26's exit warning more useful (`waiting for 1.2 GB to finish`), and it
+gives a natural place to stop a copy cleanly later.
+
+#### Tests
+
+- Unit tests for the formatting: the units at each boundary, the same unit for both
+  numbers, 0 % and 100 %, and each narrower form.
+- Transfer tests on a temporary folder: totals are right before the first byte is copied,
+  bytes add up to the total at the end, a same-drive move reports no bar, and a copied file
+  keeps its contents and its read-only flag.
+- A test that progress messages are limited to about ten a second.
+
+#### Cannot be verified here
+
+How fast it feels on a real large copy, a USB drive or a network share, and how the bar
+looks in the maintainer's terminal.
+
 ---
 
 ## 3. Sequencing
@@ -1233,6 +1454,10 @@ nothing on screen changes until `t` is pressed.
 
 The seventh round's §2.25 is MINOR, and shipped as v1.13.0: `r` exists only on the result block, no Navigation Mode key
 or config key changes, and `shell_pause` keeps its meaning.
+
+The eighth round is MINOR. §2.26's `exit_summary` defaults to `off`, so nothing prints
+unless it is turned on, except the line that explains a wait for an unfinished copy. The
+release notes should mention that line. §2.27 changes only what an existing counter says.
 
 ---
 
