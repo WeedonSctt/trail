@@ -195,6 +195,9 @@ pub struct ActiveTransfer {
     pub done: usize,
     /// Entries in the job.
     pub total: usize,
+    /// The folder the first entry goes into, for the line that explains the
+    /// wait when Trail exits before the job is done.
+    pub into: PathBuf,
 }
 
 /// The transfers in flight, and the channel they report on.
@@ -263,11 +266,17 @@ pub fn start(state: &mut AppState, kind: TransferKind, label: &str, items: Vec<T
     };
 
     let total = job.items.len();
+    let into = job.items[0]
+        .dest
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
     state.transfers.active.push(ActiveTransfer {
         id,
         kind,
         done: 0,
         total,
+        into,
     });
     state.dirty = true;
     runtime.spawn_blocking(move || {
@@ -300,6 +309,16 @@ pub fn finish(state: &mut AppState, report: TransferReport) {
     }
     for source in &report.vanished {
         state.marks.remove(source);
+    }
+
+    match report.kind {
+        TransferKind::Copy => state.stats.copied += report.done.len(),
+        TransferKind::Move => state.stats.moved += report.done.len(),
+    }
+    // A `:cp` or `:mv` that failed failed as a command, only later. A paste is a
+    // key, not a command.
+    if report.has_failures() && report.label != "paste" {
+        state.stats.failed_commands += 1;
     }
 
     let summary = report.summary();

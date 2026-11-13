@@ -44,6 +44,16 @@ const PLUMBING: &[&str] = &["conhost", "openconsole"];
 /// is about to be decided, never per frame.
 #[must_use]
 pub fn busy(shells: &[Option<u32>]) -> Vec<bool> {
+    running(shells).iter().map(Option::is_some).collect()
+}
+
+/// For each pid in `shells`, the program it is running, or `None` at its prompt.
+///
+/// The program's name only, such as `cargo`: the process table does not give
+/// its arguments. A shell whose answer cannot be had is running
+/// [`UNKNOWN_COMMAND`], for the same reason [`busy`] calls it busy.
+#[must_use]
+pub fn running(shells: &[Option<u32>]) -> Vec<Option<String>> {
     let mut system = System::new();
     system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
 
@@ -59,11 +69,14 @@ pub fn busy(shells: &[Option<u32>]) -> Vec<bool> {
     shells
         .iter()
         .map(|pid| match pid {
-            Some(pid) => tree.is_busy(*pid),
-            None => true,
+            Some(pid) => tree.command(*pid),
+            None => Some(UNKNOWN_COMMAND.to_owned()),
         })
         .collect()
 }
+
+/// What a busy shell is running when Trail cannot tell which program it is.
+pub const UNKNOWN_COMMAND: &str = "a command";
 
 /// A snapshot of which process is whose child, by pid.
 #[derive(Debug, Default)]
@@ -83,32 +96,37 @@ impl ProcessTree {
     }
 
     /// Whether `shell` has a descendant that is a command.
-    ///
-    /// A shell that is no longer in the table has exited, and is not busy.
+    #[cfg(test)]
     fn is_busy(&self, shell: u32) -> bool {
-        if !self.names.contains_key(&shell) {
-            return false;
-        }
-        self.has_command_below(shell, 0)
+        self.command(shell).is_some()
     }
 
-    fn has_command_below(&self, pid: u32, depth: usize) -> bool {
+    /// The first descendant of `shell` that is a command, by program name.
+    ///
+    /// A shell that is no longer in the table has exited, and is not busy.
+    fn command(&self, shell: u32) -> Option<String> {
+        if !self.names.contains_key(&shell) {
+            return None;
+        }
+        self.command_below(shell, 0)
+    }
+
+    fn command_below(&self, pid: u32, depth: usize) -> Option<String> {
         // Pids are reused, so a stale parent link can make a cycle; a real
         // shell nesting is never this deep.
         if depth > 16 {
-            return true;
+            return Some(UNKNOWN_COMMAND.to_owned());
         }
-        let Some(children) = self.children.get(&pid) else {
-            return false;
-        };
-        children.iter().any(|child| {
+        self.children.get(&pid)?.iter().find_map(|child| {
             let name = self.names.get(child).map(String::as_str).unwrap_or("");
             if PLUMBING.contains(&name) {
-                false
+                None
             } else if SHELLS.contains(&name) {
-                self.has_command_below(*child, depth + 1)
+                self.command_below(*child, depth + 1)
+            } else if name.is_empty() {
+                Some(UNKNOWN_COMMAND.to_owned())
             } else {
-                true
+                Some(name.to_owned())
             }
         })
     }
@@ -136,6 +154,19 @@ mod tests {
     fn a_shell_with_a_command_running_is_busy() {
         let t = tree(&[(10, Some(1), "pwsh.exe"), (11, Some(10), "cargo.exe")]);
         assert!(t.is_busy(10));
+    }
+
+    /// What the exit summary names: the program, without `.exe`, and the real
+    /// command under a nested shell rather than the shell.
+    #[test]
+    fn the_command_is_named_by_its_program() {
+        let t = tree(&[
+            (10, Some(1), "bash.exe"),
+            (11, Some(10), "bash.exe"),
+            (12, Some(11), "Cargo.exe"),
+        ]);
+        assert_eq!(t.command(10).as_deref(), Some("cargo"));
+        assert_eq!(tree(&[(10, Some(1), "pwsh")]).command(10), None);
     }
 
     #[test]

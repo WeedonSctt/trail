@@ -134,6 +134,8 @@ pub struct TerminalPanel {
     shell_focused: bool,
     maximized: bool,
     next_id: u64,
+    /// Shells started this session, for the exit summary.
+    started: usize,
     pending: Option<Confirm>,
     output_pending: bool,
     notify: Option<mpsc::Sender<WorkerMsg>>,
@@ -273,10 +275,31 @@ impl TerminalPanel {
             notify,
         )?;
         self.sessions.push(session);
+        self.started += 1;
         self.active = self.sessions.len() - 1;
         self.visible = true;
         self.shell_focused = true;
         Ok(())
+    }
+
+    /// How many shells have been started this session, closed ones included.
+    #[must_use]
+    pub fn shells_started(&self) -> usize {
+        self.started
+    }
+
+    /// The shells running a command, as (number counted from 1, program).
+    ///
+    /// Reads the process table, which takes tens of milliseconds, so it is for
+    /// the exit summary, never a frame.
+    #[must_use]
+    pub fn running_commands(&self) -> Vec<(usize, String)> {
+        let pids: Vec<Option<u32>> = self.sessions.iter().map(Session::pid).collect();
+        busy::running(&pids)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, program)| program.map(|program| (index + 1, program)))
+            .collect()
     }
 
     /// The toggle key: shows the panel (starting a shell if there is none) and

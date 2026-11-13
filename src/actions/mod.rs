@@ -162,6 +162,9 @@ pub enum Action {
         /// block and the status bar. `None` for the editor and OS-handler opens,
         /// which report only when they fail.
         label: Option<String>,
+        /// The file handed to the editor or the OS handler, for the exit
+        /// summary's count of files opened and edited. `None` for commands.
+        opens: Option<crate::summary::Opens>,
     },
 
     // ── Quit ─────────────────────────────────────────────────────────────
@@ -225,6 +228,11 @@ pub enum Repeatable {
 /// soon as the alternate screen returns, and under `never` this is the only
 /// report there is. The editor and the OS file handler report only a failure.
 pub fn report_run(state: &mut AppState, report: &run_report::RunReport) {
+    // A labelled run is a `!` or `:git` command, already counted when it was
+    // dispatched; only now is it known whether it failed.
+    if report.label.is_some() && !report.succeeded() {
+        state.stats.failed_commands += 1;
+    }
     if let Some(line) = report.status_line() {
         if report.succeeded() {
             state.notify(line);
@@ -279,6 +287,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                             // nothing to read behind it.
                             pause: shell_exec::ShellPause::Never,
                             label: None,
+                            opens: Some(crate::summary::Opens::Editor(entry.path.clone())),
                         });
                         state.dirty = true;
                     }
@@ -438,6 +447,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                             cwd: state.cwd.clone(),
                             pause: shell_exec::ShellPause::Never,
                             label: None,
+                            opens: Some(crate::summary::Opens::Editor(entry.path.clone())),
                         });
                         state.dirty = true;
                     }
@@ -628,12 +638,14 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                 state.mode = Mode::Navigation;
                 delete_paths(state, range)?;
             } else if !state.marks.is_empty() {
-                let marked = state.marks.paths().cloned().collect();
+                let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
+                state.stats.mark_used(marked.iter().cloned());
                 delete_paths(state, marked)?;
             } else if let Some(entry) = state.selected_entry().cloned() {
                 let mode = configured_delete_mode(state);
                 match fs_ops::delete(&entry.path, mode) {
                     Ok(()) => {
+                        count_deleted(state, mode, 1);
                         // Say where it went: with a recycle bin in play, "gone"
                         // and "recoverable" are different outcomes and the user
                         // is entitled to know which one they got.
@@ -739,6 +751,7 @@ pub fn apply(action: Action, state: &mut AppState) -> Result<(), StateError> {
                     // here to hold the screen for.
                     pause: shell_exec::ShellPause::Never,
                     label: None,
+                    opens: Some(crate::summary::Opens::OsHandler(entry.path.clone())),
                 });
                 state.dirty = true;
             }
@@ -841,12 +854,29 @@ fn run_command_line(state: &mut AppState, line: &str) -> Result<(), StateError> 
         Some(rest) => (rest, true),
         None => (line, false),
     };
+    state.stats.commands += 1;
     match crate::input::command_parser::parse(text, is_shell) {
         Ok(cmd) => {
             state.clear_notice();
-            apply(Action::ExecuteCommand(cmd), state)
+            let counted_before = state.stats.failed_commands;
+            let result = apply(Action::ExecuteCommand(cmd), state);
+            // A command that fails says so in the status bar before returning;
+            // a `!` command's result and a copy's come back later and are
+            // counted there. A copy that finished inline, as it does without a
+            // worker channel, has counted itself already.
+            let reported_failure = state
+                .notice
+                .as_ref()
+                .is_some_and(|notice| notice.level == crate::app::state::NoticeLevel::Error);
+            if (result.is_err() || reported_failure)
+                && state.stats.failed_commands == counted_before
+            {
+                state.stats.failed_commands += 1;
+            }
+            result
         }
         Err(e) => {
+            state.stats.failed_commands += 1;
             state.set_error(e.to_string());
             Ok(())
         }
@@ -945,9 +975,10 @@ fn paste_marks(state: &mut AppState, kind: TransferKind) {
         return;
     }
     let cwd = state.cwd.clone();
-    let items = state
-        .marks
-        .paths()
+    let marked: Vec<PathBuf> = state.marks.paths().cloned().collect();
+    state.stats.mark_used(marked.iter().cloned());
+    let items = marked
+        .iter()
         .map(|source| TransferItem {
             source: source.clone(),
             dest: cwd.join(source.file_name().unwrap_or_default()),
@@ -991,6 +1022,7 @@ fn delete_paths(state: &mut AppState, paths: Vec<PathBuf>) -> Result<(), StateEr
         }
     }
 
+    count_deleted(state, mode, deleted);
     let verb = match mode {
         fs_ops::DeleteMode::Trash => "moved to the recycle bin",
         fs_ops::DeleteMode::Permanent => "deleted",
@@ -1004,6 +1036,14 @@ fn delete_paths(state: &mut AppState, paths: Vec<PathBuf>) -> Result<(), StateEr
         None => state.notify(report),
     }
     state.refresh()
+}
+
+/// Counts `n` entries deleted the way `mode` deletes them, for the exit summary.
+fn count_deleted(state: &mut AppState, mode: fs_ops::DeleteMode, n: usize) {
+    match mode {
+        fs_ops::DeleteMode::Trash => state.stats.trashed += n,
+        fs_ops::DeleteMode::Permanent => state.stats.deleted += n,
+    }
 }
 
 /// Shown when a paste is asked for with nothing marked.
@@ -1060,6 +1100,7 @@ fn transfer_marks(state: &mut AppState, kind: TransferKind, dest: &Path) {
         ));
         return;
     }
+    state.stats.mark_used(marked.iter().cloned());
     let items = marked
         .into_iter()
         .map(|source| TransferItem {
@@ -1204,6 +1245,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
     match cmd {
         ParsedCommand::Mkdir(name) => match fs_ops::mkdir(&cwd, &name) {
             Ok(_) => {
+                state.stats.created += 1;
                 state.clear_notice();
                 state.refresh()?;
             }
@@ -1214,6 +1256,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
 
         ParsedCommand::Touch(name) => match fs_ops::touch(&cwd, &name) {
             Ok(_) => {
+                state.stats.created += 1;
                 state.clear_notice();
                 state.refresh()?;
             }
@@ -1226,6 +1269,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
             if let Some(entry) = state.selected_entry().cloned() {
                 match fs_ops::rename(&entry.path, &new_name) {
                     Ok(_) => {
+                        state.stats.renamed += 1;
                         state.clear_notice();
                         state.refresh()?;
                     }
@@ -1254,6 +1298,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                 cwd: state.cwd.clone(),
                 pause: configured_pause(state),
                 label: Some(format!(":git {subcmd}")),
+                opens: None,
             });
             state.dirty = true;
         }
@@ -1322,6 +1367,7 @@ fn execute_parsed_command(cmd: ParsedCommand, state: &mut AppState) -> Result<()
                     cwd: state.cwd.clone(),
                     pause: configured_pause(state),
                     label: Some(format!("!{cmd_str}")),
+                    opens: None,
                 });
                 state.dirty = true;
             }

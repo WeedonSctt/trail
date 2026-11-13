@@ -24,6 +24,7 @@ mod preview_tests;
 mod render_snapshot_tests;
 mod run_report_tests;
 mod state_tests;
+mod summary_tests;
 mod tab_panel_tests;
 mod terminal_panel_tests;
 mod test_gg_sequence;

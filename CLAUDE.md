@@ -67,6 +67,7 @@ src/
   pathfmt.rs       how a path is spelled for a human vs. for the OS (Windows `\\?\`)
   paths.rs         every location Trail owns; the only ProjectDirs caller
   session.rs       cd-on-exit handoff to the shell wrappers
+  summary.rs       what a session did, printed to the shell at exit ([general] exit_summary)
   terminal/        the terminal panel: mod.rs (TerminalPanel), input (keys, :term),
                    session (one shell: pty + threads), keys, profile, busy
   app/             state.rs (AppState), mode.rs, history.rs, tabs.rs, sort.rs, scroll.rs
@@ -81,7 +82,7 @@ src/
                    mod.rs (overrides + merge), default.toml, last_used.rs
   plugin/          mod.rs, lua_api.rs, bookmarks.rs
 tests/integration/ main.rs (declares every suite), state_, preview_, command_parser_,
-                   render_snapshot_, tab_panel_, terminal_panel_, test_gg_sequence
+                   render_snapshot_, summary_, tab_panel_, terminal_panel_, test_gg_sequence
 pkg/               homebrew/ aur/ scoop/ packaging manifests
 shell/             trail.bash|zsh|fish|ps1 — cd-on-exit wrappers, shipped in every archive
 ```

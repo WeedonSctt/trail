@@ -275,6 +275,36 @@ long for the bar.
 - `Ctrl-.`: Show or hide the terminal panel — see [Terminal Panel](#5-terminal-panel)
 - `F12`: Move the keyboard between the file list and the terminal panel
 
+#### A summary when you leave
+
+Set `[general] exit_summary` (or `:set exit_summary full`) and Trail prints a few lines to
+the shell when it exits, by `q` or by `Ctrl-c`. They stay in the scrollback above your next
+prompt:
+
+```
+trail 1.15.0 · 42m 10s · ended in C:\Users\weedo\proj\it\util\trail
+12 commands (1 failed) · 3 files opened, 2 edited · 4 shells opened, 2 open at exit
+5 copied · 2 moved · 3 deleted (recycle bin)
+! shell 2 was still running cargo · 4 marks never used
+```
+
+`full` prints every line that has something to say, so a quick look around prints only the
+first. `brief` prints the first line and the warnings, `warnings` only the warnings (and
+nothing when there are none), and `off`, the default, prints nothing. After `Ctrl-c` the first
+line says `still in …` instead, because the shell did not move.
+
+Warnings start with `!`: a terminal panel shell still running something when Trail closed
+(it was stopped), marks you made but never pasted, moved or deleted, and failed commands. A
+file counts as edited only when the editor Trail waited for changed it; files changed by a
+`!` command or in a terminal panel shell are not counted.
+
+If you quit while a copy or move is still running, Trail says so whatever this is set to,
+because it waits for the copy to finish before your prompt comes back:
+
+```
+! copying 3/10 into D:\backup — waiting for it to finish (Ctrl-c stops it, and may leave a file half-copied)
+```
+
 ## 3. Search Mode
 
 Search Mode allows you to filter the current directory's contents. Type any characters to filter the list.

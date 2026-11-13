@@ -552,6 +552,8 @@ pub struct AppState {
     /// Entries marked for a paste, move, copy or delete. One set for every
     /// tab, so marks made in one can be pasted from another.
     pub marks: crate::app::marks::MarkSet,
+    /// What the session has done, for the summary printed at exit.
+    pub stats: crate::summary::SessionStats,
     /// The `:set` changes made this session, for `:config write`.
     pub settings: crate::config::persist::SessionSettings,
     /// The last file operation, for `@` to do again.
@@ -630,6 +632,7 @@ impl AppState {
             terminal: crate::terminal::TerminalPanel::default(),
             transfers: crate::actions::transfer::Transfers::default(),
             marks: crate::app::marks::MarkSet::default(),
+            stats: crate::summary::SessionStats::default(),
             settings: crate::config::persist::SessionSettings::default(),
             last_repeatable: None,
         };

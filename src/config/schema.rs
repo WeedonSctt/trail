@@ -101,6 +101,13 @@ impl TrailConfig {
                 SHELL_PAUSE_REASON,
             ));
         }
+        if crate::summary::ExitSummary::parse(&self.general.exit_summary).is_none() {
+            return Err(invalid_value(
+                "general.exit_summary",
+                &self.general.exit_summary,
+                crate::summary::EXIT_SUMMARY_REASON,
+            ));
+        }
         if crate::actions::fs_ops::DeleteMode::parse(&self.general.delete_mode).is_none() {
             return Err(invalid_value(
                 "general.delete_mode",
@@ -220,6 +227,16 @@ impl TrailConfig {
                     return Err(invalid_value(key, value, SHELL_PAUSE_REASON));
                 }
                 self.general.shell_pause = value.trim().to_ascii_lowercase();
+            }
+            "general.exit_summary" | "exit_summary" => {
+                if crate::summary::ExitSummary::parse(value).is_none() {
+                    return Err(invalid_value(
+                        key,
+                        value,
+                        crate::summary::EXIT_SUMMARY_REASON,
+                    ));
+                }
+                self.general.exit_summary = value.trim().to_ascii_lowercase();
             }
             "general.delete_mode" | "delete_mode" => {
                 if crate::actions::fs_ops::DeleteMode::parse(value).is_none() {
@@ -386,6 +403,12 @@ pub struct GeneralConfig {
     ///
     /// Parsed by [`crate::actions::shell_exec::ShellPause::parse`].
     pub shell_pause: String,
+    /// What to print to the shell when Trail exits: `off`, `warnings`, `brief`
+    /// or `full`.
+    ///
+    /// Parsed by [`crate::summary::ExitSummary::parse`]; read at exit, so `:set`
+    /// needs no rebuild.
+    pub exit_summary: String,
     /// How much of a file, in KiB, a preview reads before stopping short.
     ///
     /// Named for what it used to decide — which files were highlighted on the UI

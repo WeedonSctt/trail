@@ -15,6 +15,13 @@ mod theme;
 
 pub use tab_panel::MIN_ROWS as TAB_PANEL_MIN_ROWS;
 
+/// The colour a `[theme]` value names, for text printed outside the TUI, such
+/// as the exit summary's warnings. An unknown name reads as the terminal's
+/// default, as it does on screen.
+pub fn theme_colour(value: &str) -> ratatui::style::Color {
+    theme::parse_color(value)
+}
+
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Terminal;

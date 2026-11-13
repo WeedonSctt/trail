@@ -58,7 +58,7 @@ the command. The design was settled with the maintainer before this entry was wr
 Item 28 is a short summary printed to the shell when Trail exits; on 2026-11-13 the
 maintainer chose its four levels and its fields, and §2.26 records them. Item 29 came up
 while discussing it: copies and moves should show how much is left, not only how many
-entries are done.
+entries are done. Item 28 is built and waiting on the maintainer's hand test before it ships.
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -97,7 +97,7 @@ test itself).
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **done** — v1.14.0, `t`; §2.24 |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
-| 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **planned** — `[general] exit_summary`; §2.26 |
+| 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **in progress** — `[general] exit_summary`; §2.26; built, not yet released |
 | 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **planned** — §2.27 |
 
 ---
@@ -1227,10 +1227,10 @@ and file operations:
 | Last folder | `state.cwd`, through `pathfmt` | `ended in C:\…\trail`; after a cancel, `still in C:\…\trail (shell not moved)` |
 | Commands run | a counter where `:` and `!` commands are dispatched; `!` results already come back as a `RunReport` | `12 commands (1 failed)` |
 | Shells opened | a counter in `TerminalPanel::new_shell`; new | `4 shells opened` |
-| Shells open at exit | `TerminalPanel::sessions()`, already there, and the busy check the panel already does | `2 open at exit`; a busy one is a warning, `shell 2 was still running cargo build` |
+| Shells open at exit | `TerminalPanel::sessions()`, already there, and the busy check the panel already does | `2 open at exit`; a busy one is a warning, `shell 2 was still running cargo` (the process table gives the program's name, not its arguments) |
 | Files opened / edited | counted where the editor is launched (`RunExternal`), only when the open actually happened | `3 files opened, 2 edited` |
 | File operations | counters where each operation reports success: copy, move, rename, create (`mkdir`, `touch`), delete | `5 copied · 2 moved · 1 renamed · 3 deleted (recycle bin)` |
-| Marks never used | `state.marks` at exit, already there: a mark is removed once `pp`, `pm`, `:cp`, `:mv` or `dd` uses it, so whatever is still marked was never used | `4 marks never used`, a warning |
+| Marks never used | `state.marks` at exit, less the marks a `pp`, `pm`, `:cp`, `:mv` or `dd` used. A move or delete removes its marks, but a copy keeps them so the same set can be pasted twice, so what is still marked is not enough: the uses are recorded | `4 marks never used`, a warning |
 | Unfinished copies and moves | `state.transfers.active()`, already there | a warning, below |
 
 **Files opened against files edited.** "Opened" counts only a file the editor was actually
@@ -1256,7 +1256,7 @@ A busy session prints at most four lines:
 trail 1.15.0 · 42m 10s · ended in C:\Users\weedo\proj\it\util\trail
 12 commands (1 failed) · 3 files opened, 2 edited · 4 shells opened, 2 open at exit
 5 copied · 2 moved · 3 deleted (recycle bin)
-! shell 2 was still running cargo build · 4 marks never used
+! shell 2 was still running cargo · 4 marks never used
 ```
 
 #### Warnings
@@ -1280,14 +1280,18 @@ sign of why, until the copy is done. This was read from the code and tokio's doc
 behaviour, not tried. The summary turns that into something visible:
 
 ```
-! copying 3/10 into D:\backup — waiting for it to finish (Ctrl-c to stop)
+! copying 3/10 into D:\backup — waiting for it to finish (Ctrl-c stops it, and may leave a file half-copied)
 ```
 
 That line is printed **whatever `exit_summary` says, `off` included**, because it explains a
 wait that is happening anyway. Once item 29 exists, the line can say how much is left.
-Whether `Ctrl-c` there should stop the copy cleanly, and what it leaves half-written, is
-part of this item: today the answer is "whatever the OS does to a killed process", which
-can leave a partial file.
+
+**Decided by the implementer: `Ctrl-c` there is left to the OS**, which ends the process. A
+file being copied at that moment is left half-written at the destination; the source is never
+touched, and a move that has not reached an entry leaves it where it was. The line says so
+rather than promising a clean stop. Stopping cleanly would mean a handler for `Ctrl-c` and a
+copy that checks for it between chunks and deletes its partial file, which belongs with item
+29's byte-level copy if it is wanted.
 
 #### What it costs
 

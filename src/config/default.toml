@@ -31,6 +31,13 @@ shell = ""
 # if you run commands for their effect rather than their output.  Opening a file in the editor never pauses whatever this says --
 # an editor owns the screen while it runs and leaves nothing behind to read.
 shell_pause = "always"
+# What to print to the shell when Trail exits, where it stays above the next
+# prompt.  "off" prints nothing, "warnings" only what needs attention (a busy
+# shell, marks never used, a failed command), "brief" one line (version, length,
+# last folder) plus warnings, "full" everything that is not zero.  Off by
+# default: extra lines after every session are a change you should opt into.
+# Whatever this says, quitting during a copy prints one line explaining the wait.
+exit_summary = "off"
 # How much of a file the preview reads, in KiB.  Together with
 # `[preview] max_lines` this bounds one preview: max_lines stops an ordinary
 # file, this stops one whose lines are enormous -- minified JavaScript, a

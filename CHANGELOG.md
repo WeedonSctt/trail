@@ -29,6 +29,16 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Added
+
+- **A summary when Trail exits**, set with `[general] exit_summary` (`off`, `warnings`, `brief`,
+  `full`; `:set exit_summary` works too). It prints to the shell, after `q` or `Ctrl-c`, how
+  long the session ran, where it ended, what it changed, and warnings for what it left behind:
+  a terminal shell still running something, marks never used, failed commands. Off by default,
+  so nothing changes until you set it.
+- **Quitting during a copy or move now says why the prompt has not come back**: Trail waits for
+  the copy to finish, and prints one line saying so, whatever `exit_summary` is set to.
+
 ## [1.14.1] - 2026-11-13
 
 ### Changed

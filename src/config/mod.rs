@@ -155,6 +155,7 @@ struct GeneralOverrides {
     editor: Option<String>,
     shell: Option<String>,
     shell_pause: Option<String>,
+    exit_summary: Option<String>,
     text_sync_threshold_kb: Option<usize>,
     delete_mode: Option<String>,
     show_version: Option<bool>,
@@ -173,6 +174,9 @@ impl GeneralOverrides {
         }
         if let Some(shell_pause) = self.shell_pause {
             general.shell_pause = shell_pause;
+        }
+        if let Some(exit_summary) = self.exit_summary {
+            general.exit_summary = exit_summary;
         }
         if let Some(text_sync_threshold_kb) = self.text_sync_threshold_kb {
             general.text_sync_threshold_kb = text_sync_threshold_kb;

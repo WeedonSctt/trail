@@ -20,13 +20,14 @@ mod paths;
 mod plugin;
 mod preview;
 mod session;
+mod summary;
 mod terminal;
 mod ui;
 mod version;
 mod window_title;
 mod workers;
 
-use std::io::{self, stdout};
+use std::io::{self, stdout, IsTerminal, Write};
 use std::panic;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -272,12 +273,45 @@ async fn main() -> Result<()> {
             .save(&data_dir.join(paths::RECENT_DIRS_FILE));
     }
 
-    // Re-surface real errors; treat "cancelled" as a clean exit.
+    // The screen is the shell's again, so printing is allowed. Not after an
+    // error, which the summary would bury.
+    if run_result.is_ok() || cancelled {
+        print_exit_summary(&state, cancelled);
+    }
+
+    // Re-surface real errors; treat "cancelled" as a clean exit. A copy still
+    // running holds the process open past this point, until it is done: the
+    // runtime waits for blocking work when it shuts down. The summary has just
+    // said so.
     if cancelled {
         Ok(())
     } else {
         run_result
     }
+}
+
+/// Prints what `[general] exit_summary` asks for, to stdout, where it stays in
+/// the shell's scrollback above the next prompt.
+///
+/// Warnings are coloured only on a terminal, and never with `NO_COLOR` set.
+fn print_exit_summary(state: &AppState, cancelled: bool) {
+    let level = summary::ExitSummary::parse(&state.config.general.exit_summary)
+        .unwrap_or(summary::ExitSummary::Off);
+    // Whether a shell is busy is a warning, so it is not worth reading the
+    // process table for when nothing would show it.
+    let check_shells = level != summary::ExitSummary::Off && !state.terminal.sessions().is_empty();
+    let report = summary::SessionReport::from_state(state, cancelled, check_shells);
+    let width = tty::size().map_or(80, |(columns, _)| columns);
+    let lines = summary::summary(&report, level, width);
+    if lines.is_empty() {
+        return;
+    }
+    let no_colour = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
+    let colour = (stdout().is_terminal() && !no_colour)
+        .then(|| ui::theme_colour(&state.config.theme.error).into());
+    let mut out = stdout();
+    let _ = out.write_all(summary::paint(&lines, colour).as_bytes());
+    let _ = out.flush();
 }
 
 /// Loads the configuration named by `source`, applying the failure policy that
@@ -723,11 +757,29 @@ fn handle_key_event(
         cwd,
         pause,
         label,
+        opens,
     }) = state.pending_external.take()
     {
         let argv_refs: Vec<&str> = argv.iter().map(|s| s.as_str()).collect();
+        // The file's modification time either side of the editor is how the
+        // exit summary tells an edit from a look.
+        let modified = || {
+            let path = match &opens {
+                Some(summary::Opens::Editor(path)) => path,
+                _ => return None,
+            };
+            std::fs::metadata(path).and_then(|m| m.modified()).ok()
+        };
+        let before = modified();
         match shell_exec::run_external(&argv_refs, &cwd, pause, label.as_deref()) {
-            Ok(report) => actions::report_run(state, &report),
+            Ok(report) => {
+                if let Some(opens) = &opens {
+                    state
+                        .stats
+                        .record_open(opens, &report.result, before, modified());
+                }
+                actions::report_run(state, &report);
+            }
             Err(e) => state.set_error(format!("exec: {e}")),
         }
         // Force a full redraw: the child process may have overwritten the screen.
