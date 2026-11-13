@@ -398,7 +398,7 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   When the maintainer says the RAM is in, delete `.cargo/config.toml` and this entry. The
   `.gitignore` line can stay.
 - Released: **v1.14.1**, from `main`, which is current and pushed. Also on crates.io as
-  `trail-fm` (1.11.1 through 1.13.0).
+  `trail-fm` (1.11.1 through 1.14.1, skipping 1.14.0, which never reached it).
 - The Homebrew tap (`WeedonSctt/homebrew-trail`), the Scoop bucket
   (`WeedonSctt/trail-scoop-bucket`) and the AUR package that `README.md` tells people to
   install from **do not exist** (checked 2026-10-21) — release step 9 has had nowhere to
