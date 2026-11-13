@@ -10,7 +10,7 @@
 ## guidelines.
 ##
 ## NOTE ON SHA256 DIGESTS:
-##   The sha256 values below are the v1.14.0 digests, from its checksums.txt.
+##   The sha256 values below are the v1.14.1 digests, from its checksums.txt.
 ##   On every version bump they must be refreshed alongside `version` — read
 ##   the new values from that release's checksums.txt, or run `shasum -a 256`
 ##   (macOS) / `sha256sum` (Linux) against each downloaded archive.
@@ -35,12 +35,12 @@ class Trail < Formula
   on_macos do
     on_arm do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-aarch64-apple-darwin.tar.gz"
-      sha256 "64722906ab3a55288b4a6d22b7936b0c268e34ebcd5c8073f863c3af7d14e29f"
+      sha256 "f959216ab337ae92000bfad0e95f9c76b795b22fe6e0cecb4d79f5a852a73420"
     end
 
     on_intel do
       url "https://github.com/WeedonSctt/trail/releases/download/v#{version}/trail-v#{version}-x86_64-apple-darwin.tar.gz"
-      sha256 "2c439ed816c1c3d455d86d5108476e7d7c82de5ac971690aa2a3d56501bd73d4"
+      sha256 "2467fd09264fe4d6cb17089250596c30bee94419dfd84825071540247850c504"
     end
   end
 

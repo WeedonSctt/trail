@@ -11,7 +11,7 @@
 #   paru -S trail
 #
 # NOTE ON SHA256 DIGESTS:
-#   The sha256sum values below are the v1.14.0 digests, from its checksums.txt.
+#   The sha256sum values below are the v1.14.1 digests, from its checksums.txt.
 #   On every version bump they must be refreshed alongside `pkgver` — read the
 #   new values from that release's checksums.txt, or run `sha256sum` against
 #   each downloaded archive, then regenerate .SRCINFO.
@@ -39,9 +39,9 @@ options=(!debug)
 source_x86_64=("trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-x86_64-unknown-linux-gnu.tar.gz")
 source_aarch64=("trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz::https://github.com/WeedonSctt/trail/releases/download/v${pkgver}/trail-v${pkgver}-aarch64-unknown-linux-gnu.tar.gz")
 
-# Filled from the v1.14.0 checksums.txt.
-sha256sums_x86_64=("9c34c479a78bef3cfd901184154629c4f82e35e0c2342b24b6f35ea03b084df3")
-sha256sums_aarch64=("421554afb6e45675cb284136cf2559716e33143d50e2b5ced94a36f0f5b08318")
+# Filled from the v1.14.1 checksums.txt.
+sha256sums_x86_64=("75d0250be402fe9ca651def54f55e320ce44c986749ecdb4feb00de1498d8a5e")
+sha256sums_aarch64=("e0da91db66ffdbeb010d1ba2ea8b4308e9bae2bee68ead97af04f6e3958a9110")
 
 install=trail.install
 
