@@ -29,6 +29,11 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Changed
+
+- **The tab panel underlines the tab you are in**, instead of putting it in italics, which was
+  hard to tell apart from the other entries.
+
 ## [1.14.0] - 2026-11-03
 
 ### Added

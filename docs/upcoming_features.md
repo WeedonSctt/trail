@@ -1003,8 +1003,8 @@ TABS [1/3] ...
 - **Labels.** Only the directory the tab is in, as a full path through `pathfmt`, so two tabs
   on folders called `src` can be told apart. A path too long for the row loses its start, so
   the folder's own name stays visible.
-- **The tab you are in** is in italics, so it is still findable once the selector has moved off it.
-  Bold was tried first and was too hard to notice in use.
+- **The tab you are in** is underlined, so it is still findable once the selector has moved off it.
+  Bold and then italics were tried first; both were too hard to notice in use.
 - **The navigation panel's highlight is off** while the panel is open, so only one selector is
   on screen. File names do not shift sideways: the column the `> ` takes stays reserved.
 

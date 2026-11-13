@@ -82,7 +82,7 @@ the path. With a single tab there is no indicator, and `Tab` says so rather than
 to do nothing.
 
 To see what is open, press `t`. A panel opens above the status bar, listing the directory each
-tab is in, with the selector on your current tab and that tab in italics. It grows upward with the
+tab is in, with the selector on your current tab and that tab underlined. It grows upward with the
 number of tabs, and scrolls once it reaches the top. While it is open:
 
 - `j` / `k` or the arrows move the selector, and `gg` / `G` go to the first or last tab.

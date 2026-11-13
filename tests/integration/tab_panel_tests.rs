@@ -460,7 +460,7 @@ fn a_long_path_loses_its_start_and_keeps_the_folders_name() {
 }
 
 #[test]
-fn the_tab_you_are_in_stays_italic_once_the_selector_moves_off_it() {
+fn the_tab_you_are_in_stays_underlined_once_the_selector_moves_off_it() {
     let dir = folders(2);
     let mut state = tabbed(dir.path(), 2);
     press(&mut state, ch('t'));
@@ -468,7 +468,7 @@ fn the_tab_you_are_in_stays_italic_once_the_selector_moves_off_it() {
 
     let buf = draw(&mut state, WIDTH, HEIGHT);
     let rows = rows_of(&buf);
-    let is_italic = |name: &str| {
+    let is_underlined = |name: &str| {
         let y = rows
             .iter()
             .rposition(|row| row.contains(name))
@@ -477,11 +477,11 @@ fn the_tab_you_are_in_stays_italic_once_the_selector_moves_off_it() {
         buf.cell((x as u16, y as u16))
             .unwrap()
             .modifier
-            .contains(Modifier::ITALIC)
+            .contains(Modifier::UNDERLINED)
     };
 
-    assert!(is_italic("d00"));
-    assert!(!is_italic("d01"));
+    assert!(is_underlined("d00"));
+    assert!(!is_underlined("d01"));
 }
 
 /// The selection's row is unmarked and the names stay where they were, so only

@@ -74,10 +74,10 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, state: &mut AppState) {
         .enumerate()
         .map(|(index, dir)| {
             let label = pathfmt::elide_front(&sanitize(&pathfmt::display(dir)), label_width);
-            // Italic, so the tab you are in can still be found once the selector
+            // Underlined, so the tab you are in can still be found once the selector
             // has moved off it.
             let style = if index == active {
-                styles.normal.add_modifier(Modifier::ITALIC)
+                styles.normal.add_modifier(Modifier::UNDERLINED)
             } else {
                 styles.normal
             };
