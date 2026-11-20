@@ -166,6 +166,9 @@ pub struct UnfinishedTransfer {
     pub done: usize,
     /// Entries in the job.
     pub total: usize,
+    /// Bytes still to write; zero when the job copies nothing, or before it
+    /// has measured what it will.
+    pub bytes_left: u64,
     /// The folder they are going into, as a person reads it.
     pub into: String,
 }
@@ -249,8 +252,9 @@ impl SessionReport {
                 .iter()
                 .map(|t| UnfinishedTransfer {
                     kind: t.kind,
-                    done: t.done,
-                    total: t.total,
+                    done: t.progress.entries_done,
+                    total: t.progress.entries_total,
+                    bytes_left: t.progress.bytes_left(),
                     into: pathfmt::display(&t.into),
                 })
                 .collect(),
@@ -387,17 +391,23 @@ fn warnings(report: &SessionReport, level: ExitSummary) -> Vec<String> {
 
 /// One line for each copy or move still running.
 fn transfer_lines(report: &SessionReport, width: usize) -> Vec<String> {
-    const TAIL: &str =
-        " — waiting for it to finish (Ctrl-c stops it, and may leave a file half-copied)";
+    const STOP: &str = " (Ctrl-c stops it, and may leave a file half-copied)";
     report
         .transfers
         .iter()
         .map(|t| {
             let head = format!("! {} {}/{} into ", t.kind.progressive(), t.done, t.total);
+            let tail = match t.bytes_left {
+                0 => format!(" — waiting for it to finish{STOP}"),
+                left => format!(
+                    " — waiting for {} to finish{STOP}",
+                    crate::actions::progress::format_bytes(left)
+                ),
+            };
             let room = width
-                .saturating_sub(head.chars().count() + TAIL.chars().count() + 1)
+                .saturating_sub(head.chars().count() + tail.chars().count() + 1)
                 .max(10);
-            format!("{head}{}{TAIL}", pathfmt::elide_front(&t.into, room))
+            format!("{head}{}{tail}", pathfmt::elide_front(&t.into, room))
         })
         .collect()
 }
@@ -562,6 +572,7 @@ mod tests {
                 kind: TransferKind::Copy,
                 done: 3,
                 total: 10,
+                bytes_left: 0,
                 into: "D:\\backup".to_owned(),
             }],
             ..quiet()
@@ -573,6 +584,12 @@ mod tests {
             "{}",
             lines[0]
         );
+
+        // Once the copy has measured itself, the line says how much is left.
+        let mut measured = report.clone();
+        measured.transfers[0].bytes_left = 1288 * 1024 * 1024;
+        let line = &summary(&measured, ExitSummary::Off, 160)[0];
+        assert!(line.contains("— waiting for 1.2 GB to finish"), "{line}");
         assert!(lines[0].contains("Ctrl-c"));
     }
 

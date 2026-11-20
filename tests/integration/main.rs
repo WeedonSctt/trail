@@ -21,6 +21,7 @@ mod install_script_tests;
 mod jump_back_tests;
 mod marks_tests;
 mod preview_tests;
+mod progress_tests;
 mod render_snapshot_tests;
 mod run_report_tests;
 mod state_tests;

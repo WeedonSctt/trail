@@ -353,7 +353,20 @@ Command mode allows you to execute powerful filesystem operations and shell comm
   terminal panel — see [Terminal Panel](#5-terminal-panel)
 
 `:mv` and `:cp` run in the background, so a large copy never freezes Trail: the status bar
-shows `copying 3/10` while it works, and reports what happened when it is done. They never
+shows how far it has got while it works, and reports what happened when it is done:
+
+```
+copying ▕█████░░░░░▏ 58% · 1.6 / 2.9 GB · 214 files left
+```
+
+The percentage and the bar go by bytes, which is what takes the time, and the files left count
+what is inside folders too. It first says `copying · counting…` while it adds up what there is
+to copy. In a narrow window it drops the files left, then the sizes, then the bar, down to
+`copying 58%`. A move on the same drive is a rename that finishes at once, so it keeps the
+plain `moving 3/10`. Files of 4 MB or more are copied in pieces so their progress shows; such a
+copy keeps the file's contents, its modification time and its read-only flag, but on Windows not
+its hidden or system attribute or the mark that it was downloaded, and on macOS not its extended
+attributes. Smaller files are copied the usual way and keep everything. They never
 overwrite: an entry whose name is already taken at the destination is skipped and counted
 (`cp: 4 copied, 1 skipped: exists`). Moving to another drive works too — Trail copies and
 then removes the original, and only once the copy has fully succeeded.

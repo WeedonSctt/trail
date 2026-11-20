@@ -5,6 +5,7 @@
 
 pub mod clipboard;
 pub mod fs_ops;
+pub mod progress;
 pub mod run_report;
 pub mod shell_exec;
 pub mod transfer;

@@ -58,7 +58,7 @@ the command. The design was settled with the maintainer before this entry was wr
 Item 28 is a short summary printed to the shell when Trail exits; on 2026-11-13 the
 maintainer chose its four levels and its fields, and §2.26 records them. Item 29 came up
 while discussing it: copies and moves should show how much is left, not only how many
-entries are done. Item 28 is built and waiting on the maintainer's hand test before it ships.
+entries are done. Both are built and waiting on the maintainer's hand test before they ship.
 
 Status values: **planned** (agreed, not started), **in progress**, **done** (shipped,
 kept here for provenance), **deferred** (needs a decision or a terminal Trail cannot
@@ -98,7 +98,7 @@ test itself).
 | 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **done** — v1.14.0, `t`; §2.24 |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
 | 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **in progress** — `[general] exit_summary`; §2.26; built, not yet released |
-| 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **planned** — §2.27 |
+| 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **in progress** — §2.27; built, not yet released |
 
 ---
 
@@ -1354,7 +1354,7 @@ copying ▕██████░░░░▏ 58% · 1.7 / 2.9 GB · 214 files le
 - **Total**: the worker walks the sources before copying anything and adds up file sizes
   and counts. The walk runs in the worker, never on the UI thread (invariant 1). Until it
   finishes the bar shows `copying · counting…`, so a large folder starts reporting at once.
-- **Done**: `fs::copy` (used in `fs_ops::copy_path` and `copy_dir_recursive`) gives no
+- **Done**: `fs::copy` (used in `fs_ops::copy_path`, now `copy_path_reporting`, and `copy_dir_recursive`) gives no
   progress for a single file. A large file needs a chunked copy, a read and write loop with
   a buffer of about 1 MB, that reports bytes as it goes. Small files can keep `fs::copy`:
   below about 4 MB, counting the file once it is done is precise enough.
@@ -1369,6 +1369,23 @@ appear for it. A move between drives is a copy and then a delete, and reports li
 first: a copy's speed changes too much between small and large files for the guess to be
 honest. No config key. The bar uses the block characters `█` and `░`, with a plain `#` and `-`
 form left for a later key if a terminal turns out not to draw them.
+
+**Decided while building it (2026-11-20).**
+
+- *Which moves are measured.* Telling a rename from a copy needs knowing whether two paths are
+  on one drive: the device number on Unix, the drive or share a path starts with on Windows. Only
+  entries going to another drive are measured. A folder mounted inside another drive can fool the
+  Windows check; being wrong shows the plain `moving 3/10`, never a wrong percentage, because bytes
+  count only for an entry that was measured.
+- *A skipped or failed entry* takes its files and bytes out of the totals, so the bar still reaches
+  the end.
+- *A failed chunked copy* deletes its half-written file. `fs::copy` left one behind before.
+- *What a chunked copy loses*, checked and written in `fs_ops::copy_file_chunked` and the user
+  guide: it keeps the contents, the modification time and the read-only flag (the mode bits on
+  Unix), but on Windows not the hidden, system and archive attributes or alternate data streams,
+  such as the mark that a file was downloaded, and on macOS not the extended attributes. Files
+  under 4 MB still go through `fs::copy` and keep everything.
+- *§2.26's exit line* now says how much is left: `waiting for 1.2 GB to finish`.
 
 #### What it costs
 

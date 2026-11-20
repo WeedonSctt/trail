@@ -12,10 +12,12 @@
 //! while earlier entries are being copied.
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 
-use crate::actions::fs_ops;
+use crate::actions::fs_ops::{self, CopyStep};
+use crate::actions::progress::{self, Progress, Throttle, Totals};
 use crate::app::state::AppState;
 use crate::workers::WorkerMsg;
 
@@ -145,12 +147,17 @@ fn display_name(path: &Path) -> String {
         .unwrap_or_else(|| crate::pathfmt::display(path))
 }
 
-/// Runs `job` to completion, calling `progress(done, total)` after each entry.
+/// Runs `job` to completion, calling `progress` once the sources are measured,
+/// as data is written, and after each entry.
 ///
 /// Blocking: this does the actual copying. Keeps going after a failure, so one
 /// unreadable file does not strand the rest of a paste, and the report says
 /// what happened to each.
-pub fn run(job: &TransferJob, mut progress: impl FnMut(usize, usize)) -> TransferReport {
+///
+/// Before copying anything it measures what will be copied, so the first
+/// report already has the totals. A move is measured only for the entries going
+/// to another drive: on one drive it is a rename, which copies nothing.
+pub fn run(job: &TransferJob, mut progress: impl FnMut(&Progress)) -> TransferReport {
     let mut report = TransferReport {
         id: job.id,
         kind: job.kind,
@@ -160,28 +167,85 @@ pub fn run(job: &TransferJob, mut progress: impl FnMut(usize, usize)) -> Transfe
         vanished: Vec::new(),
         failed: Vec::new(),
     };
-    let total = job.items.len();
+
+    let measured: Vec<Option<Totals>> = job
+        .items
+        .iter()
+        .map(|item| copies_data(job.kind, item).then(|| progress::measure(&item.source)))
+        .collect();
+    let mut state = Progress {
+        entries_total: job.items.len(),
+        ..Progress::default()
+    };
+    for totals in measured.iter().flatten() {
+        state.files_total += totals.files;
+        state.bytes_total += totals.bytes;
+    }
+    progress(&state);
 
     for (index, item) in job.items.iter().enumerate() {
+        let totals = measured[index].unwrap_or_default();
+        let before = (state.files_done, state.bytes_done);
         // `symlink_metadata` rather than `exists`: a dangling link is still an
         // entry that can be moved, and still a name that is taken.
         if item.source.symlink_metadata().is_err() {
             report.vanished.push(item.source.clone());
+            state.forget(totals);
         } else if item.dest.symlink_metadata().is_ok() {
             report.skipped.push(item.source.clone());
+            state.forget(totals);
         } else {
+            // Bytes count only for an entry that was measured, so a move
+            // thought to stay on one drive cannot push the count past the total.
+            let counted = measured[index].is_some();
+            let mut step = |step: CopyStep| {
+                if counted {
+                    match step {
+                        CopyStep::Bytes(n) => state.bytes_done += n,
+                        CopyStep::File => state.files_done += 1,
+                    }
+                    progress(&state);
+                }
+            };
             let result = match job.kind {
-                TransferKind::Copy => fs_ops::copy_path(&item.source, &item.dest),
-                TransferKind::Move => fs_ops::move_path(&item.source, &item.dest),
+                TransferKind::Copy => {
+                    fs_ops::copy_path_reporting(&item.source, &item.dest, &mut step)
+                }
+                TransferKind::Move => {
+                    fs_ops::move_path_reporting(&item.source, &item.dest, &mut step)
+                }
             };
             match result {
-                Ok(()) => report.done.push((item.source.clone(), item.dest.clone())),
-                Err(e) => report.failed.push((item.source.clone(), e.to_string())),
+                Ok(()) => {
+                    // Exactly what was measured, whatever the copy reported:
+                    // a measured move that turned out to be a rename wrote nothing.
+                    state.files_done = before.0 + totals.files;
+                    state.bytes_done = before.1 + totals.bytes;
+                    report.done.push((item.source.clone(), item.dest.clone()));
+                }
+                Err(e) => {
+                    state.files_done = before.0;
+                    state.bytes_done = before.1;
+                    state.forget(totals);
+                    report.failed.push((item.source.clone(), e.to_string()));
+                }
             }
         }
-        progress(index + 1, total);
+        state.entries_done = index + 1;
+        progress(&state);
     }
     report
+}
+
+/// Whether moving or copying `item` writes its data, rather than renaming it.
+fn copies_data(kind: TransferKind, item: &TransferItem) -> bool {
+    match kind {
+        TransferKind::Copy => true,
+        TransferKind::Move => item
+            .dest
+            .parent()
+            .is_some_and(|dir| !progress::same_volume(&item.source, dir)),
+    }
 }
 
 /// A transfer that has started and not yet reported.
@@ -191,10 +255,8 @@ pub struct ActiveTransfer {
     pub id: u64,
     /// Copy or move.
     pub kind: TransferKind,
-    /// Entries finished so far.
-    pub done: usize,
-    /// Entries in the job.
-    pub total: usize,
+    /// How far it has got, as last reported.
+    pub progress: Progress,
     /// The folder the first entry goes into, for the line that explains the
     /// wait when Trail exits before the job is done.
     pub into: PathBuf,
@@ -224,11 +286,10 @@ impl Transfers {
     }
 
     /// Records a progress report for job `id`. Returns whether it was known.
-    pub fn progress(&mut self, id: u64, done: usize, total: usize) -> bool {
+    pub fn progress(&mut self, id: u64, progress: Progress) -> bool {
         match self.active.iter_mut().find(|t| t.id == id) {
             Some(transfer) => {
-                transfer.done = done;
-                transfer.total = total;
+                transfer.progress = progress;
                 true
             }
             None => false,
@@ -260,12 +321,11 @@ pub fn start(state: &mut AppState, kind: TransferKind, label: &str, items: Vec<T
         .clone()
         .zip(tokio::runtime::Handle::try_current().ok());
     let Some((tx, runtime)) = background else {
-        let report = run(&job, |_, _| {});
+        let report = run(&job, |_| {});
         finish(state, report);
         return;
     };
 
-    let total = job.items.len();
     let into = job.items[0]
         .dest
         .parent()
@@ -274,16 +334,26 @@ pub fn start(state: &mut AppState, kind: TransferKind, label: &str, items: Vec<T
     state.transfers.active.push(ActiveTransfer {
         id,
         kind,
-        done: 0,
-        total,
+        progress: Progress {
+            counting: true,
+            entries_total: job.items.len(),
+            ..Progress::default()
+        },
         into,
     });
     state.dirty = true;
     runtime.spawn_blocking(move || {
-        let report = run(&job, |done, total| {
+        let mut throttle = Throttle::new(progress::PROGRESS_EVERY);
+        let report = run(&job, |progress| {
+            if !throttle.allow(Instant::now()) {
+                return;
+            }
             // A dropped progress message only means a stale counter for one
             // frame; the report itself is sent with back-pressure below.
-            let _ = tx.try_send(WorkerMsg::TransferProgress { id, done, total });
+            let _ = tx.try_send(WorkerMsg::TransferProgress {
+                id,
+                progress: *progress,
+            });
         });
         if tx
             .blocking_send(WorkerMsg::TransferDone { report })
@@ -371,7 +441,7 @@ mod tests {
                 TransferKind::Copy,
                 vec![item(&a, &out.join("a.txt")), item(&b, &out.join("b.txt"))],
             ),
-            |_, _| {},
+            |_| {},
         );
 
         assert_eq!(report.done.len(), 1);
@@ -399,13 +469,17 @@ mod tests {
                     item(&here, &out.join("here.txt")),
                 ],
             ),
-            |done, total| steps.push((done, total)),
+            |p| steps.push((p.entries_done, p.entries_total)),
         );
 
         assert_eq!(report.vanished, vec![gone]);
         assert!(!here.exists());
         assert!(out.join("here.txt").exists());
-        assert_eq!(steps, vec![(1, 2), (2, 2)]);
+        assert_eq!(
+            steps,
+            vec![(0, 2), (1, 2), (2, 2)],
+            "a move on one drive writes nothing"
+        );
         assert_eq!(report.summary(), "paste: 1 moved, 1 gone");
     }
 
@@ -414,7 +488,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("a.txt");
         fs::write(&a, b"x").unwrap();
-        let mut report = run(&job(TransferKind::Copy, vec![item(&a, &a)]), |_, _| {});
+        let mut report = run(&job(TransferKind::Copy, vec![item(&a, &a)]), |_| {});
         report.label = "cp".to_owned();
         assert_eq!(
             report.summary(),
@@ -466,7 +540,7 @@ mod tests {
         let gone = dir.path().join("gone");
         let report = run(
             &job(TransferKind::Copy, vec![item(&gone, &dir.path().join("x"))]),
-            |_, _| {},
+            |_| {},
         );
         assert!(report.has_failures());
     }

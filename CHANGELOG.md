@@ -37,7 +37,20 @@ the commits said rather than what the users saw.
   a terminal shell still running something, marks never used, failed commands. Off by default,
   so nothing changes until you set it.
 - **Quitting during a copy or move now says why the prompt has not come back**: Trail waits for
-  the copy to finish, and prints one line saying so, whatever `exit_summary` is set to.
+  the copy to finish, and prints one line saying so, whatever `exit_summary` is set to, with how
+  much is left (`waiting for 1.2 GB to finish`).
+- **Copies and moves show a progress bar**:
+  `copying ▕█████░░░░░▏ 58% · 1.6 / 2.9 GB · 214 files left`, where `copying 3/10` only counted
+  the entries picked, so one large file or folder looked frozen. The percentage goes by bytes,
+  and the files left count what is inside folders. A move on the same drive is a rename and keeps
+  the plain count.
+
+### Changed
+
+- **Files of 4 MB or more are copied in pieces**, so their progress shows. They keep their
+  contents, modification time and read-only flag, but on Windows lose the hidden and system
+  attributes and the mark that a file was downloaded, and on macOS their extended attributes.
+  A copy of one that fails partway no longer leaves a half-written file behind.
 
 ## [1.14.1] - 2026-11-13
 

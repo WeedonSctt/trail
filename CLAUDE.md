@@ -77,11 +77,11 @@ src/
   preview/         provider.rs (PreviewProvider trait + PreviewContent), text, directory,
                    binary, image, graphics (terminal inline-image protocol state)
   workers/         mod.rs (WorkerMsg + merge), git, fswatch, highlight, image_decode
-  actions/         mod.rs (dispatch), fs_ops, shell_exec, run_report, transfer, clipboard
+  actions/         mod.rs (dispatch), fs_ops, shell_exec, run_report, transfer, progress, clipboard
   config/          schema.rs (serde structs), terminal.rs ([terminal] section),
                    mod.rs (overrides + merge), default.toml, last_used.rs
   plugin/          mod.rs, lua_api.rs, bookmarks.rs
-tests/integration/ main.rs (declares every suite), state_, preview_, command_parser_,
+tests/integration/ main.rs (declares every suite), state_, preview_, progress_, command_parser_,
                    render_snapshot_, summary_, tab_panel_, terminal_panel_, test_gg_sequence
 pkg/               homebrew/ aur/ scoop/ packaging manifests
 shell/             trail.bash|zsh|fish|ps1 — cd-on-exit wrappers, shipped in every archive

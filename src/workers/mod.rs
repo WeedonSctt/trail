@@ -130,14 +130,13 @@ pub enum WorkerMsg {
         code: Option<u32>,
     },
 
-    /// A background copy or move finished another entry.
+    /// A background copy or move got further. Sent at most about ten times a
+    /// second, so a fast copy cannot flood the channel.
     TransferProgress {
         /// The transfer job.
         id: u64,
-        /// Entries finished so far.
-        done: usize,
-        /// Entries in the job.
-        total: usize,
+        /// Entries, files and bytes done, against the job's totals.
+        progress: crate::actions::progress::Progress,
     },
 
     /// A background copy or move finished.
@@ -287,8 +286,8 @@ pub fn merge(msg: WorkerMsg, state: &mut AppState) {
             }
         }
 
-        WorkerMsg::TransferProgress { id, done, total } => {
-            if state.transfers.progress(id, done, total) {
+        WorkerMsg::TransferProgress { id, progress } => {
+            if state.transfers.progress(id, progress) {
                 state.dirty = true;
             }
         }

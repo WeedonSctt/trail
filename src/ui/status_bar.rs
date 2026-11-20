@@ -150,7 +150,7 @@ pub fn draw(frame: &mut Frame, area: Rect, state: &AppState) {
     if let Mode::Search { query, .. } = &state.mode {
         let center = Paragraph::new(Line::from(Span::styled(format!("/{query}"), styles.search)));
         frame.render_widget(center, sections[1]);
-    } else if let Some(text) = activity(state) {
+    } else if let Some(text) = activity(state, usize::from(sections[1].width)) {
         let elided = elide(&text, usize::from(sections[1].width));
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(elided, styles.command))),
@@ -236,22 +236,30 @@ fn message(state: &AppState, styles: &theme::ThemeStyles) -> Option<(String, Sty
 /// The centre is otherwise empty there, and both are things that have to stay
 /// visible while the user is somewhere else — marked files are usually out of
 /// sight, in another directory.
-fn activity(state: &AppState) -> Option<String> {
+fn activity(state: &AppState, width: usize) -> Option<String> {
+    const SEPARATOR: &str = " · ";
     let marked = (!state.marks.is_empty()).then(|| format!("{} marked", state.marks.len()));
     let selecting = crate::app::marks::visual_bounds(state)
         .map(|(first, last)| format!("{} selected", last - first + 1));
-    let parts: Vec<String> = selecting
-        .into_iter()
-        .chain(marked)
-        .chain(
-            state
-                .transfers
-                .active()
+    let mut parts: Vec<String> = selecting.into_iter().chain(marked).collect();
+
+    // What is left after the counts goes to the transfers, shared equally, so
+    // each bar drops its own details rather than being cut off by the elision.
+    let transfers = state.transfers.active();
+    if !transfers.is_empty() {
+        let taken: usize = parts
+            .iter()
+            .map(|part| part.chars().count() + SEPARATOR.len())
+            .sum();
+        let each =
+            width.saturating_sub(taken + SEPARATOR.len() * (transfers.len() - 1)) / transfers.len();
+        parts.extend(
+            transfers
                 .iter()
-                .map(|t| format!("{} {}/{}", t.kind.progressive(), t.done, t.total)),
-        )
-        .collect();
-    (!parts.is_empty()).then(|| parts.join(" · "))
+                .map(|t| crate::actions::progress::describe(t.kind, &t.progress, each)),
+        );
+    }
+    (!parts.is_empty()).then(|| parts.join(SEPARATOR))
 }
 
 /// Draws the command line across `area` and puts the terminal cursor on it.

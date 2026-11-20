@@ -171,22 +171,31 @@ pub fn resolve_target(source: &Path, dest_str: impl AsRef<Path>, cwd: &Path) -> 
 /// The caller checks that `dest` is free; this does not overwrite, but it does
 /// not re-check either.
 ///
+/// `report` hears about the data a move between drives copies, as
+/// [`copy_path_reporting`] does. A move on one drive is a rename and reports
+/// nothing.
+///
 /// # Errors
 ///
 /// Returns [`FsError::Io`] if the rename fails for any other reason, if the
 /// fallback copy fails (the partial copy is removed, the source is untouched),
 /// or if the source cannot be removed after a successful copy (both then
 /// exist, and the message says so).
-pub fn move_path(source: &Path, dest: &Path) -> Result<(), FsError> {
-    move_path_with(source, dest, |from, to| fs::rename(from, to))
+pub fn move_path_reporting(
+    source: &Path,
+    dest: &Path,
+    report: &mut dyn FnMut(CopyStep),
+) -> Result<(), FsError> {
+    move_path_with(source, dest, |from, to| fs::rename(from, to), report)
 }
 
-/// [`move_path`] with the rename injected, so the cross-drive fallback can be
+/// [`move_path_reporting`] with the rename injected, so the cross-drive fallback can be
 /// tested on a machine with one drive.
 fn move_path_with(
     source: &Path,
     dest: &Path,
     rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    report: &mut dyn FnMut(CopyStep),
 ) -> Result<(), FsError> {
     let err = match rename(source, dest) {
         Ok(()) => return Ok(()),
@@ -196,7 +205,7 @@ fn move_path_with(
         return Err(io_err(format!("mv → {}", dest.display()), err));
     }
 
-    if let Err(e) = copy_path(source, dest) {
+    if let Err(e) = copy_path_reporting(source, dest, report) {
         // `dest` was free before the copy started, so whatever is there now is
         // the half-finished copy. Leaving it would make a retry fail with
         // "destination already exists".
@@ -224,15 +233,32 @@ fn is_cross_device(err: &std::io::Error) -> bool {
     err.raw_os_error() == Some(code)
 }
 
+/// One step of a copy, for a progress bar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyStep {
+    /// This many more bytes are written.
+    Bytes(u64),
+    /// Another file is finished.
+    File,
+}
+
 /// Copies `source` — a file, or a directory and everything under it — to
-/// exactly `dest`.
+/// exactly `dest`, calling `report` as bytes are written and files finish.
+///
+/// A file of [`CHUNKED_FROM`] or more is copied in chunks, so a single large
+/// file reports as it goes; a smaller one is copied whole with `fs::copy` and
+/// reported once it is done.
 ///
 /// # Errors
 ///
 /// Returns [`FsError::InvalidName`] if `dest` is inside `source`: copying a
 /// directory into itself never finishes, because every level it creates is
 /// another level to copy. Returns [`FsError::Io`] for filesystem errors.
-pub fn copy_path(source: &Path, dest: &Path) -> Result<(), FsError> {
+pub fn copy_path_reporting(
+    source: &Path,
+    dest: &Path,
+    report: &mut dyn FnMut(CopyStep),
+) -> Result<(), FsError> {
     if source.is_dir() {
         if dest.starts_with(source) {
             return Err(FsError::InvalidName(
@@ -240,12 +266,69 @@ pub fn copy_path(source: &Path, dest: &Path) -> Result<(), FsError> {
                 "cannot copy a directory into itself",
             ));
         }
-        copy_dir_recursive(source, dest)
+        copy_dir_recursive(source, dest, report)
     } else {
-        fs::copy(source, dest)
-            .map(|_| ())
-            .map_err(|e| io_err(format!("cp → {}", dest.display()), e))
+        copy_file(source, dest, report).map_err(|e| io_err(format!("cp → {}", dest.display()), e))
     }
+}
+
+/// Files this large or larger are copied in chunks, so their progress can be
+/// shown. Below it, counting the file once it is done is precise enough.
+pub const CHUNKED_FROM: u64 = 4 * 1024 * 1024;
+
+/// How much a chunked copy reads and writes at a time.
+const CHUNK: usize = 1024 * 1024;
+
+/// Copies one file to `dest`, reporting its bytes and then the file.
+fn copy_file(source: &Path, dest: &Path, report: &mut dyn FnMut(CopyStep)) -> std::io::Result<()> {
+    let metadata = fs::metadata(source)?;
+    if metadata.len() < CHUNKED_FROM {
+        let written = fs::copy(source, dest)?;
+        report(CopyStep::Bytes(written));
+    } else if let Err(e) = copy_file_chunked(source, dest, &metadata, report) {
+        // Created by this copy, so a half-written file is all that is there.
+        let _ = fs::remove_file(dest);
+        return Err(e);
+    }
+    report(CopyStep::File);
+    Ok(())
+}
+
+/// Copies a large file in [`CHUNK`]s, reporting each, then gives the copy the
+/// original's modification time and permissions.
+///
+/// `fs::copy` keeps more than that. On Windows `CopyFileEx` also keeps the
+/// hidden, system and archive attributes and alternate data streams (such as
+/// the mark that a file was downloaded); on macOS it keeps extended attributes.
+/// A chunked copy keeps only the read-only flag (Unix: the mode bits) and the
+/// modification time, so files of [`CHUNKED_FROM`] or more lose the rest.
+fn copy_file_chunked(
+    source: &Path,
+    dest: &Path,
+    metadata: &fs::Metadata,
+    report: &mut dyn FnMut(CopyStep),
+) -> std::io::Result<()> {
+    use std::io::{Read, Write};
+
+    let mut from = fs::File::open(source)?;
+    let mut to = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dest)?;
+    let mut buffer = vec![0u8; CHUNK];
+    loop {
+        let read = match from.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        to.write_all(&buffer[..read])?;
+        report(CopyStep::Bytes(read as u64));
+    }
+    to.set_modified(metadata.modified()?)?;
+    drop(to);
+    fs::set_permissions(dest, metadata.permissions())
 }
 
 /// Unlinks `path`, recursively for a directory. No recycle bin: this is the
@@ -259,16 +342,20 @@ fn remove_path(path: &Path) -> std::io::Result<()> {
 }
 
 /// Recursively copies directory `src` to `dst`.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), FsError> {
+fn copy_dir_recursive(
+    src: &Path,
+    dst: &Path,
+    report: &mut dyn FnMut(CopyStep),
+) -> Result<(), FsError> {
     fs::create_dir(dst).map_err(|e| io_err(format!("mkdir {}", dst.display()), e))?;
     for entry in fs::read_dir(src).map_err(|e| io_err(format!("readdir {}", src.display()), e))? {
         let entry = entry.map_err(|e| io_err("dir entry", e))?;
         let ty = entry.file_type().map_err(|e| io_err("file_type", e))?;
         let dest_path = dst.join(entry.file_name());
         if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &dest_path)?;
+            copy_dir_recursive(&entry.path(), &dest_path, report)?;
         } else {
-            fs::copy(entry.path(), &dest_path)
+            copy_file(&entry.path(), &dest_path, report)
                 .map_err(|e| io_err(format!("cp {}", entry.path().display()), e))?;
         }
     }
@@ -458,14 +545,14 @@ mod tests {
     /// What a `:mv` does with one entry, minus the background thread.
     fn mv(source: &Path, dest: &str, cwd: &Path) -> Result<PathBuf, FsError> {
         let target = resolve_target(source, dest, cwd);
-        move_path(source, &target)?;
+        move_path_reporting(source, &target, &mut |_| {})?;
         Ok(target)
     }
 
     /// What a `:cp` does with one entry, minus the background thread.
     fn cp(source: &Path, dest: &str, cwd: &Path) -> Result<PathBuf, FsError> {
         let target = resolve_target(source, dest, cwd);
-        copy_path(source, &target)?;
+        copy_path_reporting(source, &target, &mut |_| {})?;
         Ok(target)
     }
 
@@ -610,7 +697,7 @@ mod tests {
         fs::write(src.join("leaf.txt"), b"leaf").unwrap();
         let dest = dir.path().join("moved");
 
-        move_path_with(&src, &dest, cross_device).unwrap();
+        move_path_with(&src, &dest, cross_device, &mut |_| {}).unwrap();
 
         assert!(!src.exists(), "the source goes once the copy is complete");
         assert_eq!(fs::read(dest.join("leaf.txt")).unwrap(), b"leaf");
@@ -625,7 +712,7 @@ mod tests {
         // A destination inside the source makes the copy fail.
         let dest = src.join("inside");
 
-        assert!(move_path_with(&src, &dest, cross_device).is_err());
+        assert!(move_path_with(&src, &dest, cross_device, &mut |_| {}).is_err());
         assert!(src.join("leaf.txt").exists(), "the original is untouched");
         assert!(!dest.exists());
     }
@@ -643,7 +730,7 @@ mod tests {
                 "denied",
             ))
         };
-        assert!(move_path_with(&src, &dest, denied).is_err());
+        assert!(move_path_with(&src, &dest, denied, &mut |_| {}).is_err());
         assert!(src.exists());
         assert!(
             !dest.exists(),
