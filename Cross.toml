@@ -1,7 +1,9 @@
-# Configuration for cross-rs, which builds the aarch64 Linux release inside a
-# container. Only what the container cannot see on its own belongs here.
+# Configuration for cross-rs, which builds both Linux releases inside a
+# container, for its old glibc. Only what the container cannot see on its own
+# belongs here.
 
 [build.env]
-# build.rs reads this to label the binary a release (see release.yml); the
-# container may have no git to work it out from the tag.
-passthrough = ["TRAIL_RELEASE"]
+# build.rs reads TRAIL_RELEASE to label the binary a release (see release.yml);
+# the container may have no git to work it out from the tag. The CFLAGS hold
+# the bundled Lua to the x86_64 baseline, as release.yml explains.
+passthrough = ["TRAIL_RELEASE", "CFLAGS_x86_64_unknown_linux_gnu"]

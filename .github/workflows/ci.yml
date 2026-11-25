@@ -31,3 +31,29 @@ jobs:
       - run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: "-D warnings"
+
+  # The Linux release is built inside cross's container so that it runs on an
+  # old glibc (see .github/scripts/check-glibc-ceiling.sh). This builds it the
+  # same way on every push, so a change that raises the requirement, or breaks
+  # the cross build, shows up here rather than on a release tag.
+  linux-glibc:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: cross-x86_64-unknown-linux-gnu
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - run: cross build --locked --target x86_64-unknown-linux-gnu
+
+      - run: bash .github/scripts/check-glibc-ceiling.sh target/x86_64-unknown-linux-gnu/debug/trail

@@ -22,7 +22,7 @@
 ## archive is a distribution bug, not a minor oversight.
 ##
 ## Cross-compilation strategy:
-##   - Linux x86_64  : native ubuntu-latest
+##   - Linux x86_64  : cross-rs/cross on ubuntu-latest, for its old glibc
 ##   - Linux aarch64 : cross-rs/cross on ubuntu-latest
 ##   - macOS x86_64  : macos-latest with explicit --target (universal SDK)
 ##   - macOS arm64   : macos-latest with explicit --target
@@ -112,9 +112,12 @@ jobs:
       matrix:
         include:
           # ── Linux ────────────────────────────────────────────────────────
+          # Built in cross's container, not natively, for its old glibc: a
+          # native build asks for the runner's (2.39 on Ubuntu 26.04), and
+          # v1.14.1 warned on Red Hat 9 and similar hosts, which have 2.34.
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            use_cross: false
+            use_cross: true
             archive_ext: tar.gz
 
           - target: aarch64-unknown-linux-gnu
@@ -186,9 +189,9 @@ jobs:
       # ── Check the binary calls itself a release ───────────────────────────
       # A tag that disagrees with Cargo.toml would otherwise ship a binary
       # labelled as a dev build. Skipped where the runner cannot execute the
-      # target (aarch64 Linux under cross, x86_64 macOS on an arm64 runner).
+      # target (aarch64 Linux, x86_64 macOS on an arm64 runner).
       - name: Verify reported version
-        if: "!matrix.use_cross && matrix.target != 'x86_64-apple-darwin'"
+        if: matrix.target != 'aarch64-unknown-linux-gnu' && matrix.target != 'x86_64-apple-darwin'
         shell: bash
         run: |
           reported="$("${{ steps.bin.outputs.path }}" --version)"
@@ -203,6 +206,13 @@ jobs:
       - name: Verify it launches on a baseline CPU
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: bash .github/scripts/check-baseline-cpu.sh "${{ steps.bin.outputs.path }}"
+
+      # ── Check the binary runs on an old glibc ─────────────────────────────
+      # See the script: a binary linked against a new glibc warns, or fails,
+      # on older distributions and on most shared hosting.
+      - name: Verify it needs no newer glibc than supported
+        if: endsWith(matrix.target, '-linux-gnu')
+        run: bash .github/scripts/check-glibc-ceiling.sh "${{ steps.bin.outputs.path }}"
 
       # ── Package archive ───────────────────────────────────────────────────
       # Archive layout for every platform:
