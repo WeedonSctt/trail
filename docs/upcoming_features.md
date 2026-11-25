@@ -97,8 +97,8 @@ test itself).
 | 25 | Return from jumps with `U` | `u` steps back through every directory, not only through jumps | **done** — v1.11.0, `U`; §2.23 |
 | 26 | A panel that lists the open tabs, toggled with `t` | `[2/3]` says how many tabs exist, not what is in them | **done** — v1.14.0, `t`; §2.24 |
 | 27 | A result block after a `!` command, with `r` to run it again | `[trail] press Enter to return…` gives no result, and runs merge together on the screen | **done** — v1.13.0; §2.25 |
-| 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **in progress** — `[general] exit_summary`; §2.26; built, not yet released |
-| 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **in progress** — §2.27; built, not yet released |
+| 28 | A session summary printed when Trail exits | nothing says what a session did, or warns about what it left behind: busy shells, unused marks, a copy still running | **done** — v1.15.0, `[general] exit_summary`; §2.26 |
+| 29 | A progress bar for copies and moves: files left, percentage, bytes | `copying 3/10` counts entries, so one large file looks frozen and there is no idea of how much is left | **done** — v1.15.0; §2.27 |
 
 ---
 
@@ -1476,7 +1476,7 @@ nothing on screen changes until `t` is pressed.
 The seventh round's §2.25 is MINOR, and shipped as v1.13.0: `r` exists only on the result block, no Navigation Mode key
 or config key changes, and `shell_pause` keeps its meaning.
 
-The eighth round is MINOR. §2.26's `exit_summary` defaults to `off`, so nothing prints
+The eighth round is MINOR, and shipped as v1.15.0. §2.26's `exit_summary` defaults to `off`, so nothing prints
 unless it is turned on, except the line that explains a wait for an unfinished copy. The
 release notes should mention that line. §2.27 changes only what an existing counter says.
 

@@ -73,7 +73,10 @@ There are good terminal file managers already. Trail is for you if these matter:
   command verbs and destination paths, and the current directory stays visible while you type.
 - **Tabs** — several directories open at once, each with its own selection and history.
 - **cd-on-exit** — quit with `q` and your shell follows you to the directory you were browsing;
-  cancel with `Ctrl-c` and it stays put.
+  cancel with `Ctrl-c` and it stays put. Optionally, a summary of what the session did is
+  printed to the shell as you leave (`[general] exit_summary`).
+- **Copies and moves with progress** — a bar with the percentage by bytes, the size done and
+  the files left, so a large copy never looks frozen.
 - **Strictly validated config** — TOML for theme, keybindings and editor, type-checked at load,
   with the same validation applied to runtime `:set` changes.
 - **Lua plugins** — an embedded Lua 5.4 runtime (`mlua`) with `on_select`, `on_enter_dir` and
@@ -88,6 +91,9 @@ Prebuilt binaries are published for every release:
 | Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` |
 | macOS | `x86_64-apple-darwin`, `aarch64-apple-darwin` (Apple Silicon) |
 | Windows | `x86_64-pc-windows-msvc` |
+
+The Linux builds need glibc 2.28 or newer (Red Hat 8, Debian 10, Ubuntu 18.10 and later), and
+no root access: they run on shared hosting too.
 
 ---
 
