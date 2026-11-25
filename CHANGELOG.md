@@ -29,6 +29,8 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-11-24
+
 ### Fixed
 
 - **Trail starts on servers that limit threads per account**, such as shared hosting, where
@@ -366,7 +368,8 @@ the commits said rather than what the users saw.
   itself, and gives up its room to the directory name on a panel too narrow for
   both.
 
-[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.14.1...HEAD
+[Unreleased]: https://github.com/WeedonSctt/trail/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/WeedonSctt/trail/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/WeedonSctt/trail/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/WeedonSctt/trail/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/WeedonSctt/trail/compare/v1.12.2...v1.13.0

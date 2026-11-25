@@ -3999,7 +3999,7 @@ dependencies = [
 
 [[package]]
 name = "trail-fm"
-version = "1.14.1"
+version = "1.15.0"
 dependencies = [
  "anyhow",
  "arboard",
