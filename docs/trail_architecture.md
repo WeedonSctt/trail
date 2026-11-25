@@ -143,6 +143,8 @@ Everything that is optional, variable-latency, or explicitly deferred in the spe
 
 | Component | Responsibility |
 |---|---|
+| Runtime (`src/runtime.rs`) | Builds the Tokio runtime with at most four async workers and a 32-thread blocking pool, instead of `#[tokio::main]`'s one worker per core and 512 blocking threads. The workers only hand work to the blocking pool, so more would not be faster, and on a host that caps threads per account (shared hosting) one per core kept Trail from starting |
+| Log writer (`src/logging.rs`) | A thread of its own that appends `tracing` output to the log file, fed over a bounded queue that drops lines rather than block. Replaces `tracing_appender::non_blocking`, which panics when the OS refuses its thread; a refused thread here means Trail runs without a log file |
 | Git status worker | Computes repo indicator, branch, optional per-file status; cached, invalidated on fs events |
 | Filesystem watcher | Watches the current directory via `notify`; debounces bursts of events (e.g. a `git checkout`) into a single refresh signal |
 | Preview worker | Reads a file off-thread, classifies it as text or binary, decodes it (UTF-8, UTF-16 by byte-order mark, otherwise Windows-1252, so a non-UTF-8 file is never shown blank), and highlights the text with `syntect`. The classification travels back with the preview and is cached on the entry, so the directory listing never has to read a file to decide what it is |
@@ -189,7 +191,7 @@ Key properties:
 
 ## 6. Packaging & distribution
 
-- Build via Cargo; cross-compile for Linux/macOS/Windows with `cross` or `cargo-zigbuild`.
+- Build via Cargo; cross-compile for Linux/macOS/Windows with `cross` or `cargo-zigbuild`. Both Linux releases are built with `cross`, whose container's old glibc keeps the binary running on older distributions and shared hosting; `.github/scripts/check-glibc-ceiling.sh` fails the build if a binary needs anything newer than glibc 2.28.
 - Publish binaries via GitHub Releases (CI-built on tag push).
 - Distribute through Homebrew, AUR, Scoop, and `cargo install`.
 

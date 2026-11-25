@@ -29,6 +29,18 @@ the commits said rather than what the users saw.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trail starts on servers that limit threads per account**, such as shared hosting, where
+  it crashed at once with `failed to spawn tracing-appender non-blocking worker thread`. It used
+  to start one background thread per CPU core, 48 on such a server, and stopped when it could
+  not have one more. It now uses at most four, plus up to 32 for file work, on every machine.
+  If the log file's thread still cannot start, Trail runs without a log file.
+- **The x86_64 Linux build runs on older distributions** without the warning
+  ``weak version `GLIBC_2.39' not found``: it asked for the glibc of the machine it was built
+  on, newer than Red Hat 9's and most shared hosting's. It now needs 2.28 or later, as the
+  aarch64 build already did.
+
 ### Added
 
 - **A summary when Trail exits**, set with `[general] exit_summary` (`off`, `warnings`, `brief`,

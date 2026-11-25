@@ -66,6 +66,8 @@ src/
   window_title.rs  the terminal tab title (`trail <dir>`), and giving the shell's back
   pathfmt.rs       how a path is spelled for a human vs. for the OS (Windows `\\?\`)
   paths.rs         every location Trail owns; the only ProjectDirs caller
+  runtime.rs       the Tokio runtime, capped at 4 workers / 32 blocking threads
+  logging.rs       the log file writer thread; a refused thread means no log, not a crash
   session.rs       cd-on-exit handoff to the shell wrappers
   summary.rs       what a session did, printed to the shell at exit ([general] exit_summary)
   terminal/        the terminal panel: mod.rs (TerminalPanel), input (keys, :term),
@@ -447,6 +449,13 @@ with a patch release, and annotate the bad release's notes with a pointer to the
   `.github/scripts/check-baseline-cpu.sh`, which launches the binary under qemu, catches
   this. Test old CPUs inside Arch, not on the runner: there even `/bin/true` crashes under
   qemu, and always run that control first, or the runner's loader looks like Trail's bug.
+- Both Linux releases are built inside `cross`'s container, not natively on `ubuntu-latest`,
+  because a native build asks for the runner's glibc: v1.14.1 needed 2.39 and warned on Red
+  Hat 9 (2.34) and Hostinger shared hosting. `check-glibc-ceiling.sh` fails the release, and the
+  `linux-glibc` CI job fails any push, if a binary needs more than 2.28. Those hosts also cap
+  threads per account (one had 48 cores and about 80 threads to give), which is why
+  `src/runtime.rs` caps Tokio's threads and `src/logging.rs` survives a refused thread: do not
+  go back to `#[tokio::main]` or `tracing_appender::non_blocking`.
 - All integration tests are one program, `tests/integration/main.rs`, because a program per
   file linked all of Trail thirteen times. A new suite needs a `mod` line there or it never
   runs (`autotests = false`). They share a process, so a test that changes process-wide state

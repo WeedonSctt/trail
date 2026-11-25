@@ -14,11 +14,13 @@ mod app;
 mod cli;
 mod config;
 mod input;
+mod logging;
 mod metafmt;
 mod pathfmt;
 mod paths;
 mod plugin;
 mod preview;
+mod runtime;
 mod session;
 mod summary;
 mod terminal;
@@ -53,8 +55,13 @@ use crate::window_title::{TitleMode, WindowTitle};
 use crate::workers::fswatch::FsWatchHandle;
 use crate::workers::{GitCache, WorkerMsg};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    // Not `#[tokio::main]`, which starts a worker thread per core: see
+    // `runtime` for why that kept Trail from starting on a shared host.
+    runtime::build()?.block_on(run())
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // `--paths` is a report, not a session. Answer it and leave before the
@@ -86,20 +93,20 @@ async fn main() -> Result<()> {
     // alternate screen). Log files go to the system's tmp directory; Phase 9
     // can route them to a proper log dir.
     //
-    // Failures here are non-fatal: the app works fine without logs.
-    if let Ok(log_dir) = std::env::temp_dir().canonicalize() {
-        let file_appender = tracing_appender::rolling::never(&log_dir, paths::LOG_FILE);
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    // Failures here are non-fatal: the app works fine without logs, including
+    // when the OS refuses the log writer's thread.
+    let log_sink = std::env::temp_dir()
+        .canonicalize()
+        .and_then(|log_dir| logging::LogSink::spawn(&log_dir.join(paths::LOG_FILE)));
+    if let Ok(sink) = log_sink {
         let _ = tracing_subscriber::fmt()
-            .with_writer(non_blocking)
+            .with_writer(sink)
             .with_env_filter(
                 tracing_subscriber::EnvFilter::builder()
                     .with_default_directive(tracing_subscriber::filter::LevelFilter::INFO.into())
                     .from_env_lossy(),
             )
             .try_init();
-        // _guard is intentionally leaked: it lives for the process lifetime.
-        std::mem::forget(_guard);
     }
 
     // The data directory holds everything Trail persists between runs
